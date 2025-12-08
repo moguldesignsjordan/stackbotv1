@@ -19,7 +19,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]    // ← CHANGE THIS LINE!
     }
   },
   "include": [
