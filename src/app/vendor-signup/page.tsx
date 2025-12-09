@@ -69,20 +69,17 @@ export default function VendorSignupPage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        // Not logged in - redirect to login with vendor intent
         router.replace("/login?intent=vendor");
         return;
       }
 
       setCurrentUser(user);
 
-      // Pre-fill email from auth
       setForm((prev) => ({
         ...prev,
         email: user.email || "",
       }));
 
-      // Check if user already has a vendor application
       try {
         const vendorRef = doc(db, "vendors", user.uid);
         const vendorSnap = await getDoc(vendorRef);
@@ -91,7 +88,6 @@ export default function VendorSignupPage() {
           const data = vendorSnap.data();
           setExistingVendor(data);
 
-          // If already verified, redirect to vendor dashboard
           if (data.verified) {
             router.replace("/vendor");
             return;
@@ -127,7 +123,7 @@ export default function VendorSignupPage() {
     const file = e.target.files?.[0];
     if (file) {
       setLogoFile(file);
-      // Create preview
+
       const reader = new FileReader();
       reader.onload = (e) => {
         setLogoPreview(e.target?.result as string);
@@ -142,29 +138,22 @@ export default function VendorSignupPage() {
     setLoading(true);
 
     try {
-      if (!currentUser) {
-        throw new Error("You must be logged in to apply as a vendor.");
-      }
+      if (!currentUser) throw new Error("You must be logged in.");
 
-      if (!form.name.trim()) {
+      if (!form.name.trim())
         throw new Error("Business name is required.");
-      }
 
-      if (!form.email.trim()) {
+      if (!form.email.trim())
         throw new Error("Business email is required.");
-      }
 
-      if (!form.phone.trim()) {
+      if (!form.phone.trim())
         throw new Error("Phone number is required.");
-      }
 
-      if (form.categories.length === 0) {
-        throw new Error("Please select at least one business category.");
-      }
+      if (form.categories.length === 0)
+        throw new Error("Select at least one category.");
 
       let logoUrl = "";
 
-      // Upload logo if provided
       if (logoFile) {
         const safeName = logoFile.name.replace(/\s+/g, "-");
         const filePath = `vendors/logos/${currentUser.uid}-${Date.now()}-${safeName}`;
@@ -176,12 +165,11 @@ export default function VendorSignupPage() {
         logoUrl = await getDownloadURL(logoRef);
       }
 
-      // Generate unique slug
+      // Slug generation
       const baseSlug = generateSlug(form.name);
       let finalSlug = baseSlug;
 
-      // Only check for duplicate slugs if we have a valid slug
-      if (baseSlug && baseSlug.length > 0) {
+      if (baseSlug) {
         try {
           const slugQuery = query(
             collection(db, "vendors"),
@@ -192,18 +180,16 @@ export default function VendorSignupPage() {
           if (!slugSnap.empty) {
             finalSlug = `${baseSlug}-${slugSnap.size + 1}`;
           }
-        } catch (slugError) {
-          console.error("Slug check error:", slugError);
-          // Continue with base slug if query fails
+        } catch (err) {
+          console.error("Slug error:", err);
         }
       }
 
-      // ⭐ Save vendor with AUTH UID as document ID
-      // This is crucial - it links the vendor profile to their Firebase Auth account
+      // Save vendor
       const vendorRef = doc(db, "vendors", currentUser.uid);
 
       await setDoc(vendorRef, {
-        uid: currentUser.uid, // Same as document ID
+        uid: currentUser.uid,
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
@@ -213,7 +199,7 @@ export default function VendorSignupPage() {
         categories: form.categories,
         logoUrl,
         slug: finalSlug,
-        verified: false, // Pending approval
+        verified: false,
         total_orders: 0,
         total_revenue: 0,
         rating: 0,
@@ -224,8 +210,20 @@ export default function VendorSignupPage() {
 
       console.log("Vendor application submitted:", currentUser.uid);
 
-      // Redirect to pending page
-      router.push("/vendor-pending");
+      // ⭐ NEW: Immediately switch UI to pending mode (Option A)
+      setExistingVendor({
+        uid: currentUser.uid,
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        address: form.address,
+        website: form.website,
+        description: form.description,
+        categories: form.categories,
+        logoUrl: logoUrl || null,
+        verified: false,
+      });
+
     } catch (err: any) {
       console.error("Vendor signup error:", err);
       setError(err.message || "Something went wrong.");
@@ -234,7 +232,7 @@ export default function VendorSignupPage() {
     }
   };
 
-  // Loading state while checking auth
+  // Loading state
   if (authLoading) {
     return (
       <div className="min-h-screen bg-sb-bg flex items-center justify-center">
@@ -243,7 +241,7 @@ export default function VendorSignupPage() {
     );
   }
 
-  // User already has a pending application
+  // ⭐ Pending UI
   if (existingVendor && !existingVendor.verified) {
     return (
       <div className="min-h-screen bg-sb-bg flex items-center justify-center px-4">
@@ -251,14 +249,17 @@ export default function VendorSignupPage() {
           <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto">
             <Store className="h-8 w-8 text-yellow-600" />
           </div>
+
           <h1 className="text-2xl font-bold text-gray-900">
             Application Pending
           </h1>
+
           <p className="text-gray-600">
-            You've already submitted a vendor application for{" "}
-            <strong>{existingVendor.name}</strong>. We're reviewing your
-            application and will notify you once approved.
+            You've submitted an application for{" "}
+            <strong>{existingVendor.name}</strong>.  
+            We're reviewing it and will notify you once approved.
           </p>
+
           <div className="pt-4 space-y-3">
             <Link
               href="/"
@@ -266,22 +267,17 @@ export default function VendorSignupPage() {
             >
               Return Home
             </Link>
-            <Link
-              href="/vendor-pending"
-              className="block text-sb-primary font-medium hover:underline"
-            >
-              View Application Status →
-            </Link>
           </div>
         </div>
       </div>
     );
   }
 
+  // Signup Form
   return (
     <div className="min-h-screen bg-sb-bg py-8 px-4">
       <div className="max-w-2xl mx-auto">
-        {/* Back Link */}
+        {/* Back */}
         <Link
           href="/"
           className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-6"
@@ -290,7 +286,7 @@ export default function VendorSignupPage() {
           Back to Home
         </Link>
 
-        {/* Form Card */}
+        {/* Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
           <div className="text-center">
             <div className="w-16 h-16 bg-sb-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -298,12 +294,10 @@ export default function VendorSignupPage() {
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Become a Vendor</h1>
             <p className="text-gray-600 mt-2">
-              Tell us about your business. We'll review your application within
-              24-48 hours.
+              Tell us about your business. We'll review your application in 24–48 hours.
             </p>
           </div>
 
-          {/* Logged in as banner */}
           <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600">
             Signed in as <strong>{currentUser?.email}</strong>
           </div>
@@ -315,58 +309,46 @@ export default function VendorSignupPage() {
           )}
 
           <form className="space-y-5" onSubmit={handleSubmit}>
-            {/* Business Name */}
             <Input
               label="Business Name"
               required
               value={form.name}
               onChange={(e) => handleChange("name", e.target.value)}
-              placeholder="e.g., Island Eats Restaurant"
             />
 
-            {/* Business Email */}
             <Input
               label="Business Email"
               type="email"
               required
               value={form.email}
               onChange={(e) => handleChange("email", e.target.value)}
-              placeholder="contact@yourbusiness.com"
             />
 
-            {/* Phone Number */}
             <Input
               label="Phone Number"
               required
               value={form.phone}
               onChange={(e) => handleChange("phone", e.target.value)}
-              placeholder="+1 (xxx) xxx-xxxx"
             />
 
-            {/* Business Address */}
             <Input
               label="Business Address"
               required
               value={form.address}
               onChange={(e) => handleChange("address", e.target.value)}
-              placeholder="Street, City, Country"
             />
 
-            {/* Website (Optional) */}
             <Input
               label="Website (Optional)"
               value={form.website}
               onChange={(e) => handleChange("website", e.target.value)}
-              placeholder="https://yourbusiness.com"
             />
 
-            {/* Description */}
             <Textarea
               label="Business Description"
               rows={4}
               value={form.description}
               onChange={(e) => handleChange("description", e.target.value)}
-              placeholder="Tell customers about your business, what you offer, and what makes you special..."
             />
 
             {/* Categories */}
@@ -374,6 +356,7 @@ export default function VendorSignupPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Business Categories <span className="text-red-500">*</span>
               </label>
+
               <div className="flex flex-wrap gap-2">
                 {CATEGORIES.map((cat) => {
                   const active = form.categories.includes(cat);
@@ -393,6 +376,7 @@ export default function VendorSignupPage() {
                   );
                 })}
               </div>
+
               {form.categories.length > 0 && (
                 <p className="text-xs text-gray-500 mt-2">
                   Selected: {form.categories.join(", ")}
@@ -413,16 +397,19 @@ export default function VendorSignupPage() {
                     className="w-16 h-16 rounded-xl object-cover border border-gray-200"
                   />
                 )}
+
                 <input
                   type="file"
                   accept="image/*"
                   onChange={handleLogoChange}
-                  className="text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-sb-primary/10 file:text-sb-primary hover:file:bg-sb-primary/20"
+                  className="text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 
+                    file:rounded-lg file:border-0 file:text-sm file:font-medium 
+                    file:bg-sb-primary/10 file:text-sb-primary hover:file:bg-sb-primary/20"
                 />
               </div>
             </div>
 
-            {/* Submit Button */}
+            {/* Submit */}
             <Button
               type="submit"
               variant="primary"
@@ -434,8 +421,7 @@ export default function VendorSignupPage() {
             </Button>
 
             <p className="text-xs text-gray-500 text-center">
-              By submitting, you agree to our Terms of Service and Privacy
-              Policy.
+              By submitting, you agree to our Terms of Service and Privacy Policy.
             </p>
           </form>
         </div>

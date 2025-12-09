@@ -123,7 +123,7 @@ export default function AdminDashboard() {
         {/* Pending Alert Banner - Full width tap target */}
         {stats.pending > 0 && (
           <Link
-            href="/admin/vendors/pending"
+            href="/admin/vendors/vendor-pending"
             className="flex items-center justify-between w-full p-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl shadow-lg shadow-amber-500/20 active:scale-[0.98] transition-transform"
           >
             <div className="flex items-center gap-3">
@@ -185,7 +185,7 @@ export default function AdminDashboard() {
           <SectionHeader
             title="Pending Applications"
             count={pendingVendors.length}
-            href="/admin/vendors/pending"
+            href="/admin/vendors/vendor-pending"
           />
           
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-2 lg:overflow-visible scrollbar-hide snap-x snap-mandatory">

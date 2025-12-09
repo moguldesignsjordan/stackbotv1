@@ -82,7 +82,7 @@ export default function VendorDetailPage() {
           setVendor(null);
         }
 
-        // Load products for this vendor
+        // Load products
         const productsRef = collection(db, "products");
         const q = query(productsRef, where("vendorId", "==", vendorId));
         const prodSnap = await getDocs(q);
@@ -100,7 +100,7 @@ export default function VendorDetailPage() {
     load();
   }, [vendorId]);
 
-  // 🔥 APPROVE VENDOR FUNCTION - Using HTTP endpoint
+  // Approve Vendor
   async function approveVendor() {
     if (!vendorId) return;
 
@@ -113,13 +113,8 @@ export default function VendorDetailPage() {
         return;
       }
 
-      // Get fresh token
       const token = await user.getIdToken(true);
 
-      console.log("=== APPROVE VENDOR DEBUG ===");
-      console.log("Vendor ID:", vendorId);
-
-      // Make HTTP request to Cloud Function
       const res = await fetch(
         "https://approvevendor-j5kxrjebxa-uc.a.run.app",
         {
@@ -141,7 +136,6 @@ export default function VendorDetailPage() {
 
       alert(`Vendor approved successfully!\n\nEmail: ${data.email}`);
 
-      // Reload the page to show updated status
       window.location.reload();
     } catch (err: any) {
       console.error("Approve error:", err);
@@ -169,7 +163,7 @@ export default function VendorDetailPage() {
 
   return (
     <div className="space-y-8">
-      {/* ===== HEADER ===== */}
+      {/* HEADER */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
@@ -186,7 +180,6 @@ export default function VendorDetailPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* APPROVE BUTTON — only when NOT approved */}
           {!vendor.verified && (
             <Button onClick={approveVendor} loading={approving} variant="primary">
               Approve Vendor
@@ -199,18 +192,19 @@ export default function VendorDetailPage() {
         </div>
       </div>
 
-      {/* ===== LINK TO PUBLIC SHOP PAGE ===== */}
-      {vendor.slug && (
-        <Link
-          href={`/vendors/${vendor.slug}`}
-          className="text-sb-primary font-semibold underline text-sm"
-          target="_blank"
-        >
-          View Public Storefront → /vendors/{vendor.slug}
-        </Link>
-      )}
+      {/* PUBLIC STOREFRONT LINK — UPDATED */}
+{vendor.slug && (
+  <Link
+    href={`/store/${vendor.slug}`}
+    className="text-sb-primary font-semibold underline text-sm"
+    target="_blank"
+  >
+    View Public Storefront → /store/{vendor.slug}
+  </Link>
+)}
 
-      {/* ===== PROFILE & METRICS ===== */}
+
+      {/* PROFILE + METRICS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profile */}
         <Card padding="lg" className="lg:col-span-2">
@@ -240,7 +234,6 @@ export default function VendorDetailPage() {
                 ))}
               </div>
 
-              {/* Contact Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700 mt-4">
                 {vendor.address && (
                   <div className="flex items-start gap-2">
@@ -316,7 +309,7 @@ export default function VendorDetailPage() {
         </Card>
       </div>
 
-      {/* ===== PRODUCTS ===== */}
+      {/* PRODUCTS */}
       <div className="space-y-4">
         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Package className="h-5 w-5 text-sb-primary" />
@@ -344,10 +337,7 @@ export default function VendorDetailPage() {
                   <p className="text-xs text-gray-500">ID: {p.id}</p>
 
                   {p.active !== undefined && (
-                    <Badge
-                      size="sm"
-                      variant={p.active ? "success" : "danger"}
-                    >
+                    <Badge size="sm" variant={p.active ? "success" : "danger"}>
                       {p.active ? "Active" : "Inactive"}
                     </Badge>
                   )}
