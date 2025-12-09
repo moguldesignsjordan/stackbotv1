@@ -4,10 +4,47 @@ import Image from "next/image";
 import Link from "next/link";
 import { auth } from "@/lib/firebase/config";
 import { signOut } from "firebase/auth";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import {
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  Settings,
+  LogOut,
+} from "lucide-react";
+
+const navItems = [
+  {
+    href: "/vendor",
+    icon: LayoutDashboard,
+    label: "Dashboard",
+    exact: true,
+  },
+  {
+    href: "/vendor/products",
+    icon: Package,
+    label: "Products",
+  },
+  {
+    href: "/vendor/orders",
+    icon: ShoppingCart,
+    label: "Orders",
+  },
+  {
+    href: "/vendor/settings",
+    icon: Settings,
+    label: "Settings",
+  },
+];
 
 export default function VendorLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const router = useRouter();
+
+  const isActive = (href: string, exact?: boolean) => {
+    return exact ? pathname === href : pathname.startsWith(href);
+  };
 
   const logout = async () => {
     await signOut(auth);
@@ -16,47 +53,60 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="flex min-h-screen bg-sb-bg">
-      <aside className="w-56 bg-white border-r border-gray-200 p-6 flex flex-col shadow-sm">
-        <div className="flex flex-col items-center mb-8">
-          <Image
-            src="/stackbot-logo-white.png"
-            alt="StackBot Logo"
-            width={80}
-            height={80}
-            className="bg-sb-primary rounded-full p-3"
-          />
-          <h1 className="text-xl font-bold text-gray-900 mt-3 tracking-tight">
-            Vendor Portal
-          </h1>
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-100 min-h-screen flex flex-col">
+        
+        {/* Logo */}
+        <div className="p-6 border-b border-gray-50">
+          <Link href="/vendor" className="flex flex-col items-center gap-2">
+            <Image
+              src="/stackbot-logo-purp.png"
+              alt="StackBot"
+              width={140}
+              height={40}
+              priority
+            />
+            <p className="text-sm font-semibold text-gray-600">Vendor Portal</p>
+          </Link>
         </div>
 
-        <nav className="space-y-4 flex-1 text-gray-700">
-          <SidebarItem href="/vendor">Dashboard</SidebarItem>
-          <SidebarItem href="/vendor/products">Products</SidebarItem>
-          <SidebarItem href="/vendor/orders">Orders</SidebarItem>
-          <SidebarItem href="/vendor/settings">Settings</SidebarItem>
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1">
+          {navItems.map((item) => {
+            const active = isActive(item.href, item.exact);
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
+                  active
+                    ? "bg-sb-primary/10 text-sb-primary"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
 
-        <button
-          onClick={logout}
-          className="w-full bg-sb-primary text-white py-2.5 rounded-xl font-semibold hover:opacity-90 transition"
-        >
-          Logout
-        </button>
+        {/* Logout */}
+        <div className="p-4 border-t border-gray-50">
+          <button
+            onClick={logout}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-red-500 hover:bg-red-50 transition-all w-full"
+          >
+            <LogOut className="h-5 w-5" />
+            Logout
+          </button>
+        </div>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 p-10 overflow-y-auto">{children}</main>
     </div>
-  );
-}
-
-function SidebarItem({ href, children }: any) {
-  return (
-    <Link
-      href={href}
-      className="block text-lg font-medium text-gray-700 hover:text-sb-primary transition"
-    >
-      {children}
-    </Link>
   );
 }

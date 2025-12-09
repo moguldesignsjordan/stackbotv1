@@ -423,27 +423,22 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+{/* Right Side - Branding */}
+<div className="hidden md:flex items-center justify-center bg-sb-primary p-8">
+  <div className="text-center">
 
-      {/* Right Side - Branding */}
-      <div className="hidden md:flex items-center justify-center bg-sb-primary">
-        <div className="text-center">
-          <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-4xl font-bold text-sb-primary">SB</span>
-          </div>
-          <h2 className="text-white text-2xl font-bold">StackBot</h2>
-          <p className="text-purple-200 mt-2">
-            Smart Logistics for the Caribbean
-          </p>
-
-          {intent === "vendor" && (
-            <div className="mt-6 bg-white/10 rounded-xl p-4 max-w-xs mx-auto">
-              <p className="text-white text-sm">
-                Join our growing network of vendors and reach more customers across the Caribbean.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+    {/* Logo */}
+    <div className="mx-auto mb-4">
+      <Image
+        src="/stackbot-logo-white.png"
+        alt="StackBot Logo"
+        width={200}
+        height={200}
+        className="object-contain drop-shadow-md"
+      />
+    </div>
+  </div>
+</div>
     </div>
   );
 }

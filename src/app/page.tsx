@@ -7,11 +7,24 @@ import { db } from "@/lib/firebase/config";
 import { collection, getDocs, orderBy, limit, query } from "firebase/firestore";
 import type { Product } from "@/lib/types";
 
+import {
+  ArrowRight,
+  Store,
+  Search,
+  Smartphone,
+  Bike,
+  Utensils,
+  Car,
+  Brush,
+  Shirt,
+} from "lucide-react";
+
 export default function HomePage() {
   const [featured, setFeatured] = useState<Product[]>([]);
   const [popular, setPopular] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // LOAD PRODUCTS FROM FIRESTORE
   useEffect(() => {
     const load = async () => {
       try {
@@ -25,356 +38,411 @@ export default function HomePage() {
 
         setFeatured(featuredSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
         setPopular(popularSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error(err);
       }
       setLoading(false);
     };
-
     load();
   }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* NAVIGATION */}
-      <nav className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Image
-              src="/stackbot-logo-purp.png"
-              alt="StackBot Logo"
-              width={100}
-              height={100}
-              className="object-contain"
-            />
-          </div>
+      <Navbar />
+      <Hero />
+      <OnboardingCards />
 
-          <div className="flex items-center gap-4">
-            <Link
-              href="/vendor-signup"
-              className="text-sb-primary font-medium hover:underline"
-            >
-              Become a Vendor
-            </Link>
-
-            <Link
-              href="/login"
-              className="bg-sb-primary text-white px-6 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition"
-            >
-              Login
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* HERO */}
-      <section className="bg-white">
-        <div className="max-w-7xl mx-auto px-6 py-20 md:py-32">
-          <div className="max-w-3xl">
-            <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight">
-              Smart logistics for the Caribbean
-            </h1>
-            
-            <p className="mt-6 text-xl text-gray-600">
-              Connect to groceries, restaurants, beauty services, taxis, and U.S. imports—delivered fast and secure with AI-powered logistics.
-            </p>
-
-            <div className="mt-10 flex items-center gap-4">
-              <input
-                type="text"
-                placeholder="Search products or services..."
-                className="flex-1 max-w-md border border-gray-200 rounded-lg px-5 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-              />
-            </div>
-
-            <div className="mt-12 flex items-center gap-8">
-              <Stat label="On-time delivery" value="99%" />
-              <Stat label="Vendor partners" value="500+" />
-              <Stat label="Support" value="24/7" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURED PRODUCTS */}
       <SectionWrapper title="Featured" link="/products">
         {loading ? (
           <LoadingRow />
-        ) : featured.length === 0 ? (
-          <EmptyMessage message="No featured products yet" />
-        ) : (
-          <Grid cols={4}>
-            {featured.map((p) => <ProductCard key={p.id} product={p} />)}
+        ) : featured.length > 0 ? (
+          <Grid>
+            {featured.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
           </Grid>
+        ) : (
+          <EmptyMessage message="No featured products yet" />
         )}
       </SectionWrapper>
 
-      {/* CATEGORIES */}
-      <section className="py-20 px-6 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8">Categories</h2>
-          <Grid cols={4}>
-            <CategoryCard title="Restaurants" available />
-            <CategoryCard title="Taxi Service" />
-            <CategoryCard title="Cleaning Service" />
-            <CategoryCard title="Retail Shops" available />
-          </Grid>
-        </div>
-      </section>
+      <Categories />
 
-      {/* POPULAR PRODUCTS */}
       <SectionWrapper title="Popular" link="/products">
         {loading ? (
           <LoadingRow />
-        ) : popular.length === 0 ? (
-          <EmptyMessage message="No popular products yet" />
-        ) : (
-          <Grid cols={4}>
-            {popular.map((p) => <ProductCard key={p.id} product={p} />)}
+        ) : popular.length > 0 ? (
+          <Grid>
+            {popular.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
           </Grid>
+        ) : (
+          <EmptyMessage message="No popular products yet" />
         )}
       </SectionWrapper>
 
-      {/* WHY STACKBOT */}
-      <section className="py-20 px-6 bg-sb-primary">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-4xl font-bold text-white text-center mb-16">
-            Why StackBot
-          </h2>
-          <Grid cols={3}>
-            <Feature 
-              title="AI-First Logistics"
-              description="PIN-based deliveries and smart scheduling keep everything fast and precise"
-            />
-            <Feature 
-              title="Vendor Growth"
-              description="Power small businesses with data, tracking, and actionable insights"
-            />
-            <Feature 
-              title="End-to-End Control"
-              description="Platform, deliveries, and vendor tools unified in one ecosystem"
-            />
-          </Grid>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section className="py-20 px-6">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-bold text-gray-900 text-center mb-12">
-            Frequently Asked Questions
-          </h2>
-          <div className="space-y-3">
-            <FAQ 
-              question="What is StackBot?" 
-              answer="StackBot is a smart logistics platform connecting Caribbean customers to local vendors, restaurants, and services with AI-powered delivery and tracking."
-            />
-            <FAQ 
-              question="How do I place an order?" 
-              answer="Simply search for products or services, add items to your cart, and check out. You'll receive real-time tracking updates via SMS and email."
-            />
-            <FAQ 
-              question="How does delivery work?" 
-              answer="Our AI-optimized logistics network ensures fast, secure deliveries with PIN-based verification and real-time tracking."
-            />
-            <FAQ 
-              question="Can I buy from U.S. stores?" 
-              answer="Yes! StackBot offers import services from select U.S. retailers with transparent pricing and delivery timelines."
-            />
-          </div>
-        </div>
-      </section>
-
+      <HowItWorks />
       <Footer />
     </div>
   );
 }
 
-/* ==================== COMPONENTS ==================== */
+////////////////////////////////////////////////////////////////////////////////
+// NAVBAR
+////////////////////////////////////////////////////////////////////////////////
 
-function Stat({ value, label }: { value: string; label: string }) {
+function Navbar() {
   return (
-    <div>
-      <div className="text-3xl font-bold text-sb-primary">{value}</div>
-      <div className="text-sm text-gray-600 mt-1">{label}</div>
+    <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm">
+      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-3">
+          <Image
+            src="/stackbot-logo-purp.png"
+            alt="StackBot"
+            width={140}
+            height={40}
+            className="object-contain"
+          />
+        </Link>
+
+        <div className="hidden md:flex items-center gap-6">
+          <Link href="/vendor-signup" className="font-medium text-sb-primary hover:underline">
+            Become a Vendor
+          </Link>
+
+          <Link
+            href="/login"
+            className="bg-sb-primary text-white px-6 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition"
+          >
+            Login
+          </Link>
+        </div>
+
+        <Link
+          href="/login"
+          className="md:hidden bg-sb-primary text-white px-4 py-2 rounded-lg text-sm"
+        >
+          Login
+        </Link>
+      </div>
+    </nav>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// HERO SECTION
+////////////////////////////////////////////////////////////////////////////////
+
+function Hero() {
+  return (
+    <section className="relative overflow-hidden bg-gradient-to-br from-[#55529d] to-[#7c78c9] py-24 md:py-40 text-white">
+      <div className="max-w-7xl mx-auto px-6">
+
+        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight max-w-3xl">
+          Fast, smart delivery for the Caribbean.
+        </h1>
+
+        <p className="text-lg md:text-2xl mt-6 max-w-2xl opacity-90">
+          From food to retail to local services — delivered with AI-powered logistics.
+        </p>
+
+        {/* SEARCH BAR — FIXED & MODERN */}
+        <div className="mt-10 flex items-center gap-3 max-w-xl">
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-400" />
+
+            <input
+              type="text"
+              placeholder="Search restaurants, markets, services..."
+              className="
+                w-full pl-12 pr-4 py-4 
+                rounded-full 
+                bg-white 
+                text-gray-900 
+                placeholder-purple-300 
+                border-2 border-white
+                shadow-[0_4px_20px_rgba(0,0,0,0.15)]
+                focus:border-purple-500
+                focus:ring-4 focus:ring-purple-200
+                transition-all
+              "
+            />
+          </div>
+
+          <button
+            className="
+              h-12 w-12
+              rounded-full 
+              bg-white 
+              shadow-lg 
+              flex items-center justify-center 
+              hover:bg-purple-100 
+              transition
+            "
+          >
+            <ArrowRight className="text-sb-primary font-bold" />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ONBOARDING CARDS
+////////////////////////////////////////////////////////////////////////////////
+
+function OnboardingCards() {
+  return (
+    <section className="py-24 px-6 bg-white">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12 text-center">
+        
+        <OnboardCard
+          icon={<Bike className="h-14 w-14 text-sb-primary" />}
+          title="Become a Driver"
+          desc="Earn money delivering across the Caribbean on your schedule."
+          link="/login?intent=driver"
+          linkText="Start earning →"
+        />
+
+        <OnboardCard
+          icon={<Store className="h-14 w-14 text-sb-primary" />}
+          title="Become a Vendor"
+          desc="Grow your business with smart logistics and a large customer base."
+          link="/vendor-signup"
+          linkText="Sign up →"
+        />
+
+        <OnboardCard
+          icon={<Smartphone className="h-14 w-14 text-sb-primary" />}
+          title="Order with StackBot"
+          desc="Discover restaurants, shops, markets & more — delivered fast."
+          link="/"
+          linkText="Get the app →"
+        />
+
+      </div>
+    </section>
+  );
+}
+
+function OnboardCard({ icon, title, desc, link, linkText }: any) {
+  return (
+    <div className="p-10 bg-gray-50 rounded-3xl shadow-sm hover:shadow-xl transition">
+      <div className="mb-6">{icon}</div>
+      <h3 className="text-2xl font-semibold text-gray-900">{title}</h3>
+      <p className="text-gray-600 mt-3 mb-6">{desc}</p>
+      <Link href={link} className="text-sb-primary font-semibold hover:underline">
+        {linkText}
+      </Link>
     </div>
   );
 }
 
-function SectionWrapper({ 
-  title, 
-  link, 
-  children 
-}: { 
-  title: string; 
-  link: string; 
-  children: React.ReactNode 
-}) {
+////////////////////////////////////////////////////////////////////////////////
+// CATEGORIES (UPDATED)
+////////////////////////////////////////////////////////////////////////////////
+
+function Categories() {
+  return (
+    <section className="py-20 px-6 bg-white">
+      <div className="max-w-7xl mx-auto">
+        <h2 className="text-3xl font-bold text-gray-900 mb-10">Categories</h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <CategoryCard title="Restaurants" icon={<Utensils className="h-10 w-10" />} />
+          <CategoryCard title="Taxi Service" icon={<Car className="h-10 w-10" />} />
+          <CategoryCard title="Cleaning Service" icon={<Brush className="h-10 w-10" />} />
+          <CategoryCard title="Retail Shops" icon={<Shirt className="h-10 w-10" />} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CategoryCard({ title, icon }: any) {
+  return (
+    <div
+      className="
+        p-6 bg-white
+        rounded-2xl 
+        border border-gray-200 
+        hover:border-purple-400 
+        hover:shadow-xl 
+        transition-all text-center
+        flex flex-col items-center justify-center
+      "
+    >
+      <div
+        className="
+          h-20 w-20 
+          flex items-center justify-center 
+          rounded-full 
+          bg-purple-100 
+          text-purple-700 
+          mb-4 shadow-inner
+        "
+      >
+        {icon}
+      </div>
+
+      <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
+    </div>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// PRODUCT GRID / WRAPPERS
+////////////////////////////////////////////////////////////////////////////////
+
+function SectionWrapper({ title, link, children }: any) {
   return (
     <section className="py-20 px-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+
+        <div className="flex items-center justify-between mb-10">
           <h2 className="text-3xl font-bold text-gray-900">{title}</h2>
           <Link href={link} className="text-sb-primary text-sm font-medium hover:underline">
-            View all
+            View All →
           </Link>
         </div>
+
         {children}
       </div>
     </section>
   );
 }
 
-function Grid({ children, cols = 4 }: { children: React.ReactNode; cols?: number }) {
-  const gridCols = {
-    3: 'md:grid-cols-3',
-    4: 'md:grid-cols-4'
-  };
-  
+function Grid({ children }: any) {
+  return <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">{children}</div>;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// PRODUCT CARD
+////////////////////////////////////////////////////////////////////////////////
+
+function ProductCard({ product }: { product: Product }) {
   return (
-    <div className={`grid grid-cols-1 ${gridCols[cols as keyof typeof gridCols]} gap-6`}>
-      {children}
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-xl transition p-3">
+      <div className="aspect-square rounded-lg bg-gray-100 overflow-hidden">
+        {product.images?.[0] ? (
+          <Image
+            src={product.images[0]}
+            alt={product.name}
+            width={300}
+            height={300}
+            className="object-cover w-full h-full"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-gray-400">
+            No Image
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <h3 className="font-semibold">{product.name}</h3>
+        <p className="text-sm text-gray-500">{product.vendor_name || "Vendor"}</p>
+        <p className="font-bold text-gray-900 mt-1">${product.price}</p>
+      </div>
     </div>
   );
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// LOADING & EMPTY STATES (FIXED)
+////////////////////////////////////////////////////////////////////////////////
+
 function LoadingRow() {
   return (
-    <div className="col-span-4 text-center py-12 text-gray-400">Loading...</div>
+    <div className="text-center py-12 text-gray-400 text-lg">
+      Loading...
+    </div>
   );
 }
 
 function EmptyMessage({ message }: { message: string }) {
   return (
-    <div className="col-span-4 text-center py-12 text-gray-500">{message}</div>
-  );
-}
-
-function ProductCard({ product }: { product: Product }) {
-  return (
-    <div className="bg-white rounded-lg overflow-hidden border border-gray-100 hover:shadow-lg transition group">
-      <div className="aspect-square bg-gray-100 flex items-center justify-center">
-        {product.images?.[0] ? (
-          <Image 
-            src={product.images[0]} 
-            alt={product.name}
-            width={300}
-            height={300}
-            className="object-cover"
-          />
-        ) : (
-          <span className="text-gray-300 text-xs">No Image</span>
-        )}
-      </div>
-
-      <div className="p-4">
-        <h3 className="font-semibold text-gray-900 group-hover:text-sb-primary transition">
-          {product.name}
-        </h3>
-        <p className="text-sm text-gray-500 mt-1">
-          {product.vendor_name || "Vendor"}
-        </p>
-        <p className="font-bold text-gray-900 mt-2">${product.price}</p>
-      </div>
+    <div className="text-center py-12 text-gray-500 text-lg">
+      {message}
     </div>
   );
 }
 
-function CategoryCard({ title, available }: { title: string; available?: boolean }) {
+////////////////////////////////////////////////////////////////////////////////
+// HOW IT WORKS
+////////////////////////////////////////////////////////////////////////////////
+
+function HowItWorks() {
   return (
-    <div className={`bg-white rounded-lg p-6 border border-gray-100 hover:border-sb-primary transition cursor-pointer ${!available ? 'opacity-60' : ''}`}>
-      <div className="w-full h-20 bg-gray-50 rounded-lg mb-4 flex items-center justify-center">
-        <span className="text-gray-300 text-xs">Icon</span>
-      </div>
-      
-      <h3 className="font-semibold text-gray-900 text-center">{title}</h3>
-      
-      {!available && (
-        <div className="mt-2 text-center">
-          <span className="text-xs text-gray-500">Coming Soon</span>
+    <section className="py-24 px-6 bg-gradient-to-br from-purple-50 to-white">
+      <div className="max-w-6xl mx-auto text-center">
+        <h2 className="text-4xl font-bold text-gray-900 mb-12">How StackBot Works</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+          <HowCard number="1" title="Browse" desc="Explore restaurants, stores, and services near you." />
+          <HowCard number="2" title="Order" desc="Add items to cart and check out quickly and securely." />
+          <HowCard number="3" title="Delivered" desc="Track your delivery in real time with PIN security." />
         </div>
-      )}
+      </div>
+    </section>
+  );
+}
+
+function HowCard({ number, title, desc }: any) {
+  return (
+    <div className="p-8 bg-white rounded-3xl shadow-sm hover:shadow-xl transition">
+      <div className="h-12 w-12 rounded-full bg-purple-200 text-sb-primary flex items-center justify-center mx-auto text-xl font-bold mb-5">
+        {number}
+      </div>
+      <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
+      <p className="text-gray-600 mt-3">{desc}</p>
     </div>
   );
 }
 
-function Feature({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="text-center">
-      <h3 className="text-xl font-bold text-white mb-3">{title}</h3>
-      <p className="text-purple-100">{description}</p>
-    </div>
-  );
-}
-
-function FAQ({ question, answer }: { question: string; answer: string }) {
-  return (
-    <details className="bg-white border border-gray-100 rounded-lg p-5 group hover:border-gray-200 transition">
-      <summary className="cursor-pointer font-semibold text-gray-900 flex items-center justify-between">
-        {question}
-        <span className="text-sb-primary text-xl group-open:rotate-45 transition-transform">+</span>
-      </summary>
-      <p className="mt-4 text-gray-600 leading-relaxed">{answer}</p>
-    </details>
-  );
-}
+////////////////////////////////////////////////////////////////////////////////
+// FOOTER
+////////////////////////////////////////////////////////////////////////////////
 
 function Footer() {
   return (
-    <footer className="bg-gray-900 text-white py-16 px-6">
+    <footer className="bg-gray-900 text-white py-20 px-6 mt-16">
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
+
+        <FooterCol title="Get to Know Us" links={["About", "Careers", "Blog", "Newsroom"]} />
+        <FooterCol title="Let Us Help You" links={["Account", "Order History", "Support"]} />
+        <FooterCol title="Do Business With Us" links={["Become a Driver", "Become a Vendor"]} />
+
         <div>
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-sb-primary rounded-lg flex items-center justify-center">
-              <Image
-                src="/stackbot-logo-white.png"
-                alt="StackBot Logo"
-                width={22}
-                height={22}
-                className="object-contain"
-              />
-            </div>
-            <span className="text-xl font-bold">StackBot</span>
+          <h4 className="font-bold mb-4">Download App</h4>
+          <div className="space-y-3">
+            <div className="bg-white/10 rounded-xl p-3">App Store</div>
+            <div className="bg-white/10 rounded-xl p-3">Google Play</div>
           </div>
-          <p className="text-gray-400 text-sm leading-relaxed">
-            Smart security and seamless delivery solutions for the modern Caribbean.
-          </p>
         </div>
 
-        <div>
-          <h4 className="font-semibold mb-4">Products</h4>
-          <ul className="space-y-2 text-sm">
-            <li><Link href="/" className="text-gray-400 hover:text-white transition">Home</Link></li>
-            <li><Link href="/categories" className="text-gray-400 hover:text-white transition">Categories</Link></li>
-            <li><Link href="/products" className="text-gray-400 hover:text-white transition">All Products</Link></li>
-          </ul>
-        </div>
-
-        <div>
-          <h4 className="font-semibold mb-4">Company</h4>
-          <ul className="space-y-2 text-sm">
-            <li><Link href="/about" className="text-gray-400 hover:text-white transition">About Us</Link></li>
-            <li><Link href="/contact" className="text-gray-400 hover:text-white transition">Contact</Link></li>
-            <li><Link href="/vendor-signup" className="text-gray-400 hover:text-white transition">Become a Vendor</Link></li>
-          </ul>
-        </div>
-
-        <div>
-          <h4 className="font-semibold mb-4">Stay Updated</h4>
-          <input
-            type="email"
-            placeholder="Enter your email"
-            className="w-full rounded-lg px-4 py-2 text-sm bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-          />
-          <button className="w-full mt-2 bg-sb-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition">
-            Subscribe
-          </button>
-        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto mt-12 pt-8 border-t border-gray-800 text-center text-sm text-gray-500">
+      <p className="text-center text-gray-500 text-sm mt-12">
         © 2026 StackBot. All rights reserved.
-      </div>
+      </p>
     </footer>
+  );
+}
+
+function FooterCol({ title, links }: any) {
+  return (
+    <div>
+      <h4 className="font-semibold mb-4">{title}</h4>
+      <ul className="space-y-2 text-gray-400 text-sm">
+        {links.map((l: string) => (
+          <li key={l} className="hover:text-white cursor-pointer">
+            {l}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
