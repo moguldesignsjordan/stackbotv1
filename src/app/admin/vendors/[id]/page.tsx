@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { db, functions } from "@/lib/firebase/config";
+import { db, auth } from "@/lib/firebase/config";
 import {
   doc,
   getDoc,
@@ -13,7 +13,6 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -101,23 +100,51 @@ export default function VendorDetailPage() {
     load();
   }, [vendorId]);
 
-  // 🔥 APPROVE VENDOR FUNCTION
+  // 🔥 APPROVE VENDOR FUNCTION - Using HTTP endpoint
   async function approveVendor() {
     if (!vendorId) return;
 
     try {
       setApproving(true);
 
-      const approveFn = httpsCallable(functions, "approveVendor");
-      const res: any = await approveFn({ vendorId });
+      const user = auth.currentUser;
+      if (!user) {
+        alert("You must be logged in!");
+        return;
+      }
 
-      alert(
-        `Vendor Approved!\n\nEmail: ${res.data.email}\nPassword: ${res.data.password}`
+      // Get fresh token
+      const token = await user.getIdToken(true);
+
+      console.log("=== APPROVE VENDOR DEBUG ===");
+      console.log("Vendor ID:", vendorId);
+
+      // Make HTTP request to Cloud Function
+      const res = await fetch(
+        "https://approvevendor-j5kxrjebxa-uc.a.run.app",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ vendorId }),
+        }
       );
 
-      router.refresh();
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(`Approval failed: ${data.error}`);
+        return;
+      }
+
+      alert(`Vendor approved successfully!\n\nEmail: ${data.email}`);
+
+      // Reload the page to show updated status
+      window.location.reload();
     } catch (err: any) {
-      console.error(err);
+      console.error("Approve error:", err);
       alert("Unable to approve vendor: " + err.message);
     } finally {
       setApproving(false);

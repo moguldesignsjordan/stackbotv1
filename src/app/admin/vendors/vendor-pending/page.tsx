@@ -2,17 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { db, functions } from "@/lib/firebase/config";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
+import { db, auth } from "@/lib/firebase/config";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { AlertCircle, Store, CheckCircle2 } from "lucide-react";
 
@@ -33,6 +26,7 @@ export default function PendingVendorsPage() {
   const [loading, setLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
+  // Load pending vendors
   const loadPending = async () => {
     setLoading(true);
     try {
@@ -60,18 +54,43 @@ export default function PendingVendorsPage() {
     loadPending();
   }, []);
 
-  // 🔥 NEW APPROVE FUNCTION — calls Cloud Function approveVendor
+  // 🔥 APPROVE FUNCTION - HTTP REQUEST
   const handleApprove = async (vendorId: string) => {
     try {
       setApprovingId(vendorId);
 
-      const approveFn = httpsCallable(functions, "approveVendor");
-      const res: any = await approveFn({ vendorId });
+      const user = auth.currentUser;
+      if (!user) {
+        alert("You must be logged in!");
+        return;
+      }
 
-      alert(
-        `Vendor Approved!\n\nEmail: ${res.data.email}\nPassword: ${res.data.password}`
+      const token = await user.getIdToken(true);
+
+      console.log("=== APPROVE VENDOR DEBUG ===");
+      console.log("Vendor ID:", vendorId);
+
+      // ✅ NEW URL - Cloud Run endpoint
+      const res = await fetch(
+        "https://approvevendor-j5kxrjebxa-uc.a.run.app",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ vendorId }),
+        }
       );
 
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(`Approval failed: ${data.error}`);
+        return;
+      }
+
+      alert(`Vendor approved successfully!\n\nEmail: ${data.email}`);
       await loadPending();
     } catch (err: any) {
       console.error("Error approving vendor", err);
@@ -100,11 +119,13 @@ export default function PendingVendorsPage() {
       </div>
 
       {vendors.length === 0 ? (
-        <EmptyState
-          icon={<CheckCircle2 className="h-10 w-10" />}
-          title="No pending vendor applications"
-          description="All vendor applications have been reviewed."
-        />
+        <div className="text-center py-12">
+          <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900">All caught up!</h2>
+          <p className="text-gray-600 mt-2">
+            No pending vendor applications to review.
+          </p>
+        </div>
       ) : (
         <div className="space-y-4">
           {vendors.map((vendor) => (
@@ -143,6 +164,10 @@ export default function PendingVendorsPage() {
                     </span>
                   ))}
                 </div>
+
+                <p className="text-xs text-gray-400 mt-2 font-mono">
+                  ID: {vendor.id}
+                </p>
               </div>
 
               <div className="flex flex-col items-end gap-2">

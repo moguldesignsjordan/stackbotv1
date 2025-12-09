@@ -6,15 +6,15 @@ import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
-interface AdminGuardProps {
+interface VendorGuardProps {
   children: React.ReactNode;
   fallbackPath?: string;
 }
 
-export default function AdminGuard({ 
+export default function VendorGuard({ 
   children, 
   fallbackPath = "/login" 
-}: AdminGuardProps) {
+}: VendorGuardProps) {
   const router = useRouter();
   const [status, setStatus] = useState<"loading" | "allowed" | "denied">("loading");
   const [debugInfo, setDebugInfo] = useState<string>("");
@@ -22,7 +22,7 @@ export default function AdminGuard({
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        console.log("AdminGuard: No user, redirecting to login");
+        console.log("VendorGuard: No user, redirecting to login");
         setStatus("denied");
         router.replace(fallbackPath);
         return;
@@ -32,28 +32,24 @@ export default function AdminGuard({
         // Force refresh to get latest claims
         const token = await getIdTokenResult(user, true);
         
-        console.log("=== ADMIN GUARD DEBUG ===");
+        console.log("=== VENDOR GUARD DEBUG ===");
         console.log("User:", user.email);
         console.log("UID:", user.uid);
         console.log("Role claim:", token.claims.role);
         
         setDebugInfo(`${user.email} | Role: ${token.claims.role || "none"}`);
 
-        if (token.claims.role === "admin") {
+        // Allow both vendors AND admins to access vendor pages
+        // (admins might want to view vendor dashboard for testing)
+        if (token.claims.role === "vendor" || token.claims.role === "admin") {
           setStatus("allowed");
         } else {
-          console.log("AdminGuard: User is not admin, redirecting");
+          console.log("VendorGuard: User is not vendor, redirecting");
           setStatus("denied");
-          
-          // Redirect based on their actual role
-          if (token.claims.role === "vendor") {
-            router.replace("/vendor");
-          } else {
-            router.replace("/");
-          }
+          router.replace("/");
         }
       } catch (error) {
-        console.error("AdminGuard: Error checking role", error);
+        console.error("VendorGuard: Error checking role", error);
         setStatus("denied");
         router.replace(fallbackPath);
       }
@@ -66,7 +62,7 @@ export default function AdminGuard({
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <LoadingSpinner text="Verifying admin access..." />
+          <LoadingSpinner text="Verifying vendor access..." />
           {debugInfo && (
             <p className="text-xs text-gray-400 mt-2">{debugInfo}</p>
           )}
