@@ -28,6 +28,8 @@ function generatePassword() {
 const ADMIN_EMAILS = [
   "jordancobb92@gmail.com",
   "moguldesignsjordan@gmail.com",
+  "Wilkerson3911@gmail.com",
+  "Stackbotglobalgl@gmail.com"
   // Add more admin emails as needed
 ];
 

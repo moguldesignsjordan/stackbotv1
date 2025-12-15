@@ -151,25 +151,29 @@ export default function VendorSignupPage() {
 
       if (form.categories.length === 0)
         throw new Error("Select at least one category.");
+let logoUrl = "";
 
-      let logoUrl = "";
+if (logoFile) {
+  // ✅ FIXED — MATCHES STORAGE RULES
+  const safeName = logoFile.name.replace(/\s+/g, "-");
+  const vendorId = currentUser.uid;
 
-      if (logoFile) {
-        const safeName = logoFile.name.replace(/\s+/g, "-");
-        const filePath = `vendors/logos/${currentUser.uid}-${Date.now()}-${safeName}`;
+  const filePath = `vendors/logos/${vendorId}/${Date.now()}-${safeName}`;
 
-        const storage = getStorage();
-        const logoRef = ref(storage, filePath);
+  const storage = getStorage();
+  const logoRef = ref(storage, filePath);
 
-        await uploadBytes(logoRef, logoFile);
-        logoUrl = await getDownloadURL(logoRef);
-      }
+  await uploadBytes(logoRef, logoFile);
+  logoUrl = await getDownloadURL(logoRef);
+} // ✅ ← THIS WAS MISSING
 
-      // Slug generation
-      const baseSlug = generateSlug(form.name);
-      let finalSlug = baseSlug;
+// Slug generation
+const baseSlug = generateSlug(form.name);
+let finalSlug = baseSlug;
 
-      if (baseSlug) {
+if (baseSlug) {
+
+
         try {
           const slugQuery = query(
             collection(db, "vendors"),

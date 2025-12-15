@@ -367,7 +367,7 @@ function Hero() {
             </h1>
 
             <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-lg leading-relaxed">
-              Order food, shop local businesses, book services, and connect with trusted vendors — powered by AI-driven delivery.
+              Order food, shop local businesses, book services, and connect with trusted vendors powered by AI-driven delivery.
             </p>
 
             {/* Search Bar */}
@@ -540,7 +540,7 @@ function WhyStackBot() {
             Why Choose <span className="text-gradient">StackBot</span>?
           </h2>
           <p className="mt-4 text-gray-600 text-lg max-w-2xl mx-auto">
-            Built for the Caribbean, designed for reliability.
+            Built for the Convience, designed for reliability.
           </p>
         </div>
 
@@ -592,7 +592,7 @@ function TravelerSection() {
               Visiting the <span className="text-gradient">Caribbean</span>?
             </h2>
             <p className="mt-6 text-gray-600 text-lg max-w-md leading-relaxed">
-              Discover trusted local businesses, book tours, order food, and explore safely — all in one app.
+              Discover trusted local businesses, book tours, order food, and explore safely all in one app.
             </p>
 
             <ul className="mt-8 space-y-4">
@@ -676,7 +676,7 @@ function OnboardingCards() {
             Join the Network
           </h2>
           <p className="mt-4 text-gray-600 text-lg">
-            Whether you're delivering, selling, or shopping — there's a place for you.
+            Whether you're delivering, selling, or shopping there's a place for you.
           </p>
         </div>
 
