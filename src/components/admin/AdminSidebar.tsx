@@ -5,6 +5,8 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { signOut } from "firebase/auth";
+import { Shield } from "lucide-react";
+
 import {
   LayoutDashboard,
   Store,
@@ -48,10 +50,20 @@ const navItems = [
     icon: BarChart3,
     label: "Analytics",
   },
+
+  // 🔐 Admin management (deep route)
+  {
+    href: "/admin/settings/admins",
+    icon: Shield,
+    label: "Admins",
+  },
+
+  // ⚙️ Settings hub (exact only)
   {
     href: "/admin/settings",
     icon: Settings,
     label: "Settings",
+    exact: true,
   },
 ];
 

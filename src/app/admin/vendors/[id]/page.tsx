@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { db, auth } from "@/lib/firebase/config";
@@ -10,8 +10,9 @@ import {
   getDoc,
   collection,
   getDocs,
-  query,
-  where,
+  deleteDoc,
+  updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -25,6 +26,10 @@ import {
   Globe,
   Mail,
   Package,
+  ShieldBan,
+  ShieldCheck,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 interface Vendor {
@@ -43,25 +48,30 @@ interface Vendor {
   total_revenue?: number;
   rating?: number;
   stackbot_pin?: string;
+  status?: "active" | "suspended";
 }
 
 interface Product {
   id: string;
   name: string;
   price?: number;
-  imageUrl?: string;
   active?: boolean;
+  images?: string[];
+  description?: string;
 }
 
-export default function VendorDetailPage() {
-  const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const vendorId = params?.id;
+export default function AdminVendorDetailPage() {
+  const { id: vendorId } = useParams<{ id: string }>();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [approving, setApproving] = useState(false);
+  const [suspending, setSuspending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isSuspended = useMemo(() => vendor?.status === "suspended", [vendor]);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -69,29 +79,23 @@ export default function VendorDetailPage() {
     const load = async () => {
       setLoading(true);
       try {
-        // Load vendor
+        // Vendor
         const vendorRef = doc(db, "vendors", vendorId);
         const vendorSnap = await getDoc(vendorRef);
 
-        if (vendorSnap.exists()) {
-          setVendor({
-            id: vendorSnap.id,
-            ...(vendorSnap.data() as any),
-          });
-        } else {
+        if (!vendorSnap.exists()) {
           setVendor(null);
+          setProducts([]);
+          return;
         }
 
-        // Load products
-        const productsRef = collection(db, "products");
-        const q = query(productsRef, where("vendorId", "==", vendorId));
-        const prodSnap = await getDocs(q);
+        setVendor({ id: vendorSnap.id, ...(vendorSnap.data() as any) });
 
-        setProducts(
-          prodSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-        );
+        // ✅ Products from vendor subcollection
+        const prodSnap = await getDocs(collection(db, "vendors", vendorId, "products"));
+        setProducts(prodSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
       } catch (err) {
-        console.error("Error loading vendor detail", err);
+        console.error("Error loading admin vendor detail", err);
       } finally {
         setLoading(false);
       }
@@ -100,7 +104,6 @@ export default function VendorDetailPage() {
     load();
   }, [vendorId]);
 
-  // Approve Vendor
   async function approveVendor() {
     if (!vendorId) return;
 
@@ -108,40 +111,76 @@ export default function VendorDetailPage() {
       setApproving(true);
 
       const user = auth.currentUser;
-      if (!user) {
-        alert("You must be logged in!");
-        return;
-      }
+      if (!user) return alert("You must be logged in!");
 
       const token = await user.getIdToken(true);
 
-      const res = await fetch(
-        "https://approvevendor-j5kxrjebxa-uc.a.run.app",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ vendorId }),
-        }
-      );
+      const res = await fetch("https://approvevendor-j5kxrjebxa-uc.a.run.app", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ vendorId }),
+      });
 
       const data = await res.json();
-
       if (!res.ok) {
-        alert(`Approval failed: ${data.error}`);
+        alert(`Approval failed: ${data.error || "Unknown error"}`);
         return;
       }
 
       alert(`Vendor approved successfully!\n\nEmail: ${data.email}`);
-
       window.location.reload();
     } catch (err: any) {
       console.error("Approve error:", err);
       alert("Unable to approve vendor: " + err.message);
     } finally {
       setApproving(false);
+    }
+  }
+
+  async function toggleSuspension() {
+    if (!vendorId || !vendor) return;
+
+    const nextStatus: Vendor["status"] = vendor.status === "suspended" ? "active" : "suspended";
+    const confirmMsg =
+      nextStatus === "suspended"
+        ? "Suspend this vendor? This should block them from operating in the vendor portal."
+        : "Unsuspend this vendor and restore access?";
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      setSuspending(true);
+      await updateDoc(doc(db, "vendors", vendorId), {
+        status: nextStatus,
+        updated_at: serverTimestamp(),
+      });
+      setVendor({ ...vendor, status: nextStatus });
+    } catch (e) {
+      console.error("Suspend/unsuspend failed", e);
+      alert("Failed to update vendor status.");
+    } finally {
+      setSuspending(false);
+    }
+  }
+
+  async function deleteProduct(productId: string) {
+    if (!vendorId) return;
+    if (!confirm("Delete this product permanently?")) return;
+
+    try {
+      setDeletingId(productId);
+      await deleteDoc(doc(db, "vendors", vendorId, "products", productId));
+
+      // Update UI immediately
+      setProducts((prev) => prev.filter((p) => p.id !== productId));
+    } catch (e) {
+      console.error("Delete product failed", e);
+      alert("Failed to delete product.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -177,6 +216,12 @@ export default function VendorDetailPage() {
             <Store className="h-7 w-7 text-sb-primary" />
             {vendor.name}
           </h1>
+
+          {vendor.status === "suspended" && (
+            <Badge variant="danger" className="ml-2">
+              Suspended
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -186,23 +231,38 @@ export default function VendorDetailPage() {
             </Button>
           )}
 
+          <Button
+            onClick={toggleSuspension}
+            loading={suspending}
+            variant={isSuspended ? "secondary" : "danger"}
+          >
+            {isSuspended ? (
+              <span className="inline-flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4" /> Unsuspend
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                <ShieldBan className="h-4 w-4" /> Suspend
+              </span>
+            )}
+          </Button>
+
           <Badge variant={vendor.verified ? "success" : "warning"}>
             {vendor.verified ? "Approved" : "Pending"}
           </Badge>
         </div>
       </div>
 
-      {/* PUBLIC STOREFRONT LINK — UPDATED */}
-{vendor.slug && (
-  <Link
-    href={`/store/${vendor.slug}`}
-    className="text-sb-primary font-semibold underline text-sm"
-    target="_blank"
-  >
-    View Public Storefront → /store/{vendor.slug}
-  </Link>
-)}
-
+      {/* PUBLIC STOREFRONT LINK */}
+      {vendor.slug && (
+        <Link
+          href={`/store/${vendor.slug}`}
+          className="text-sb-primary font-semibold underline text-sm"
+          target="_blank"
+        >
+          View Public Storefront → /store/{vendor.slug}
+        </Link>
+      )}
 
       {/* PROFILE + METRICS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -222,9 +282,7 @@ export default function VendorDetailPage() {
             )}
 
             <div className="flex-1 space-y-3">
-              <p className="text-gray-700">
-                {vendor.description || "No description provided."}
-              </p>
+              <p className="text-gray-700">{vendor.description || "No description provided."}</p>
 
               <div className="flex flex-wrap gap-2">
                 {vendor.categories?.map((c) => (
@@ -273,9 +331,7 @@ export default function VendorDetailPage() {
 
         {/* Metrics */}
         <Card padding="lg">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Vendor Performance
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Vendor Performance</h2>
 
           <dl className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
@@ -292,17 +348,13 @@ export default function VendorDetailPage() {
 
             <div className="flex items-center justify-between">
               <dt className="text-gray-600">Rating</dt>
-              <dd className="font-semibold">
-                {vendor.rating ? `${vendor.rating.toFixed(1)} / 5` : "N/A"}
-              </dd>
+              <dd className="font-semibold">{vendor.rating ? `${vendor.rating.toFixed(1)} / 5` : "N/A"}</dd>
             </div>
 
             {vendor.stackbot_pin && (
               <div className="flex items-center justify-between">
                 <dt className="text-gray-600">StackBot PIN</dt>
-                <dd className="font-mono font-semibold">
-                  {vendor.stackbot_pin}
-                </dd>
+                <dd className="font-mono font-semibold">{vendor.stackbot_pin}</dd>
               </div>
             )}
           </dl>
@@ -317,30 +369,47 @@ export default function VendorDetailPage() {
         </h2>
 
         {products.length === 0 ? (
-          <p className="text-gray-600 text-sm">
-            No products found for this vendor.
-          </p>
+          <p className="text-gray-600 text-sm">No products found for this vendor.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {products.map((p) => (
               <Card key={p.id} padding="md">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-900">{p.name}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{p.name}</h3>
+                      <p className="text-xs text-gray-500">ID: {p.id}</p>
+                    </div>
+
                     {typeof p.price === "number" && (
-                      <span className="text-sm font-semibold text-sb-primary">
-                        ${p.price.toFixed(2)}
-                      </span>
+                      <span className="text-sm font-semibold text-sb-primary">${p.price.toFixed(2)}</span>
                     )}
                   </div>
-
-                  <p className="text-xs text-gray-500">ID: {p.id}</p>
 
                   {p.active !== undefined && (
                     <Badge size="sm" variant={p.active ? "success" : "danger"}>
                       {p.active ? "Active" : "Inactive"}
                     </Badge>
                   )}
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <Link
+                      href={`/admin/vendors/${vendorId}/products/${p.id}/edit`}
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-sb-primary hover:underline"
+                    >
+                      <Pencil className="h-4 w-4" /> Edit
+                    </Link>
+
+                    <button
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50"
+                      disabled={deletingId === p.id}
+                      onClick={() => deleteProduct(p.id)}
+                      type="button"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingId === p.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
                 </div>
               </Card>
             ))}

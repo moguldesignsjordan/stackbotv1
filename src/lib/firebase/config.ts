@@ -4,6 +4,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 // ------------------------------------------
 // FIREBASE CONFIG
@@ -27,3 +28,7 @@ export const storage = getStorage(app);
 
 // default export optional
 export default app;
+
+
+export const functions = getFunctions(app);
+

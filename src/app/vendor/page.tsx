@@ -9,260 +9,249 @@ import {
   collection,
   getDocs,
   query,
+  where,
+  updateDoc,
   orderBy,
   limit,
-  where,
+  serverTimestamp,
 } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Image from "next/image";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import {
+  Package,
+  PlusCircle,
   ShoppingCart,
   DollarSign,
   Star,
-  PlusCircle,
   Settings,
-  Package,
-  AlertCircle,
-  CheckCircle,
+  ImageIcon,
 } from "lucide-react";
-import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 export default function VendorDashboard() {
-  /** --------------------------------------------------------
-   *  ALL HOOKS MUST ALWAYS RUN IN THE SAME ORDER
-   *  --------------------------------------------------------
-   */
-  const [firebaseUser, setFirebaseUser] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [vendor, setVendor] = useState<any>(null);
-  const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /** --------------------------------------------------------
-   *  AUTH HYDRATION LISTENER — ALWAYS FIRST useEffect
-   *  --------------------------------------------------------
-   */
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [savingCover, setSavingCover] = useState(false);
+
+  /* ---------------- AUTH ---------------- */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user);
+    return onAuthStateChanged(auth, (u) => {
+      if (u) setUser(u);
     });
-    return () => unsub();
   }, []);
 
-  /** --------------------------------------------------------
-   *  DASHBOARD LOADING FUNCTION
-   *  --------------------------------------------------------
-   */
-  const loadDashboard = useCallback(
-    async (user: any) => {
-      try {
-        // Vendor profile
-        const vendorRef = doc(db, "vendors", user.uid);
-        const vendorSnap = await getDoc(vendorRef);
+  /* ---------------- LOAD DATA ---------------- */
+  const loadDashboard = useCallback(async (u: any) => {
+    const vendorRef = doc(db, "vendors", u.uid);
+    const vendorSnap = await getDoc(vendorRef);
 
-        if (!vendorSnap.exists()) {
-          setVendor({ missing: true });
-          setLoading(false);
-          return;
-        }
+    if (!vendorSnap.exists()) {
+      setVendor({ missing: true });
+      setLoading(false);
+      return;
+    }
 
-        const vendorData = vendorSnap.data();
-        setVendor(vendorData);
+    const vendorData = vendorSnap.data();
+    setVendor(vendorData);
 
-        // Orders
-        const ordersRef = collection(db, "vendors", user.uid, "orders");
-        const ordersSnap = await getDocs(
-          query(ordersRef, orderBy("timestamp", "desc"), limit(5))
-        );
-        setOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-
-        // Products
-        const productsRef = collection(db, "products");
-        const productsSnap = await getDocs(
-          query(productsRef, where("vendorId", "==", user.uid))
-        );
-        setProducts(productsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-
-        setLoading(false);
-      } catch (err) {
-        console.error("Dashboard Load Error:", err);
-        setLoading(false);
-      }
-    },
-    [db]
-  );
-
-  /** --------------------------------------------------------
-   *  MAIN DATA LOADING EFFECT
-   *  --------------------------------------------------------
-   */
-  useEffect(() => {
-    if (!firebaseUser) return; // wait for auth hydration
-    loadDashboard(firebaseUser);
-  }, [firebaseUser, loadDashboard]);
-
-  /** --------------------------------------------------------
-   *  AFTER ALL HOOKS ARE DECLARED → NOW WE CAN RETURN JSX
-   *  --------------------------------------------------------
-   */
-  if (!firebaseUser) {
-    return <LoadingSpinner text="Preparing your dashboard..." />;
-  }
-
-  if (loading) {
-    return <LoadingSpinner text="Loading your dashboard..." />;
-  }
-
-  if (vendor?.missing) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-bold text-red-600">Vendor profile missing</h1>
-        <p className="text-gray-600 mt-2">
-          Your vendor profile was not found. Please contact support.
-        </p>
-      </div>
+    const productsSnap = await getDocs(
+      query(collection(db, "products"), where("vendorId", "==", u.uid))
     );
-  }
+    setProducts(productsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
+    const ordersSnap = await getDocs(
+      query(
+        collection(db, "vendors", u.uid, "orders"),
+        orderBy("timestamp", "desc"),
+        limit(5)
+      )
+    );
+    setOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (user) loadDashboard(user);
+  }, [user, loadDashboard]);
+
+  /* ---------------- COVER IMAGE ---------------- */
+  const selectCover = (file: File) => {
+    setCoverFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setCoverPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const saveCover = async () => {
+    if (!user || !coverFile) return;
+    setSavingCover(true);
+
+    const storage = getStorage();
+    const safeName = coverFile.name.replace(/\s+/g, "-");
+    const path = `vendors/covers/${user.uid}/${Date.now()}-${safeName}`;
+
+    const coverRef = ref(storage, path);
+    await uploadBytes(coverRef, coverFile);
+    const url = await getDownloadURL(coverRef);
+
+    await updateDoc(doc(db, "vendors", user.uid), {
+      cover_image_url: url,
+      updated_at: serverTimestamp(),
+    });
+
+    setVendor((v: any) => ({ ...v, cover_image_url: url }));
+    setCoverFile(null);
+    setCoverPreview(null);
+    setSavingCover(false);
+  };
+
+  const removeCover = async () => {
+    if (!confirm("Remove cover image?")) return;
+    await updateDoc(doc(db, "vendors", user.uid), {
+      cover_image_url: "",
+      updated_at: serverTimestamp(),
+    });
+    setVendor((v: any) => ({ ...v, cover_image_url: "" }));
+  };
+
+  /* ---------------- STATES ---------------- */
+  if (!user) return <LoadingSpinner text="Preparing dashboard..." />;
+  if (loading) return <LoadingSpinner text="Loading dashboard..." />;
+  if (vendor?.missing) return <p className="text-red-600">Vendor not found</p>;
+
+  /* ---------------- UI ---------------- */
   return (
-    <div className="space-y-10 animate-fade-in">
+    <div className="space-y-8 animate-fade-in">
       {/* HEADER */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <Image
           src={vendor.logoUrl || "/placeholder.png"}
-          alt="Vendor Logo"
-          width={80}
-          height={80}
-          className="rounded-xl object-cover border shadow-sm"
+          width={64}
+          height={64}
+          alt="Logo"
+          className="rounded-xl border"
         />
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
-            {vendor.name}
-          </h1>
-          <p className="text-gray-500">{vendor.email}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">{vendor.name}</h1>
+          <p className="text-sm text-gray-500">{vendor.email}</p>
+
+          {vendor.slug && (
+            <Link
+              href={`/store/${vendor.slug}`}
+              target="_blank"
+              className="text-sm text-sb-primary font-semibold underline"
+            >
+              View Storefront →
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* STATUS BADGE */}
-      <div>
-        {vendor.verified ? (
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-sm font-medium">
-            <CheckCircle className="h-4 w-4" /> Verified Vendor
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-sm font-medium">
-            <AlertCircle className="h-4 w-4" /> Pending Approval
-          </span>
-        )}
-      </div>
+      {/* COVER IMAGE */}
+      <Card title="Storefront Cover">
+        <div className="space-y-4">
+          <div className="relative h-44 rounded-xl overflow-hidden border">
+            <Image
+              src={
+                coverPreview ||
+                vendor.cover_image_url ||
+                "/store-cover-placeholder.jpg"
+              }
+              alt="Cover"
+              fill
+              className="object-cover"
+            />
+          </div>
 
-      {/* QUICK ACTIONS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <QuickAction href="/vendor/products" icon={<Package />} label="Manage Products" />
-        <QuickAction href="/vendor/products/new" icon={<PlusCircle />} label="Add Product" />
-        <QuickAction href="/vendor/orders" icon={<ShoppingCart />} label="View Orders" />
-        <QuickAction href="/vendor/settings" icon={<Settings />} label="Store Settings" />
+          <div className="flex flex-wrap gap-3">
+            <label className="cursor-pointer px-4 py-2 border rounded-xl text-sm flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" />
+              Change
+              <input
+                hidden
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  e.target.files && selectCover(e.target.files[0])
+                }
+              />
+            </label>
+
+            <button
+              onClick={saveCover}
+              disabled={!coverFile || savingCover}
+              className="px-4 py-2 rounded-xl bg-sb-primary text-white disabled:opacity-50"
+            >
+              Save
+            </button>
+
+            {vendor.cover_image_url && (
+              <button
+                onClick={removeCover}
+                className="px-4 py-2 rounded-xl text-red-600 font-semibold"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* QUICK ACTIONS — MOBILE SCROLL */}
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 md:grid md:grid-cols-4 md:overflow-visible scrollbar-hide snap-x snap-mandatory">
+        <Action href="/vendor/products" icon={<Package />} label="Products" />
+        <Action href="/vendor/products/new" icon={<PlusCircle />} label="Add Product" />
+        <Action href="/vendor/orders" icon={<ShoppingCart />} label="Orders" />
+        <Action href="/vendor/settings" icon={<Settings />} label="Settings" />
       </div>
 
       {/* METRICS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <MetricCard
-          icon={<ShoppingCart className="h-7 w-7 text-sb-primary" />}
-          label="Total Orders"
-          value={vendor.total_orders || 0}
-        />
-
-        <MetricCard
-          icon={<DollarSign className="h-7 w-7 text-sb-primary" />}
-          label="Total Revenue"
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <Metric icon={<ShoppingCart />} label="Orders" value={vendor.total_orders || 0} />
+        <Metric
+          icon={<DollarSign />}
+          label="Revenue"
           value={`$${(vendor.total_revenue || 0).toLocaleString()}`}
         />
-
-        <MetricCard
-          icon={<Star className="h-7 w-7 text-sb-primary" />}
-          label="Rating"
-          value={`${vendor.rating || 0} ⭐`}
-        />
+        <Metric icon={<Star />} label="Rating" value={`${vendor.rating || 0} ⭐`} />
       </div>
-
-      {/* RECENT ORDERS */}
-      <Card title="Recent Orders">
-        {orders.length === 0 ? (
-          <p className="text-gray-600 text-sm">No orders yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {orders.map((o) => (
-              <li
-                key={o.id}
-                className="p-4 bg-gray-50 border rounded-xl flex justify-between"
-              >
-                <div>
-                  <p className="font-semibold text-gray-900">
-                    Order #{o.orderId}
-                  </p>
-                  <p className="text-sm text-gray-500">${o.total}</p>
-                </div>
-                <p className="text-sb-primary font-medium capitalize">{o.status}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      {/* RECENT PRODUCTS */}
-      <Card title="Your Products">
-        {products.length === 0 ? (
-          <p className="text-gray-600 text-sm">No products added yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {products.slice(0, 4).map((p) => (
-              <div key={p.id} className="p-4 bg-white border rounded-xl shadow-sm">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                  <span className="text-sb-primary font-semibold">
-                    ${p.price}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">ID: {p.id}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <Link
-          href="/vendor/products"
-          className="block text-sb-primary mt-4 font-medium hover:underline"
-        >
-          View all products →
-        </Link>
-      </Card>
     </div>
   );
 }
 
-/* ------------------ SUB COMPONENTS ------------------ */
+/* ---------------- SUB COMPONENTS ---------------- */
 
-function QuickAction({ href, icon, label }: any) {
+function Action({ href, icon, label }: any) {
   return (
     <Link
       href={href}
-      className="p-4 bg-white border rounded-xl shadow-sm flex flex-col items-center justify-center gap-2 hover:border-sb-primary transition"
+      className="flex-shrink-0 min-w-[90px] p-4 bg-white border rounded-xl
+                 flex flex-col items-center gap-2
+                 active:scale-95 transition snap-start touch-feedback tap-target"
     >
       <div className="text-sb-primary">{icon}</div>
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-xs font-medium">{label}</span>
     </Link>
   );
 }
 
-function MetricCard({ icon, label, value }: any) {
+function Metric({ icon, label, value }: any) {
   return (
     <Card>
-      <div className="flex items-center gap-3 text-2xl font-bold text-gray-900">
-        {icon}
+      <div className="flex items-center gap-3 text-xl font-bold">
+        <span className="text-sb-primary">{icon}</span>
         {value}
       </div>
-      <p className="text-gray-500 text-sm mt-2">{label}</p>
+      <p className="text-gray-500 text-sm mt-1">{label}</p>
     </Card>
   );
 }
