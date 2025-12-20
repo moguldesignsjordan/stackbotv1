@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * 🚨 REQUIRED FOR NEXT.JS 15/16 + VERCEL
- * Prevents static prerendering of /search
- */
 export const dynamic = "force-dynamic";
 
 import { Suspense, useEffect, useState } from "react";
@@ -14,9 +10,39 @@ import { db } from "@/lib/firebase/config";
 import { collection, getDocs } from "firebase/firestore";
 import { Search, Store, ArrowLeft, Package, Star } from "lucide-react";
 
-/**
- * 🔥 Page-level Suspense wrapper
- */
+/* ======================================================
+   TYPES (🔥 FIX)
+====================================================== */
+
+type Vendor = {
+  id: string;
+  slug?: string;
+  name?: string;
+  business_name?: string;
+  description?: string;
+  business_description?: string;
+  category?: string;
+  categories?: string[];
+  logo_url?: string;
+  rating?: number;
+};
+
+type Product = {
+  id: string;
+  name?: string;
+  description?: string;
+  price?: number;
+  images?: string[];
+  active?: boolean;
+  vendorId: string;
+  vendorSlug: string;
+  vendor_name?: string;
+};
+
+/* ======================================================
+   PAGE WRAPPER (Suspense Required)
+====================================================== */
+
 export default function SearchPage() {
   return (
     <Suspense fallback={<SearchLoadingState />}>
@@ -25,9 +51,10 @@ export default function SearchPage() {
   );
 }
 
-/**
- * Loading state while suspense resolves
- */
+/* ======================================================
+   LOADING STATE
+====================================================== */
+
 function SearchLoadingState() {
   return (
     <div className="min-h-screen bg-gray-50">
@@ -50,19 +77,20 @@ function SearchLoadingState() {
   );
 }
 
-/**
- * 🔥 Actual Search Logic
- */
+/* ======================================================
+   SEARCH LOGIC
+====================================================== */
+
 function SearchPageInner() {
   const searchParams = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
 
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const search = async () => {
+    const runSearch = async () => {
       if (!searchQuery.trim()) {
         setVendors([]);
         setProducts([]);
@@ -73,40 +101,56 @@ function SearchPageInner() {
       setLoading(true);
 
       try {
+        /* ---------------- Vendors ---------------- */
+
         const vendorsSnap = await getDocs(collection(db, "vendors"));
-        const matchedVendors = vendorsSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((v: any) => {
+
+        const matchedVendors: Vendor[] = vendorsSnap.docs
+          .map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<Vendor, "id">),
+          }))
+          .filter((v) => {
             const q = searchQuery.toLowerCase();
             return (
               (v.name || v.business_name || "").toLowerCase().includes(q) ||
-              (v.description || v.business_description || "").toLowerCase().includes(q) ||
-              (v.category || v.categories?.[0] || "").toLowerCase().includes(q)
+              (v.description || v.business_description || "")
+                .toLowerCase()
+                .includes(q) ||
+              (v.category || v.categories?.[0] || "")
+                .toLowerCase()
+                .includes(q)
             );
           });
 
         setVendors(matchedVendors);
 
-        const allProducts: any[] = [];
+        /* ---------------- Products ---------------- */
+
+        const collectedProducts: Product[] = [];
+
         for (const vendor of matchedVendors.slice(0, 5)) {
           const productsSnap = await getDocs(
             collection(db, "vendors", vendor.id, "products")
           );
-          allProducts.push(
-            ...productsSnap.docs
-              .map((d) => ({
-                id: d.id,
-                ...d.data(),
-                vendorId: vendor.id,
-                vendorSlug: vendor.slug || vendor.id,
-                vendor_name: vendor.name || vendor.business_name,
-              }))
-              .filter((p: any) => p.active !== false)
-          );
+
+          productsSnap.docs.forEach((d) => {
+            const data = d.data() as any;
+
+            if (data.active === false) return;
+
+            collectedProducts.push({
+              id: d.id,
+              ...data,
+              vendorId: vendor.id,
+              vendorSlug: vendor.slug || vendor.id,
+              vendor_name: vendor.name || vendor.business_name,
+            });
+          });
         }
 
         setProducts(
-          allProducts.filter((p) =>
+          collectedProducts.filter((p) =>
             (p.name || p.description || "")
               .toLowerCase()
               .includes(searchQuery.toLowerCase())
@@ -119,7 +163,7 @@ function SearchPageInner() {
       setLoading(false);
     };
 
-    search();
+    runSearch();
   }, [searchQuery]);
 
   return (
@@ -163,7 +207,9 @@ function SearchPageInner() {
   );
 }
 
-/* ===================== UI SECTIONS ===================== */
+/* ======================================================
+   UI SECTIONS
+====================================================== */
 
 function EmptySearch() {
   return (
@@ -176,7 +222,15 @@ function EmptySearch() {
   );
 }
 
-function Results({ vendors, products, query }: any) {
+function Results({
+  vendors,
+  products,
+  query,
+}: {
+  vendors: Vendor[];
+  products: Product[];
+  query: string;
+}) {
   if (!vendors.length && !products.length) {
     return (
       <div className="text-center py-20">
@@ -197,7 +251,7 @@ function Results({ vendors, products, query }: any) {
             Vendors
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {vendors.map((v: any) => (
+            {vendors.map((v) => (
               <VendorCard key={v.id} vendor={v} />
             ))}
           </div>
@@ -211,7 +265,7 @@ function Results({ vendors, products, query }: any) {
             Products
           </h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {products.map((p: any) => (
+            {products.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>
@@ -221,9 +275,11 @@ function Results({ vendors, products, query }: any) {
   );
 }
 
-/* ===================== CARDS ===================== */
+/* ======================================================
+   CARDS
+====================================================== */
 
-function VendorCard({ vendor }: any) {
+function VendorCard({ vendor }: { vendor: Vendor }) {
   const link = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
 
   return (
@@ -237,7 +293,9 @@ function VendorCard({ vendor }: any) {
           )}
         </div>
         <div className="p-4">
-          <h3 className="font-semibold">{vendor.business_name || vendor.name}</h3>
+          <h3 className="font-semibold">
+            {vendor.business_name || vendor.name}
+          </h3>
           {vendor.rating && (
             <div className="flex gap-1 text-sm text-yellow-500">
               <Star className="w-4 h-4 fill-yellow-400" />
@@ -250,23 +308,30 @@ function VendorCard({ vendor }: any) {
   );
 }
 
-function ProductCard({ product }: any) {
+function ProductCard({ product }: { product: Product }) {
   const link = `/store/${product.vendorSlug}/product/${product.id}`;
 
   return (
     <Link href={link}>
       <div className="bg-white rounded-2xl border hover:shadow-lg transition">
-        <div className="aspect-square bg-gray-100 flex items-center justify-center">
+        <div className="relative aspect-square bg-gray-100">
           {product.images?.[0] ? (
-            <Image src={product.images[0]} alt="" fill className="object-cover" />
+            <Image
+              src={product.images[0]}
+              alt=""
+              fill
+              className="object-cover"
+            />
           ) : (
-            <Package className="w-10 h-10 text-gray-300" />
+            <div className="flex items-center justify-center h-full">
+              <Package className="w-10 h-10 text-gray-300" />
+            </div>
           )}
         </div>
         <div className="p-3">
           <h3 className="font-medium text-sm">{product.name}</h3>
           <p className="text-purple-600 font-bold">
-            ${Number(product.price).toFixed(2)}
+            ${Number(product.price || 0).toFixed(2)}
           </p>
         </div>
       </div>
