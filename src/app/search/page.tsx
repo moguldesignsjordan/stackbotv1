@@ -1,260 +1,275 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+/**
+ * 🚨 REQUIRED FOR NEXT.JS 15/16 + VERCEL
+ * Prevents static prerendering of /search
+ */
+export const dynamic = "force-dynamic";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { db } from "@/lib/firebase/config";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { ArrowLeft, Search, Store, MapPin, Star } from "lucide-react";
+import { collection, getDocs } from "firebase/firestore";
+import { Search, Store, ArrowLeft, Package, Star } from "lucide-react";
 
-interface Vendor {
-  id: string;
-  business_name: string;
-  business_description?: string;
-  business_address?: string;
-  logo_url?: string;
-  banner_url?: string;
-  category?: string;
-  rating?: number;
-  total_reviews?: number;
-  status: string;
+/**
+ * 🔥 Page-level Suspense wrapper
+ */
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<SearchLoadingState />}>
+      <SearchPageInner />
+    </Suspense>
+  );
 }
 
-export default function SearchPage() {
+/**
+ * Loading state while suspense resolves
+ */
+function SearchLoadingState() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 py-8 animate-pulse space-y-6">
+        <div className="h-8 bg-gray-200 rounded w-48" />
+        <div className="h-12 bg-gray-200 rounded-xl" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl overflow-hidden">
+              <div className="aspect-video bg-gray-200" />
+              <div className="p-4 space-y-3">
+                <div className="h-5 bg-gray-200 rounded w-3/4" />
+                <div className="h-4 bg-gray-200 rounded w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 🔥 Actual Search Logic
+ */
+function SearchPageInner() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const searchQuery = searchParams.get("q") || "";
+
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
 
   useEffect(() => {
-    const fetchVendors = async () => {
-      setLoading(true);
-      try {
-        const q = query(
-          collection(db, "vendors"),
-          where("status", "==", "approved")
-        );
-        
-        const snapshot = await getDocs(q);
-        const allVendors = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        } as Vendor));
-
-        // Client-side filtering by vendor name
-        const searchTerm = searchParams.get("q")?.toLowerCase() || "";
-        const filtered = searchTerm
-          ? allVendors.filter((vendor) =>
-              vendor.business_name.toLowerCase().includes(searchTerm)
-            )
-          : allVendors;
-
-        setVendors(filtered);
-      } catch (error) {
-        console.error("Error fetching vendors:", error);
+    const search = async () => {
+      if (!searchQuery.trim()) {
+        setVendors([]);
+        setProducts([]);
+        setLoading(false);
+        return;
       }
+
+      setLoading(true);
+
+      try {
+        const vendorsSnap = await getDocs(collection(db, "vendors"));
+        const matchedVendors = vendorsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((v: any) => {
+            const q = searchQuery.toLowerCase();
+            return (
+              (v.name || v.business_name || "").toLowerCase().includes(q) ||
+              (v.description || v.business_description || "").toLowerCase().includes(q) ||
+              (v.category || v.categories?.[0] || "").toLowerCase().includes(q)
+            );
+          });
+
+        setVendors(matchedVendors);
+
+        const allProducts: any[] = [];
+        for (const vendor of matchedVendors.slice(0, 5)) {
+          const productsSnap = await getDocs(
+            collection(db, "vendors", vendor.id, "products")
+          );
+          allProducts.push(
+            ...productsSnap.docs
+              .map((d) => ({
+                id: d.id,
+                ...d.data(),
+                vendorId: vendor.id,
+                vendorSlug: vendor.slug || vendor.id,
+                vendor_name: vendor.name || vendor.business_name,
+              }))
+              .filter((p: any) => p.active !== false)
+          );
+        }
+
+        setProducts(
+          allProducts.filter((p) =>
+            (p.name || p.description || "")
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())
+          )
+        );
+      } catch (err) {
+        console.error("Search error:", err);
+      }
+
       setLoading(false);
     };
 
-    fetchVendors();
-  }, [searchParams]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-    }
-  };
+    search();
+  }, [searchQuery]);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
-        
-        :root {
-          --sb-primary: #55529d;
-          --sb-primary-light: #7c78c9;
-          --sb-accent: #f97316;
-        }
-
-        body {
-          font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-
-        .font-display {
-          font-family: 'Space Grotesk', sans-serif;
-        }
-      `}</style>
-
       {/* Header */}
-      <div className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.back()}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
-            </button>
-            
-            <form onSubmit={handleSearch} className="flex-1 max-w-2xl">
-              <div className="relative flex items-center gap-3 bg-gray-100 rounded-full px-4 py-3">
-                <Search className="text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search vendors by name..."
-                  className="flex-1 bg-transparent text-gray-900 placeholder-gray-500 focus:outline-none"
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  className="bg-[var(--sb-primary)] text-white px-6 py-2 rounded-full font-semibold hover:bg-[var(--sb-primary-light)] transition-colors"
-                >
-                  Search
-                </button>
-              </div>
-            </form>
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-4">
+          <Link href="/" className="p-2 hover:bg-gray-100 rounded-xl">
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              defaultValue={searchQuery}
+              placeholder="Search vendors, products..."
+              className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500/20 outline-none"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  window.location.href = `/search?q=${encodeURIComponent(
+                    (e.target as HTMLInputElement).value
+                  )}`;
+                }
+              }}
+            />
           </div>
         </div>
       </div>
 
       {/* Results */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Results Header */}
-        <div className="mb-6">
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-gray-900">
-            {searchParams.get("q") ? (
-              <>
-                Search results for "{searchParams.get("q")}"
-              </>
-            ) : (
-              "All Vendors"
-            )}
-          </h1>
-          <p className="text-gray-600 mt-2">
-            {loading ? "Searching..." : `${vendors.length} vendor${vendors.length !== 1 ? "s" : ""} found`}
-          </p>
-        </div>
-
-        {/* Loading State */}
-        {loading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="bg-white rounded-2xl overflow-hidden animate-pulse">
-                <div className="aspect-[16/9] bg-gray-200" />
-                <div className="p-4 space-y-3">
-                  <div className="h-5 bg-gray-200 rounded w-3/4" />
-                  <div className="h-4 bg-gray-200 rounded w-full" />
-                  <div className="h-4 bg-gray-200 rounded w-2/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* No Results */}
-        {!loading && vendors.length === 0 && (
-          <div className="text-center py-20">
-            <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">No vendors found</h2>
-            <p className="text-gray-600">
-              {searchParams.get("q")
-                ? `Try searching with different keywords`
-                : "No vendors available at the moment"}
-            </p>
-            <Link
-              href="/"
-              className="inline-block mt-6 px-6 py-3 bg-[var(--sb-primary)] text-white rounded-full font-semibold hover:bg-[var(--sb-primary-light)] transition-colors"
-            >
-              Back to Home
-            </Link>
-          </div>
-        )}
-
-        {/* Vendor Grid */}
-        {!loading && vendors.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {vendors.map((vendor) => (
-              <Link key={vendor.id} href={`/store/${vendor.id}`}>
-                <div className="group bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-2 transition-all duration-300 cursor-pointer">
-                  {/* Banner/Logo */}
-                  <div className="aspect-[16/9] bg-gradient-to-br from-[var(--sb-primary)] to-[var(--sb-primary-light)] overflow-hidden relative">
-                    {vendor.banner_url ? (
-                      <Image
-                        src={vendor.banner_url}
-                        alt={vendor.business_name}
-                        width={400}
-                        height={225}
-                        className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
-                      />
-                    ) : vendor.logo_url ? (
-                      <div className="flex items-center justify-center h-full p-8">
-                        <Image
-                          src={vendor.logo_url}
-                          alt={vendor.business_name}
-                          width={120}
-                          height={120}
-                          className="object-contain max-h-full"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <Store className="w-16 h-16 text-white/50" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Vendor Info */}
-                  <div className="p-4">
-                    <h3 className="font-semibold text-gray-900 text-lg group-hover:text-[var(--sb-primary)] transition-colors line-clamp-1">
-                      {vendor.business_name}
-                    </h3>
-
-                    {vendor.business_description && (
-                      <p className="text-sm text-gray-600 mt-2 line-clamp-2">
-                        {vendor.business_description}
-                      </p>
-                    )}
-
-                    <div className="mt-3 flex items-center justify-between">
-                      {vendor.category && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] rounded-full font-medium">
-                          {vendor.category}
-                        </span>
-                      )}
-
-                      {vendor.rating && (
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm font-semibold text-gray-700">
-                            {vendor.rating.toFixed(1)}
-                          </span>
-                          {vendor.total_reviews && (
-                            <span className="text-xs text-gray-500">
-                              ({vendor.total_reviews})
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {vendor.business_address && (
-                      <div className="mt-3 flex items-start gap-1.5 text-xs text-gray-500">
-                        <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                        <span className="line-clamp-1">{vendor.business_address}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {!searchQuery ? (
+          <EmptySearch />
+        ) : loading ? (
+          <SearchLoadingState />
+        ) : (
+          <Results vendors={vendors} products={products} query={searchQuery} />
         )}
       </div>
     </div>
+  );
+}
+
+/* ===================== UI SECTIONS ===================== */
+
+function EmptySearch() {
+  return (
+    <div className="text-center py-20">
+      <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+      <h2 className="text-xl font-semibold text-gray-700">
+        Search for vendors and products
+      </h2>
+    </div>
+  );
+}
+
+function Results({ vendors, products, query }: any) {
+  if (!vendors.length && !products.length) {
+    return (
+      <div className="text-center py-20">
+        <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold text-gray-700">
+          No results for "{query}"
+        </h2>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-10">
+      {vendors.length > 0 && (
+        <section>
+          <h2 className="text-xl font-bold mb-4 flex gap-2">
+            <Store className="w-5 h-5 text-purple-600" />
+            Vendors
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {vendors.map((v: any) => (
+              <VendorCard key={v.id} vendor={v} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {products.length > 0 && (
+        <section>
+          <h2 className="text-xl font-bold mb-4 flex gap-2">
+            <Package className="w-5 h-5 text-purple-600" />
+            Products
+          </h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {products.map((p: any) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ===================== CARDS ===================== */
+
+function VendorCard({ vendor }: any) {
+  const link = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+
+  return (
+    <Link href={link}>
+      <div className="bg-white rounded-2xl border hover:shadow-lg transition">
+        <div className="aspect-video bg-purple-600 flex items-center justify-center">
+          {vendor.logo_url ? (
+            <Image src={vendor.logo_url} alt="" width={80} height={80} />
+          ) : (
+            <Store className="w-12 h-12 text-white/50" />
+          )}
+        </div>
+        <div className="p-4">
+          <h3 className="font-semibold">{vendor.business_name || vendor.name}</h3>
+          {vendor.rating && (
+            <div className="flex gap-1 text-sm text-yellow-500">
+              <Star className="w-4 h-4 fill-yellow-400" />
+              {vendor.rating.toFixed(1)}
+            </div>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function ProductCard({ product }: any) {
+  const link = `/store/${product.vendorSlug}/product/${product.id}`;
+
+  return (
+    <Link href={link}>
+      <div className="bg-white rounded-2xl border hover:shadow-lg transition">
+        <div className="aspect-square bg-gray-100 flex items-center justify-center">
+          {product.images?.[0] ? (
+            <Image src={product.images[0]} alt="" fill className="object-cover" />
+          ) : (
+            <Package className="w-10 h-10 text-gray-300" />
+          )}
+        </div>
+        <div className="p-3">
+          <h3 className="font-medium text-sm">{product.name}</h3>
+          <p className="text-purple-600 font-bold">
+            ${Number(product.price).toFixed(2)}
+          </p>
+        </div>
+      </div>
+    </Link>
   );
 }
