@@ -16,15 +16,21 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
+import { nanoid } from "nanoid";
+
+import type {
+  Product,
+  ProductOptionGroup,
+  ProductOptionItem,
+} from "@/lib/types/firestore";
 
 export default function EditProductPage() {
-  const params = useParams<{ id: string }>();
-  const productId = params?.id;
+  const { id: productId } = useParams<{ id: string }>();
   const router = useRouter();
   const storage = getStorage();
 
   const [user, setUser] = useState<any>(null);
-  const [product, setProduct] = useState<any>(null);
+  const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newImage, setNewImage] = useState<File | null>(null);
@@ -32,11 +38,8 @@ export default function EditProductPage() {
   /* ---------------- AUTH ---------------- */
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        router.push("/login");
-        return;
-      }
-      setUser(u);
+      if (!u) router.push("/login");
+      else setUser(u);
     });
   }, [router]);
 
@@ -44,18 +47,9 @@ export default function EditProductPage() {
   useEffect(() => {
     if (!user || !productId) return;
 
-    async function loadProduct() {
-      setLoading(true);
-
-      const productRef = doc(
-        db,
-        "vendors",
-        user.uid,
-        "products",
-        productId
-      );
-
-      const snap = await getDoc(productRef);
+    async function load() {
+      const refDoc = doc(db, "vendors", user.uid, "products", productId);
+      const snap = await getDoc(refDoc);
 
       if (!snap.exists()) {
         alert("Product not found");
@@ -63,123 +57,220 @@ export default function EditProductPage() {
         return;
       }
 
-      setProduct({ id: snap.id, ...snap.data() });
+      setProduct({
+        id: snap.id,
+        ...(snap.data() as Omit<Product, "id">),
+      });
+
       setLoading(false);
     }
 
-    loadProduct();
+    load();
   }, [user, productId, router]);
 
+  /* ---------------- OPTION HELPERS ---------------- */
+  const addOptionGroup = () => {
+    if (!product) return;
+    setProduct({
+      ...product,
+      options: [
+        ...(product.options || []),
+        {
+          id: nanoid(),
+          title: "",
+          type: "single",
+          required: false,
+          options: [],
+        },
+      ],
+    });
+  };
+
+  const addOptionItem = (gi: number) => {
+    if (!product) return;
+    const updated = structuredClone(product.options || []);
+    updated[gi].options.push({
+      id: nanoid(),
+      label: "",
+      priceDelta: 0,
+    });
+    setProduct({ ...product, options: updated });
+  };
+
   /* ---------------- SAVE ---------------- */
-  async function handleSave(e: React.FormEvent) {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!user || !product) return;
+    if (!product || !user) return;
 
     setSaving(true);
 
-    try {
-      let imageUrl = product.images?.[0] || "";
+    let imageUrl = product.images?.[0] || "";
 
-      if (newImage) {
-        const imgRef = ref(
-          storage,
-          `products/${user.uid}/${Date.now()}-${newImage.name}`
-        );
-        await uploadBytes(imgRef, newImage);
-        imageUrl = await getDownloadURL(imgRef);
-      }
-
-      await updateDoc(
-        doc(db, "vendors", user.uid, "products", product.id),
-        {
-          name: product.name,
-          price: Number(product.price),
-          description: product.description || "",
-          images: imageUrl ? [imageUrl] : [],
-          updated_at: serverTimestamp(),
-        }
+    if (newImage) {
+      const imgRef = ref(
+        storage,
+        `products/${user.uid}/${Date.now()}-${newImage.name}`
       );
-
-      alert("Product updated");
-      router.push("/vendor/products");
-    } catch (err) {
-      console.error(err);
-      alert("Failed to save product");
+      await uploadBytes(imgRef, newImage);
+      imageUrl = await getDownloadURL(imgRef);
     }
 
-    setSaving(false);
+    await updateDoc(
+      doc(db, "vendors", user.uid, "products", product.id),
+      {
+        name: product.name,
+        description: product.description || "",
+        price: Number(product.price),
+        images: imageUrl ? [imageUrl] : [],
+        options: product.options || [],
+        updated_at: serverTimestamp(),
+      }
+    );
+
+    router.push("/vendor/products");
   }
 
-  /* ---------------- STATES ---------------- */
-  if (loading) return <p className="p-6">Loading…</p>;
-  if (!product) return null;
+  if (loading || !product) return <p className="p-6">Loading…</p>;
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="max-w-xl mx-auto p-4 md:p-6 bg-white rounded-xl shadow">
-      <h1 className="text-2xl md:text-3xl font-bold mb-6">
-        Edit Product
-      </h1>
+    <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow space-y-6">
+      <h1 className="text-3xl font-bold">Edit Product</h1>
 
-      <form onSubmit={handleSave} className="space-y-5">
-        <div>
-          <label className="font-medium">Product Name</label>
-          <input
-            className="mt-1 p-3 border w-full rounded-xl"
-            value={product.name}
-            onChange={(e) =>
-              setProduct({ ...product, name: e.target.value })
-            }
-            required
+      <form onSubmit={save} className="space-y-5">
+
+        <input
+          className="w-full p-3 border rounded-xl"
+          value={product.name}
+          onChange={(e) =>
+            setProduct({ ...product, name: e.target.value })
+          }
+          placeholder="Product name"
+        />
+
+        <input
+          type="number"
+          className="w-full p-3 border rounded-xl"
+          value={product.price}
+          onChange={(e) =>
+            setProduct({ ...product, price: Number(e.target.value) })
+          }
+          placeholder="Price"
+        />
+
+        <textarea
+          className="w-full p-3 border rounded-xl"
+          value={product.description || ""}
+          onChange={(e) =>
+            setProduct({ ...product, description: e.target.value })
+          }
+          placeholder="Description"
+        />
+
+        {product.images?.[0] && (
+          <img
+            src={product.images[0]}
+            className="w-32 h-32 object-cover rounded-lg"
           />
-        </div>
+        )}
 
-        <div>
-          <label className="font-medium">Price</label>
-          <input
-            type="number"
-            className="mt-1 p-3 border w-full rounded-xl"
-            value={product.price}
-            onChange={(e) =>
-              setProduct({ ...product, price: e.target.value })
-            }
-            required
-          />
-        </div>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setNewImage(e.target.files?.[0] || null)}
+        />
 
-        <div>
-          <label className="font-medium">Description</label>
-          <textarea
-            rows={4}
-            className="mt-1 p-3 border w-full rounded-xl"
-            value={product.description || ""}
-            onChange={(e) =>
-              setProduct({ ...product, description: e.target.value })
-            }
-          />
-        </div>
+        {/* OPTIONS */}
+        <div className="border rounded-xl p-4 space-y-4">
+          <h2 className="font-semibold">Product Options</h2>
 
-        <div>
-          <p className="font-medium mb-2">Current Image</p>
-          {product.images?.[0] && (
-            <img
-              src={product.images[0]}
-              className="w-32 h-32 rounded-lg object-cover mb-3"
-            />
-          )}
+          {(product.options || []).map((group, gi) => (
+            <div key={group.id} className="border rounded-lg p-3 space-y-2">
+              <input
+                className="w-full p-2 border rounded"
+                placeholder="Group title"
+                value={group.title}
+                onChange={(e) => {
+                  const updated = structuredClone(product.options || []);
+                  updated[gi].title = e.target.value;
+                  setProduct({ ...product, options: updated });
+                }}
+              />
 
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) =>
-              setNewImage(e.target.files?.[0] || null)
-            }
-          />
+              <select
+                className="w-full p-2 border rounded"
+                value={group.type}
+                onChange={(e) => {
+                  const updated = structuredClone(product.options || []);
+                  updated[gi].type = e.target.value as any;
+                  setProduct({ ...product, options: updated });
+                }}
+              >
+                <option value="single">Single select</option>
+                <option value="multiple">Multiple select</option>
+              </select>
+
+              <label className="flex gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={group.required}
+                  onChange={(e) => {
+                    const updated = structuredClone(product.options || []);
+                    updated[gi].required = e.target.checked;
+                    setProduct({ ...product, options: updated });
+                  }}
+                />
+                Required
+              </label>
+
+              {group.options.map((opt, oi) => (
+                <div key={opt.id} className="flex gap-2">
+                  <input
+                    className="flex-1 p-2 border rounded"
+                    placeholder="Label"
+                    value={opt.label}
+                    onChange={(e) => {
+                      const updated = structuredClone(product.options || []);
+                      updated[gi].options[oi].label = e.target.value;
+                      setProduct({ ...product, options: updated });
+                    }}
+                  />
+                  <input
+                    type="number"
+                    className="w-24 p-2 border rounded"
+                    placeholder="+$"
+                    value={opt.priceDelta}
+                    onChange={(e) => {
+                      const updated = structuredClone(product.options || []);
+                      updated[gi].options[oi].priceDelta = Number(e.target.value);
+                      setProduct({ ...product, options: updated });
+                    }}
+                  />
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => addOptionItem(gi)}
+                className="text-sm text-sb-primary"
+              >
+                + Add Option
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addOptionGroup}
+            className="text-sb-primary font-semibold"
+          >
+            + Add Option Group
+          </button>
         </div>
 
         <button
           disabled={saving}
-          className="bg-sb-primary text-white p-3 rounded-xl font-semibold w-full active:scale-95 disabled:opacity-50"
+          className="w-full bg-sb-primary text-white py-3 rounded-xl font-semibold"
         >
           {saving ? "Saving..." : "Save Changes"}
         </button>

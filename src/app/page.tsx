@@ -887,7 +887,7 @@ function TravelerSection() {
             <div className="relative">
               <div className="absolute -inset-4 bg-gradient-to-tr from-[var(--sb-accent)]/20 to-[var(--sb-primary)]/20 rounded-[3rem] blur-2xl" />
               <Image
-                src="/girl-phone.jpg"
+                src="/coco.jpg"
                 alt="Traveler using StackBot"
                 width={600}
                 height={700}
