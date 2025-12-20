@@ -26,20 +26,32 @@ export default function ProductClient({
   const finalPrice = finalUnitPrice * qty;
 
   const toggleOption = (group: any, option: any) => {
-    setSelected((prev) => {
-      if (group.type === "multiple") {
-        const exists = prev.find((o) => o.optionId === option.id);
-        return exists
-          ? prev.filter((o) => o.optionId !== option.id)
-          : [...prev, buildSelection(group, option)];
-      }
+  setSelected((prev) => {
+    const exists = prev.find(
+      (o) =>
+        o.groupId === group.id &&
+        o.optionId === option.id
+    );
 
-      return [
-        ...prev.filter((o) => o.groupId !== group.id),
-        buildSelection(group, option),
-      ];
-    });
-  };
+    // MULTI-SELECT (checkbox style)
+    if (group.type === "multiple") {
+      return exists
+        ? prev.filter((o) => o.optionId !== option.id)
+        : [...prev, buildSelection(group, option)];
+    }
+
+    // SINGLE-SELECT (radio style, BUT toggleable)
+    if (exists) {
+      // 🔥 clicking again deselects
+      return prev.filter((o) => o.optionId !== option.id);
+    }
+
+    return [
+      ...prev.filter((o) => o.groupId !== group.id),
+      buildSelection(group, option),
+    ];
+  });
+};
 
   const buildSelection = (group: any, option: any) => ({
     groupId: group.id,
