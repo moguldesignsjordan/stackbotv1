@@ -1,5 +1,6 @@
 import { Timestamp } from "firebase/firestore";
 
+
 /* =====================================================
    VENDOR TYPE
 ===================================================== */
@@ -102,6 +103,7 @@ export interface Product {
   options?: ProductOptionGroup[];
   customFields?: any[];
 
-  created_at?: any;
-  updated_at?: any;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
+
 }
