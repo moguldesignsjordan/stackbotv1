@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { db, auth } from "@/lib/firebase/config";
@@ -12,6 +12,7 @@ import {
   getDocs,
   deleteDoc,
   updateDoc,
+  addDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { Card } from "@/components/ui/Card";
@@ -42,13 +43,12 @@ interface Vendor {
   description?: string;
   categories?: string[];
   logoUrl?: string;
-  verified?: boolean;
   slug?: string;
   total_orders?: number;
   total_revenue?: number;
   rating?: number;
   stackbot_pin?: string;
-  status?: "active" | "suspended";
+  status?: "approved" | "suspended" | "pending";
 }
 
 interface Product {
@@ -62,24 +62,29 @@ interface Product {
 
 export default function AdminVendorDetailPage() {
   const { id: vendorId } = useParams<{ id: string }>();
+  const router = useRouter();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [approving, setApproving] = useState(false);
-  const [suspending, setSuspending] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
-  const isSuspended = useMemo(() => vendor?.status === "suspended", [vendor]);
+  const isSuspended = useMemo(
+    () => vendor?.status === "suspended",
+    [vendor]
+  );
 
+  /* ===============================
+     LOAD VENDOR + PRODUCTS
+  =============================== */
   useEffect(() => {
     if (!vendorId) return;
 
     const load = async () => {
       setLoading(true);
       try {
-        // Vendor
         const vendorRef = doc(db, "vendors", vendorId);
         const vendorSnap = await getDoc(vendorRef);
 
@@ -89,13 +94,25 @@ export default function AdminVendorDetailPage() {
           return;
         }
 
-        setVendor({ id: vendorSnap.id, ...(vendorSnap.data() as any) });
+        const vendorData = {
+          id: vendorSnap.id,
+          ...(vendorSnap.data() as any),
+        } as Vendor;
 
-        // ✅ Products from vendor subcollection
-        const prodSnap = await getDocs(collection(db, "vendors", vendorId, "products"));
-        setProducts(prodSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+        setVendor(vendorData);
+
+        const prodSnap = await getDocs(
+          collection(db, "vendors", vendorId, "products")
+        );
+
+        setProducts(
+          prodSnap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }))
+        );
       } catch (err) {
-        console.error("Error loading admin vendor detail", err);
+        console.error("Admin vendor load error:", err);
       } finally {
         setLoading(false);
       }
@@ -104,86 +121,126 @@ export default function AdminVendorDetailPage() {
     load();
   }, [vendorId]);
 
-  async function approveVendor() {
-    if (!vendorId) return;
+  /* ===============================
+     AUDIT LOG
+  =============================== */
+  async function logAudit(action: string) {
+    const admin = auth.currentUser;
+    if (!admin || !vendor) return;
 
-    try {
-      setApproving(true);
-
-      const user = auth.currentUser;
-      if (!user) return alert("You must be logged in!");
-
-      const token = await user.getIdToken(true);
-
-      const res = await fetch("https://approvevendor-j5kxrjebxa-uc.a.run.app", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ vendorId }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(`Approval failed: ${data.error || "Unknown error"}`);
-        return;
-      }
-
-      alert(`Vendor approved successfully!\n\nEmail: ${data.email}`);
-      window.location.reload();
-    } catch (err: any) {
-      console.error("Approve error:", err);
-      alert("Unable to approve vendor: " + err.message);
-    } finally {
-      setApproving(false);
-    }
+    await addDoc(collection(db, "admin_audit_logs"), {
+      action,
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      adminUid: admin.uid,
+      adminEmail: admin.email,
+      timestamp: serverTimestamp(),
+    });
   }
 
+  /* ===============================
+     SUSPEND / REINSTATE
+  =============================== */
   async function toggleSuspension() {
     if (!vendorId || !vendor) return;
 
-    const nextStatus: Vendor["status"] = vendor.status === "suspended" ? "active" : "suspended";
+    const nextStatus =
+      vendor.status === "suspended" ? "approved" : "suspended";
+
     const confirmMsg =
       nextStatus === "suspended"
-        ? "Suspend this vendor? This should block them from operating in the vendor portal."
-        : "Unsuspend this vendor and restore access?";
+        ? "Suspend this vendor? They will be hidden everywhere and unable to log in."
+        : "Reinstate this vendor and restore access?";
 
     if (!confirm(confirmMsg)) return;
 
     try {
-      setSuspending(true);
+      setWorking(true);
+
       await updateDoc(doc(db, "vendors", vendorId), {
         status: nextStatus,
         updated_at: serverTimestamp(),
       });
+
+      await fetch(
+        `/api/admin/${nextStatus === "suspended" ? "disable-user" : "enable-user"}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ uid: vendorId }),
+        }
+      );
+
+      await logAudit(
+        nextStatus === "suspended"
+          ? "suspend_vendor"
+          : "reinstate_vendor"
+      );
+
       setVendor({ ...vendor, status: nextStatus });
     } catch (e) {
-      console.error("Suspend/unsuspend failed", e);
+      console.error("Suspend/Reinstate failed:", e);
       alert("Failed to update vendor status.");
     } finally {
-      setSuspending(false);
+      setWorking(false);
     }
   }
 
+  /* ===============================
+     DELETE PRODUCT
+  =============================== */
   async function deleteProduct(productId: string) {
     if (!vendorId) return;
     if (!confirm("Delete this product permanently?")) return;
 
     try {
-      setDeletingId(productId);
-      await deleteDoc(doc(db, "vendors", vendorId, "products", productId));
-
-      // Update UI immediately
+      setDeletingProductId(productId);
+      await deleteDoc(
+        doc(db, "vendors", vendorId, "products", productId)
+      );
       setProducts((prev) => prev.filter((p) => p.id !== productId));
     } catch (e) {
-      console.error("Delete product failed", e);
+      console.error("Delete product failed:", e);
       alert("Failed to delete product.");
     } finally {
-      setDeletingId(null);
+      setDeletingProductId(null);
     }
   }
 
+  /* ===============================
+     DELETE VENDOR (CASCADE)
+  =============================== */
+  async function deleteVendor() {
+    if (!vendorId || !vendor) return;
+
+    if (
+      !confirm(
+        "This will permanently delete the vendor, all products, disable auth, and remove storage files. This cannot be undone."
+      )
+    )
+      return;
+
+    try {
+      setWorking(true);
+
+      await fetch("/api/admin/delete-vendor", {
+        method: "POST",
+        body: JSON.stringify({ vendorId }),
+      });
+
+      await logAudit("delete_vendor");
+
+      router.push("/admin/vendors");
+    } catch (e) {
+      console.error("Delete vendor failed:", e);
+      alert("Failed to delete vendor.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  /* ===============================
+     UI STATES
+  =============================== */
   if (loading) return <LoadingSpinner text="Loading vendor..." />;
 
   if (!vendor) {
@@ -218,71 +275,67 @@ export default function AdminVendorDetailPage() {
           </h1>
 
           {vendor.status === "suspended" && (
-            <Badge variant="danger" className="ml-2">
-              Suspended
-            </Badge>
+            <Badge variant="danger">Suspended</Badge>
           )}
         </div>
 
         <div className="flex items-center gap-3">
-          {!vendor.verified && (
-            <Button onClick={approveVendor} loading={approving} variant="primary">
-              Approve Vendor
-            </Button>
-          )}
-
           <Button
             onClick={toggleSuspension}
-            loading={suspending}
+            loading={working}
             variant={isSuspended ? "secondary" : "danger"}
           >
             {isSuspended ? (
-              <span className="inline-flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4" /> Unsuspend
-              </span>
+              <>
+                <ShieldCheck className="h-4 w-4 mr-1" />
+                Reinstate
+              </>
             ) : (
-              <span className="inline-flex items-center gap-2">
-                <ShieldBan className="h-4 w-4" /> Suspend
-              </span>
+              <>
+                <ShieldBan className="h-4 w-4 mr-1" />
+                Suspend
+              </>
             )}
           </Button>
 
-          <Badge variant={vendor.verified ? "success" : "warning"}>
-            {vendor.verified ? "Approved" : "Pending"}
-          </Badge>
+          <Button
+            onClick={deleteVendor}
+            loading={working}
+            variant="destructive"
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete Vendor
+          </Button>
         </div>
       </div>
 
-      {/* PUBLIC STOREFRONT LINK */}
+      {/* PUBLIC LINK */}
       {vendor.slug && (
         <Link
           href={`/store/${vendor.slug}`}
           className="text-sb-primary font-semibold underline text-sm"
           target="_blank"
         >
-          View Public Storefront → /store/{vendor.slug}
+          View Public Storefront →
         </Link>
       )}
 
       {/* PROFILE + METRICS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Profile */}
         <Card padding="lg" className="lg:col-span-2">
-          <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex gap-6">
             {vendor.logoUrl && (
-              <div className="flex-shrink-0">
-                <Image
-                  src={vendor.logoUrl}
-                  alt={vendor.name}
-                  width={96}
-                  height={96}
-                  className="rounded-xl object-cover bg-gray-100"
-                />
-              </div>
+              <Image
+                src={vendor.logoUrl}
+                alt={vendor.name}
+                width={96}
+                height={96}
+                className="rounded-xl bg-gray-100"
+              />
             )}
 
-            <div className="flex-1 space-y-3">
-              <p className="text-gray-700">{vendor.description || "No description provided."}</p>
+            <div className="space-y-3">
+              <p>{vendor.description || "No description provided."}</p>
 
               <div className="flex flex-wrap gap-2">
                 {vendor.categories?.map((c) => (
@@ -292,97 +345,77 @@ export default function AdminVendorDetailPage() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 {vendor.address && (
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 mt-0.5 text-gray-500" />
-                    <span>{vendor.address}</span>
+                  <div className="flex gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {vendor.address}
                   </div>
                 )}
                 {vendor.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-gray-500" />
-                    <span>{vendor.phone}</span>
+                  <div className="flex gap-2">
+                    <Phone className="h-4 w-4" />
+                    {vendor.phone}
                   </div>
                 )}
                 {vendor.email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-gray-500" />
-                    <span>{vendor.email}</span>
+                  <div className="flex gap-2">
+                    <Mail className="h-4 w-4" />
+                    {vendor.email}
                   </div>
                 )}
                 {vendor.website && (
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-4 w-4 text-gray-500" />
-                    <a
-                      href={vendor.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sb-primary hover:underline"
-                    >
-                      {vendor.website}
-                    </a>
-                  </div>
+                  <a
+                    href={vendor.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex gap-2 text-sb-primary underline"
+                  >
+                    <Globe className="h-4 w-4" />
+                    Website
+                  </a>
                 )}
               </div>
             </div>
           </div>
         </Card>
 
-        {/* Metrics */}
         <Card padding="lg">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Vendor Performance</h2>
-
-          <dl className="space-y-3 text-sm">
-            <div className="flex items-center justify-between">
-              <dt className="text-gray-600">Total Orders</dt>
-              <dd className="font-semibold">{vendor.total_orders ?? 0}</dd>
+          <h2 className="font-semibold mb-3">Performance</h2>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span>Total Orders</span>
+              <strong>{vendor.total_orders ?? 0}</strong>
             </div>
-
-            <div className="flex items-center justify-between">
-              <dt className="text-gray-600">Total Revenue</dt>
-              <dd className="font-semibold">
-                ${((vendor.total_revenue ?? 0) as number).toLocaleString()}
-              </dd>
+            <div className="flex justify-between">
+              <span>Total Revenue</span>
+              <strong>${(vendor.total_revenue ?? 0).toLocaleString()}</strong>
             </div>
-
-            <div className="flex items-center justify-between">
-              <dt className="text-gray-600">Rating</dt>
-              <dd className="font-semibold">{vendor.rating ? `${vendor.rating.toFixed(1)} / 5` : "N/A"}</dd>
+            <div className="flex justify-between">
+              <span>Rating</span>
+              <strong>{vendor.rating ?? "N/A"}</strong>
             </div>
-
-            {vendor.stackbot_pin && (
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-600">StackBot PIN</dt>
-                <dd className="font-mono font-semibold">{vendor.stackbot_pin}</dd>
-              </div>
-            )}
-          </dl>
+          </div>
         </Card>
       </div>
 
       {/* PRODUCTS */}
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <Package className="h-5 w-5 text-sb-primary" />
-          Products
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Package className="h-5 w-5" /> Products
         </h2>
 
         {products.length === 0 ? (
-          <p className="text-gray-600 text-sm">No products found for this vendor.</p>
+          <p className="text-sm text-gray-600">No products found.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {products.map((p) => (
               <Card key={p.id} padding="md">
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                      <p className="text-xs text-gray-500">ID: {p.id}</p>
-                    </div>
-
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <strong>{p.name}</strong>
                     {typeof p.price === "number" && (
-                      <span className="text-sm font-semibold text-sb-primary">${p.price.toFixed(2)}</span>
+                      <span>${p.price.toFixed(2)}</span>
                     )}
                   </div>
 
@@ -392,22 +425,24 @@ export default function AdminVendorDetailPage() {
                     </Badge>
                   )}
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex gap-3 pt-2">
                     <Link
                       href={`/admin/vendors/${vendorId}/products/${p.id}/edit`}
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-sb-primary hover:underline"
+                      className="text-sm text-sb-primary underline"
                     >
-                      <Pencil className="h-4 w-4" /> Edit
+                      <Pencil className="h-4 w-4 inline mr-1" />
+                      Edit
                     </Link>
 
                     <button
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50"
-                      disabled={deletingId === p.id}
+                      disabled={deletingProductId === p.id}
                       onClick={() => deleteProduct(p.id)}
-                      type="button"
+                      className="text-sm text-red-600 underline disabled:opacity-50"
                     >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingId === p.id ? "Deleting..." : "Delete"}
+                      <Trash2 className="h-4 w-4 inline mr-1" />
+                      {deletingProductId === p.id
+                        ? "Deleting..."
+                        : "Delete"}
                     </button>
                   </div>
                 </div>

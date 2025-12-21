@@ -8,10 +8,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { db } from "@/lib/firebase/config";
 import { collection, getDocs } from "firebase/firestore";
-import { Search, Store, ArrowLeft, Package, Star } from "lucide-react";
+import {
+  Search,
+  Store,
+  ArrowLeft,
+  Package,
+  Star,
+  MapPin,
+  CheckCircle2,
+  Sparkles,
+} from "lucide-react";
 
 /* ======================================================
-   TYPES (🔥 FIX)
+   TYPES
 ====================================================== */
 
 type Vendor = {
@@ -23,8 +32,17 @@ type Vendor = {
   business_description?: string;
   category?: string;
   categories?: string[];
-  logo_url?: string;
+  logoUrl?: string;
+  cover_image_url?: string;
   rating?: number;
+  featured?: boolean;
+  verified?: boolean;
+  isNew?: boolean;
+  address?: string;
+  location?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
 };
 
 type Product = {
@@ -246,7 +264,7 @@ function Results({
     <div className="space-y-10">
       {vendors.length > 0 && (
         <section>
-          <h2 className="text-xl font-bold mb-4 flex gap-2">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Store className="w-5 h-5 text-purple-600" />
             Vendors
           </h2>
@@ -260,7 +278,7 @@ function Results({
 
       {products.length > 0 && (
         <section>
-          <h2 className="text-xl font-bold mb-4 flex gap-2">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Package className="w-5 h-5 text-purple-600" />
             Products
           </h2>
@@ -276,30 +294,104 @@ function Results({
 }
 
 /* ======================================================
-   CARDS
+   VENDOR CARD (Matching Homepage Design)
 ====================================================== */
 
 function VendorCard({ vendor }: { vendor: Vendor }) {
   const link = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+  const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
+  const description = vendor.business_description || vendor.description;
+  const category = vendor.category || vendor.categories?.[0];
+  
+  // Build location string
+  const locationParts = [
+    vendor.address,
+    vendor.city,
+    vendor.state,
+    vendor.zip,
+  ].filter(Boolean);
+  const locationString = vendor.location || locationParts.join(", ");
+
+  // Use cover image as background, or logo, or fallback to gradient
+  const hasBackgroundImage = vendor.cover_image_url || vendor.logoUrl;
 
   return (
-    <Link href={link}>
-      <div className="bg-white rounded-2xl border hover:shadow-lg transition">
-        <div className="aspect-video bg-purple-600 flex items-center justify-center">
-          {vendor.logo_url ? (
-            <Image src={vendor.logo_url} alt="" width={80} height={80} />
-          ) : (
-            <Store className="w-12 h-12 text-white/50" />
+    <Link href={link} className="block group">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300 hover:-translate-y-1">
+        {/* Image/Logo Section */}
+        <div className="relative aspect-[4/3] bg-gradient-to-br from-purple-600 to-purple-700 flex items-center justify-center overflow-hidden">
+          {/* Background Image (cover or logo) */}
+          {hasBackgroundImage && (
+            <Image
+              src={vendor.cover_image_url || vendor.logoUrl || ""}
+              alt={displayName}
+              fill
+              className="object-cover"
+            />
+          )}
+
+          {/* Featured Badge */}
+          {vendor.featured && (
+            <div className="absolute top-3 left-3 z-10">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-sm font-medium text-purple-700 shadow-sm">
+                <Sparkles className="w-4 h-4" />
+                Featured
+              </span>
+            </div>
+          )}
+
+          {/* Centered Logo (only show if no background image, or as overlay) */}
+          {!hasBackgroundImage && (
+            <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center">
+              <Store className="w-12 h-12 text-white/60" />
+            </div>
           )}
         </div>
-        <div className="p-4">
-          <h3 className="font-semibold">
-            {vendor.business_name || vendor.name}
-          </h3>
-          {vendor.rating && (
-            <div className="flex gap-1 text-sm text-yellow-500">
-              <Star className="w-4 h-4 fill-yellow-400" />
-              {vendor.rating.toFixed(1)}
+
+        {/* Content Section */}
+        <div className="p-4 space-y-3">
+          {/* Name & Verified Badge */}
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-semibold text-gray-900 text-lg leading-tight group-hover:text-purple-700 transition-colors">
+              {displayName}
+            </h3>
+            {vendor.verified && (
+              <CheckCircle2 className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+            )}
+          </div>
+
+          {/* Description */}
+          {description && (
+            <p className="text-gray-600 text-sm line-clamp-2">{description}</p>
+          )}
+
+          {/* Category & New Badge Row */}
+          <div className="flex items-center justify-between gap-2">
+            {category && (
+              <span className="inline-flex px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">
+                {category}
+              </span>
+            )}
+            {vendor.isNew && (
+              <span className="text-sm text-gray-400 font-medium">New</span>
+            )}
+          </div>
+
+          {/* Location */}
+          {locationString && (
+            <div className="flex items-center gap-1.5 text-gray-500 text-sm">
+              <MapPin className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{locationString}</span>
+            </div>
+          )}
+
+          {/* Rating (if exists) */}
+          {vendor.rating && vendor.rating > 0 && (
+            <div className="flex items-center gap-1 text-sm">
+              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+              <span className="font-medium text-gray-700">
+                {vendor.rating.toFixed(1)}
+              </span>
             </div>
           )}
         </div>
@@ -308,17 +400,21 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   );
 }
 
+/* ======================================================
+   PRODUCT CARD
+====================================================== */
+
 function ProductCard({ product }: { product: Product }) {
   const link = `/store/${product.vendorSlug}/product/${product.id}`;
 
   return (
     <Link href={link}>
-      <div className="bg-white rounded-2xl border hover:shadow-lg transition">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
         <div className="relative aspect-square bg-gray-100">
           {product.images?.[0] ? (
             <Image
               src={product.images[0]}
-              alt=""
+              alt={product.name || "Product"}
               fill
               className="object-cover"
             />
@@ -329,8 +425,10 @@ function ProductCard({ product }: { product: Product }) {
           )}
         </div>
         <div className="p-3">
-          <h3 className="font-medium text-sm">{product.name}</h3>
-          <p className="text-purple-600 font-bold">
+          <h3 className="font-medium text-sm text-gray-900 line-clamp-2">
+            {product.name}
+          </h3>
+          <p className="text-purple-600 font-bold mt-1">
             ${Number(product.price || 0).toFixed(2)}
           </p>
         </div>

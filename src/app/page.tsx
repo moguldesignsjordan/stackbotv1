@@ -385,52 +385,59 @@ export default function HomePage() {
 // DATA FETCHING FUNCTIONS (Optimized)
 ////////////////////////////////////////////////////////////////////////////////
 
-async function fetchVendors(): Promise<Vendor[]> {
-  let vendorsList: Vendor[] = [];
+// imports here...
 
-  // Try status == "approved" first
+////////////////////////////////////////////////////////////////////////////////
+// DATA FETCHING FUNCTIONS (TOP LEVEL)
+////////////////////////////////////////////////////////////////////////////////
+
+async function fetchVendors(): Promise<Vendor[]> {
   const approvedSnap = await getDocs(
-    query(collection(db, "vendors"), where("status", "==", "approved"), limit(8))
+    query(
+      collection(db, "vendors"),
+      where("status", "==", "approved"),
+      limit(8)
+    )
   );
 
-  if (approvedSnap.docs.length > 0) {
-    vendorsList = approvedSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Vendor));
-  } else {
-    // Fallback: Try verified == true
-    const verifiedSnap = await getDocs(
-      query(collection(db, "vendors"), where("verified", "==", true), limit(8))
-    );
-
-    if (verifiedSnap.docs.length > 0) {
-      vendorsList = verifiedSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Vendor));
-    } else {
-      // Last fallback: Get all vendors
-      const allVendorsSnap = await getDocs(query(collection(db, "vendors"), limit(8)));
-      vendorsList = allVendorsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Vendor));
-    }
+  if (!approvedSnap.empty) {
+    return approvedSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as Vendor))
+      .sort(sortByCreatedAt);
   }
 
-  // Sort by created_at
-  return vendorsList.sort((a, b) => {
-    const aTime = a.created_at?.toMillis?.() || a.created_at?.seconds * 1000 || 0;
-    const bTime = b.created_at?.toMillis?.() || b.created_at?.seconds * 1000 || 0;
-    return bTime - aTime;
-  });
+  const legacySnap = await getDocs(
+    query(
+      collection(db, "vendors"),
+      where("verified", "==", true),
+      limit(8)
+    )
+  );
+
+  return legacySnap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as Vendor))
+    .filter(
+      (v) => v.status !== "suspended" && v.status !== "deleted"
+    )
+    .sort(sortByCreatedAt);
 }
 
-async function fetchProductsFromVendors(vendorsList: Vendor[]): Promise<ProductWithVendor[]> {
+async function fetchProductsFromVendors(
+  vendorsList: Vendor[]
+): Promise<ProductWithVendor[]> {
   let allProducts: ProductWithVendor[] = [];
 
-  // Fetch products directly from each vendor's subcollection
-  // This ensures we only get real products from real vendors
   const productPromises = vendorsList.slice(0, 6).map(async (vendor) => {
     try {
+      // 🚫 HARD STOP — skip suspended vendors
+      if (vendor.status && vendor.status !== "approved") return [];
+
       const productsSnap = await getDocs(
         collection(db, "vendors", vendor.id, "products")
       );
-      
+
       return productsSnap.docs
-        .filter(d => d.data().active !== false)
+        .filter((d) => d.data().active !== false)
         .map((d) => {
           const productData = d.data();
           return {
@@ -438,11 +445,17 @@ async function fetchProductsFromVendors(vendorsList: Vendor[]): Promise<ProductW
             ...productData,
             vendorId: vendor.id,
             vendorSlug: vendor.slug || vendor.id,
-            vendor_name: productData.vendor_name || vendor.name || vendor.business_name,
+            vendor_name:
+              productData.vendor_name ||
+              vendor.name ||
+              vendor.business_name,
           } as ProductWithVendor;
         });
     } catch (err) {
-      console.log(`Error fetching products for vendor ${vendor.id}:`, err);
+      console.error(
+        `Error fetching products for vendor ${vendor.id}`,
+        err
+      );
       return [];
     }
   });
@@ -450,12 +463,23 @@ async function fetchProductsFromVendors(vendorsList: Vendor[]): Promise<ProductW
   const results = await Promise.all(productPromises);
   allProducts = results.flat();
 
-  console.log(`Fetched ${allProducts.length} products from ${vendorsList.length} vendors`);
-  
-  // Shuffle and limit to 8 products for variety
   return allProducts
     .sort(() => Math.random() - 0.5)
     .slice(0, 8);
+}
+
+function sortByCreatedAt(a: Vendor, b: Vendor) {
+  const aTime =
+    a.created_at?.toMillis?.() ||
+    a.created_at?.seconds * 1000 ||
+    0;
+
+  const bTime =
+    b.created_at?.toMillis?.() ||
+    b.created_at?.seconds * 1000 ||
+    0;
+
+  return bTime - aTime;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
