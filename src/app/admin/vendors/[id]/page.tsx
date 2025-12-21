@@ -206,38 +206,48 @@ export default function AdminVendorDetailPage() {
     }
   }
 
-  /* ===============================
-     DELETE VENDOR (CASCADE)
-  =============================== */
-  async function deleteVendor() {
-    if (!vendorId || !vendor) return;
+/* ===============================
+   DELETE VENDOR (CASCADE)
+=============================== */
+async function deleteVendor() {
+  if (!vendorId || !vendor) return;
 
-    if (
-      !confirm(
-        "This will permanently delete the vendor, all products, disable auth, and remove storage files. This cannot be undone."
-      )
+  if (
+    !confirm(
+      "This will permanently delete the vendor, all products, disable auth, and remove storage files. This cannot be undone."
     )
-      return;
+  )
+    return;
 
-    try {
-      setWorking(true);
+  try {
+    setWorking(true);
 
-      await fetch("/api/admin/delete-vendor", {
-        method: "POST",
-        body: JSON.stringify({ vendorId }),
-      });
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error("Not authenticated");
 
-      await logAudit("delete_vendor");
+    const res = await fetch("/api/admin/delete-vendor", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ vendorId }),
+    });
 
-      router.push("/admin/vendors");
-    } catch (e) {
-      console.error("Delete vendor failed:", e);
-      alert("Failed to delete vendor.");
-    } finally {
-      setWorking(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Delete failed");
     }
-  }
 
+    await logAudit("delete_vendor");
+    router.push("/admin/vendors");
+  } catch (e: any) {
+    console.error("Delete vendor failed:", e);
+    alert(e.message || "Failed to delete vendor.");
+  } finally {
+    setWorking(false);
+  }
+}
   /* ===============================
      UI STATES
   =============================== */

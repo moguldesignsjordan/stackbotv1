@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
-    "start": "npm run shell",
+    "build": "NODE_OPTIONS=--openssl-legacy-provider next build",
+    "start": "NODE_OPTIONS=--openssl-legacy-provider next start",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
   },
@@ -24,9 +25,11 @@
   },
 
   "devDependencies": {
+    "dev": "NODE_OPTIONS=--openssl-legacy-provider next dev",
     "eslint": "8.57.0",
     "eslint-config-google": "0.14.0",
     "firebase-functions-test": "3.4.1"
   }
+  
 }
 

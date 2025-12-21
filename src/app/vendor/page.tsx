@@ -9,7 +9,6 @@ import {
   collection,
   getDocs,
   query,
-  where,
   updateDoc,
   orderBy,
   limit,
@@ -43,40 +42,62 @@ export default function VendorDashboard() {
 
   /* ---------------- AUTH ---------------- */
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      if (u) setUser(u);
+    return onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        // Force token refresh to get latest claims
+        await u.getIdToken(true);
+        setUser(u);
+      }
     });
   }, []);
 
   /* ---------------- LOAD DATA ---------------- */
   const loadDashboard = useCallback(async (u: any) => {
-    const vendorRef = doc(db, "vendors", u.uid);
-    const vendorSnap = await getDoc(vendorRef);
+    try {
+      // 1. Load vendor profile
+      const vendorRef = doc(db, "vendors", u.uid);
+      const vendorSnap = await getDoc(vendorRef);
 
-    if (!vendorSnap.exists()) {
-      setVendor({ missing: true });
+      if (!vendorSnap.exists()) {
+        setVendor({ missing: true });
+        setLoading(false);
+        return;
+      }
+
+      const vendorData = vendorSnap.data();
+      setVendor(vendorData);
+
+      // 2. Load products from SUBCOLLECTION: vendors/{uid}/products
+      try {
+        const productsSnap = await getDocs(
+          collection(db, "vendors", u.uid, "products")
+        );
+        setProducts(productsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("Products load error:", err);
+        setProducts([]);
+      }
+
+      // 3. Load orders from SUBCOLLECTION: vendors/{uid}/orders
+      try {
+        const ordersSnap = await getDocs(
+          query(
+            collection(db, "vendors", u.uid, "orders"),
+            orderBy("timestamp", "desc"),
+            limit(5)
+          )
+        );
+        setOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("Orders load error:", err);
+        setOrders([]);
+      }
+
       setLoading(false);
-      return;
+    } catch (err) {
+      console.error("Dashboard error:", err);
+      setLoading(false);
     }
-
-    const vendorData = vendorSnap.data();
-    setVendor(vendorData);
-
-    const productsSnap = await getDocs(
-      query(collection(db, "products"), where("vendorId", "==", u.uid))
-    );
-    setProducts(productsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-
-    const ordersSnap = await getDocs(
-      query(
-        collection(db, "vendors", u.uid, "orders"),
-        orderBy("timestamp", "desc"),
-        limit(5)
-      )
-    );
-    setOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-
-    setLoading(false);
   }, []);
 
   useEffect(() => {
