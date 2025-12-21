@@ -1,18 +1,23 @@
 import admin from "firebase-admin";
 
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+const storageBucket = process.env.FIREBASE_STORAGE_BUCKET;
+
 const hasCredentials =
-  process.env.FIREBASE_PROJECT_ID &&
-  process.env.FIREBASE_CLIENT_EMAIL &&
-  process.env.FIREBASE_PRIVATE_KEY;
+  !!projectId &&
+  !!clientEmail &&
+  !!privateKey;
 
 if (!admin.apps.length && hasCredentials) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      projectId,
+      clientEmail,
+      privateKey: privateKey!.replace(/\\n/g, "\n"), // ✅ FIX
     }),
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    storageBucket,
   });
 }
 
