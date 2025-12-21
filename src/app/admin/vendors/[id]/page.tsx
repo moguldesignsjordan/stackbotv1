@@ -301,7 +301,7 @@ export default function AdminVendorDetailPage() {
           <Button
             onClick={deleteVendor}
             loading={working}
-            variant="destructive"
+            variant="danger"
           >
             <Trash2 className="h-4 w-4 mr-1" />
             Delete Vendor
