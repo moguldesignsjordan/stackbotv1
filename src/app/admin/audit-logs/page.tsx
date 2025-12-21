@@ -73,9 +73,10 @@ export default function AdminAuditLogsPage() {
                   </p>
                 </div>
 
-                <Badge variant="secondary">
-                  {log.timestamp?.toDate?.().toLocaleString() || "—"}
-                </Badge>
+<Badge variant="default">
+  {log.timestamp?.toDate?.().toLocaleString() || "—"}
+</Badge>
+
               </div>
             </Card>
           ))}
