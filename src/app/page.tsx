@@ -526,7 +526,7 @@ function Navbar() {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
             {[
-              { href: "/products", label: "Browse" },
+              { href: "/products", },
               { href: "/vendors", label: "Vendors" },
               { href: "/vendor-signup", label: "Become a Vendor" },
             ].map((link) => (

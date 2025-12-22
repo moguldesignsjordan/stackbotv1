@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-[var(--sb-dark)] text-white py-16 px-4">
+      <div className="bg-[#1a1a2e] text-white py-16 px-4">
         <div className="max-w-3xl mx-auto">
           <Link
             href="/"
@@ -36,8 +36,8 @@ export default function TermsPage() {
           {/* Agreement */}
           <section>
             <p className="text-gray-600 leading-relaxed">
-              By accessing or using StackBot's services, you agree to be bound by these Terms of 
-              Service. StackBot Global, S.R.L. ("StackBot", "we", "us") operates an online marketplace 
+              By accessing or using StackBot&apos;s services, you agree to be bound by these Terms of 
+              Service. StackBot Global, S.R.L. (&quot;StackBot&quot;, &quot;we&quot;, &quot;us&quot;) operates an online marketplace 
               connecting customers with local vendors and delivery services in the Dominican Republic.
             </p>
           </section>
@@ -54,7 +54,7 @@ export default function TermsPage() {
           {/* Platform Services */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <ShoppingBag className="w-5 h-5 text-[var(--sb-primary)]" />
+              <ShoppingBag className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Platform Services</h2>
             </div>
             <p className="text-gray-600 leading-relaxed mb-3">
@@ -62,19 +62,19 @@ export default function TermsPage() {
             </p>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Customers to browse and purchase products from third-party vendors
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Vendors to list and sell their products through our marketplace
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Coordination of delivery and logistics services
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Warehouse storage and pickup services
               </li>
             </ul>
@@ -83,24 +83,24 @@ export default function TermsPage() {
           {/* User Accounts */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Users className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Users className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">User Accounts</h2>
             </div>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 You must be at least 18 years old to create an account
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 You are responsible for maintaining the security of your account credentials
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 All information provided must be accurate and current
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 One account per person; duplicate accounts may be terminated
               </li>
             </ul>
@@ -109,24 +109,24 @@ export default function TermsPage() {
           {/* Orders & Pricing */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <CreditCard className="w-5 h-5 text-[var(--sb-primary)]" />
+              <CreditCard className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Orders & Pricing</h2>
             </div>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 All prices are displayed in <strong>Dominican Pesos (RD$)</strong> unless otherwise stated
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Prices include applicable taxes (ITBIS) as required by Dominican law
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Delivery fees are calculated based on distance and displayed at checkout
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 We reserve the right to cancel orders due to pricing errors or unavailability
               </li>
             </ul>
@@ -135,24 +135,24 @@ export default function TermsPage() {
           {/* Delivery */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Truck className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Truck className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Delivery & Pickup</h2>
             </div>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Delivery times are estimates and not guaranteed
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 A valid 6-digit PIN is required to receive deliveries
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 For warehouse pickup, valid ID and order number are required
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Unclaimed orders may be returned to vendor after 48 hours
               </li>
             </ul>
@@ -207,7 +207,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Limitation of Liability</h2>
             <p className="text-gray-600 text-sm leading-relaxed">
-              To the maximum extent permitted by Dominican law, StackBot's liability for any claim 
+              To the maximum extent permitted by Dominican law, StackBot&apos;s liability for any claim 
               arising from these terms or your use of the platform is limited to the amount you paid 
               for the specific order giving rise to the claim. StackBot is not liable for indirect, 
               incidental, or consequential damages.
@@ -242,7 +242,7 @@ export default function TermsPage() {
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="mailto:support@stackbot.com"
-                className="inline-flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-medium hover:bg-[var(--sb-primary)]/90 transition-colors"
+                className="inline-flex items-center justify-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#55529d]/90 transition-colors"
               >
                 Email Support
               </a>

@@ -11,7 +11,7 @@ export default function CancellationsPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-[var(--sb-dark)] text-white py-16 px-4">
+      <div className="bg-[#1a1a2e] text-white py-16 px-4">
         <div className="max-w-3xl mx-auto">
           <Link
             href="/"
@@ -36,7 +36,7 @@ export default function CancellationsPage() {
           {/* Cancellation Window */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Clock className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Clock className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Cancellation Window</h2>
             </div>
             <p className="text-gray-600 leading-relaxed mb-4">
@@ -78,7 +78,7 @@ export default function CancellationsPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">How to Cancel</h2>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   1
                 </span>
                 <div>
@@ -89,7 +89,7 @@ export default function CancellationsPage() {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   2
                 </span>
                 <div>
@@ -119,15 +119,15 @@ export default function CancellationsPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Refund Timeline</h2>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Credit/Debit Cards:</strong> 5-7 business days</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>StackBot Credit:</strong> Instant (can be used for future orders)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Bank Transfer:</strong> 3-5 business days</span>
               </li>
             </ul>
@@ -142,7 +142,7 @@ export default function CancellationsPage() {
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="mailto:support@stackbot.com"
-                className="inline-flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-medium hover:bg-[var(--sb-primary)]/90 transition-colors"
+                className="inline-flex items-center justify-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#55529d]/90 transition-colors"
               >
                 Email Support
               </a>

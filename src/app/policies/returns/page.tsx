@@ -11,7 +11,7 @@ export default function ReturnsPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-[var(--sb-dark)] text-white py-16 px-4">
+      <div className="bg-[#1a1a2e] text-white py-16 px-4">
         <div className="max-w-3xl mx-auto">
           <Link
             href="/"
@@ -21,8 +21,8 @@ export default function ReturnsPage() {
             Back to Home
           </Link>
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-[var(--sb-primary)]/20 flex items-center justify-center">
-              <RotateCcw className="w-6 h-6 text-[var(--sb-primary)]" />
+            <div className="w-12 h-12 rounded-xl bg-[#55529d]/20 flex items-center justify-center">
+              <RotateCcw className="w-6 h-6 text-[#7c78c9]" />
             </div>
             <h1 className="text-3xl sm:text-4xl font-bold">Returns & Refunds</h1>
           </div>
@@ -36,7 +36,7 @@ export default function ReturnsPage() {
           {/* Return Window */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Clock className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Clock className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Return Window</h2>
             </div>
             <p className="text-gray-600 leading-relaxed">
@@ -103,7 +103,7 @@ export default function ReturnsPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Refund Process</h2>
             <div className="bg-gray-50 rounded-xl p-4 space-y-3">
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   1
                 </span>
                 <p className="text-gray-600">
@@ -111,7 +111,7 @@ export default function ReturnsPage() {
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   2
                 </span>
                 <p className="text-gray-600">
@@ -119,7 +119,7 @@ export default function ReturnsPage() {
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   3
                 </span>
                 <p className="text-gray-600">
@@ -127,7 +127,7 @@ export default function ReturnsPage() {
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="w-6 h-6 rounded-full bg-[var(--sb-primary)] text-white text-sm flex items-center justify-center flex-shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#55529d] text-white text-sm flex items-center justify-center flex-shrink-0">
                   4
                 </span>
                 <p className="text-gray-600">
@@ -146,7 +146,7 @@ export default function ReturnsPage() {
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="mailto:support@stackbot.com"
-                className="inline-flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-medium hover:bg-[var(--sb-primary)]/90 transition-colors"
+                className="inline-flex items-center justify-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#55529d]/90 transition-colors"
               >
                 Email Support
               </a>

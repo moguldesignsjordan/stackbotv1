@@ -11,7 +11,7 @@ export default function SecurityPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-[var(--sb-dark)] text-white py-16 px-4">
+      <div className="bg-[#1a1a2e] text-white py-16 px-4">
         <div className="max-w-3xl mx-auto">
           <Link
             href="/"
@@ -45,24 +45,24 @@ export default function SecurityPage() {
           {/* Data We Collect */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Eye className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Eye className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Information We Collect</h2>
             </div>
             <ul className="space-y-3 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Account Information:</strong> Name, email, phone number, delivery addresses</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Order Information:</strong> Purchase history, preferences, delivery instructions</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Payment Information:</strong> Processed securely through our payment partners (we do not store card details)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Device Information:</strong> IP address, browser type, device identifiers for security</span>
               </li>
             </ul>
@@ -71,7 +71,7 @@ export default function SecurityPage() {
           {/* How We Use Data */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <UserCheck className="w-5 h-5 text-[var(--sb-primary)]" />
+              <UserCheck className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">How We Use Your Information</h2>
             </div>
             <ul className="space-y-2 text-gray-600">
@@ -101,7 +101,7 @@ export default function SecurityPage() {
           {/* Security Measures */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Lock className="w-5 h-5 text-[var(--sb-primary)]" />
+              <Lock className="w-5 h-5 text-[#55529d]" />
               <h2 className="text-xl font-semibold text-gray-900">Security Measures</h2>
             </div>
             <div className="grid gap-3">
@@ -141,15 +141,15 @@ export default function SecurityPage() {
             <p className="text-gray-600 mb-4">We share your information only with:</p>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Vendors:</strong> To fulfill your orders (name, delivery address, order details)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Delivery Partners:</strong> To complete deliveries (name, address, phone)</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 <span><strong>Payment Processors:</strong> To process transactions securely</span>
               </li>
             </ul>
@@ -165,19 +165,19 @@ export default function SecurityPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Rights</h2>
             <ul className="space-y-2 text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Access your personal data
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Request correction of inaccurate information
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Request deletion of your account and data
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-[var(--sb-primary)] mt-1">•</span>
+                <span className="text-[#55529d] mt-1">•</span>
                 Opt out of marketing communications
               </li>
             </ul>
@@ -208,7 +208,7 @@ export default function SecurityPage() {
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="mailto:support@stackbot.com"
-                className="inline-flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-medium hover:bg-[var(--sb-primary)]/90 transition-colors"
+                className="inline-flex items-center justify-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#55529d]/90 transition-colors"
               >
                 Email Support
               </a>
