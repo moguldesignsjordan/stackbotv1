@@ -2,7 +2,6 @@
   "name": "functions",
   "description": "Cloud Functions for Firebase",
   "private": true,
-
   "main": "index.js",
 
   "engines": {
@@ -13,23 +12,18 @@
     "lint": "eslint .",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
-    "build": "NODE_OPTIONS=--openssl-legacy-provider next build",
-    "start": "NODE_OPTIONS=--openssl-legacy-provider next start",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
   },
 
   "dependencies": {
-    "firebase-admin": "13.6.0",
-    "firebase-functions": "4.5.0"
+    "firebase-admin": "11.11.1",
+    "firebase-functions": "4.9.0"
   },
 
   "devDependencies": {
-    "dev": "NODE_OPTIONS=--openssl-legacy-provider next dev",
     "eslint": "8.57.0",
     "eslint-config-google": "0.14.0",
     "firebase-functions-test": "3.4.1"
   }
-  
 }
-

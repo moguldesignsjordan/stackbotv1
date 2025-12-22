@@ -70,9 +70,9 @@ export default function PendingVendorsPage() {
       console.log("=== APPROVE VENDOR DEBUG ===");
       console.log("Vendor ID:", vendorId);
 
-      // ✅ NEW URL - Cloud Run endpoint
+      // ✅ CORRECT URL - v1 Cloud Functions endpoint
       const res = await fetch(
-        "https://approvevendor-j5kxrjebxa-uc.a.run.app",
+        "https://us-central1-stackbot-a5e78.cloudfunctions.net/approveVendor",
         {
           method: "POST",
           headers: {

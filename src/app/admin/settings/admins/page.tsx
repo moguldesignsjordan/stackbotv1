@@ -1,20 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { httpsCallable } from "firebase/functions";
-import { functions, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Shield, UserPlus, AlertCircle, CheckCircle } from "lucide-react";
+
+type MessageState = {
+  type: "success" | "error";
+  text: string;
+} | null;
 
 export default function AdminsSettingsPage() {
   const [uid, setUid] = useState("");
   const [role, setRole] = useState<"admin" | "vendor" | "customer">("admin");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  const [message, setMessage] = useState<MessageState>(null);
 
   const handleAssignRole = async () => {
     if (!uid.trim()) {
@@ -26,47 +27,54 @@ export default function AdminsSettingsPage() {
     setMessage(null);
 
     try {
-      // ⭐ CRITICAL: Force refresh the token BEFORE calling the function
-      // This ensures the callable receives a token with current admin claims
       const user = auth.currentUser;
       if (!user) {
-        setMessage({ type: "error", text: "You must be logged in" });
-        setLoading(false);
-        return;
+        throw new Error("You must be logged in");
       }
 
-      console.log("=== SET USER ROLE DEBUG ===");
-      console.log("Current user:", user.email);
-      console.log("Target UID:", uid);
-      console.log("Target role:", role);
+      // 🔐 Firebase automatically provides a valid admin token
+      const token = await user.getIdToken(true);
 
-      // Force token refresh to get latest claims
-      const freshToken = await user.getIdToken(true);
-      console.log("Token refreshed successfully");
+      const res = await fetch(
+        "https://us-central1-stackbot-a5e78.cloudfunctions.net/setUserRole",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ uid, role }),
+        }
+      );
 
-      // Now call the function with the fresh token
-      const setUserRole = httpsCallable(functions, "setUserRole");
-      const result = await setUserRole({ uid, role });
+      const data = await res.json();
 
-      console.log("Result:", result.data);
+      if (!res.ok) {
+        let errorMessage = "Failed to assign role";
+
+        if (typeof data?.error === "string") {
+          errorMessage = data.error;
+        } else if (typeof data?.error?.message === "string") {
+          errorMessage = data.error.message;
+        } else if (typeof data?.message === "string") {
+          errorMessage = data.message;
+        }
+
+        throw new Error(errorMessage);
+      }
 
       setMessage({
         type: "success",
-        text: `Role '${role}' assigned successfully! User must log out and back in for changes to take effect.`,
+        text: `Role '${role}' assigned successfully. User must log out and back in.`,
       });
+
       setUid("");
     } catch (err: any) {
-      console.error("setUserRole error:", err);
-
-      // Extract meaningful error message
-      let errorMsg = "Failed to assign role";
-      if (err.code === "functions/permission-denied") {
-        errorMsg = "Permission denied. Your admin token may be stale - try logging out and back in.";
-      } else if (err.message) {
-        errorMsg = err.message;
-      }
-
-      setMessage({ type: "error", text: errorMsg });
+      console.error("Assign role error:", err);
+      setMessage({
+        type: "error",
+        text: err.message || "Failed to assign role",
+      });
     } finally {
       setLoading(false);
     }
@@ -80,17 +88,19 @@ export default function AdminsSettingsPage() {
           <Shield className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Admin Management
+          </h1>
           <p className="text-sm text-gray-500">
             Assign roles using Firebase UID
           </p>
         </div>
       </div>
 
-      {/* Card */}
+      {/* Form */}
       <Card padding="lg">
         <div className="space-y-4">
-          {/* UID Input */}
+          {/* UID */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Firebase UID
@@ -99,14 +109,14 @@ export default function AdminsSettingsPage() {
               value={uid}
               onChange={(e) => setUid(e.target.value)}
               placeholder="e.g. IhI5bpV4ikhhzvQ2FH0BNrJgmTF2"
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-sb-primary outline-none transition-colors"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-sb-primary outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Find this in Firebase Console → Authentication → Users
+              Firebase Console → Authentication → Users
             </p>
           </div>
 
-          {/* Role Selector */}
+          {/* Role */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Role
@@ -116,7 +126,7 @@ export default function AdminsSettingsPage() {
               onChange={(e) =>
                 setRole(e.target.value as "admin" | "vendor" | "customer")
               }
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-sb-primary outline-none transition-colors bg-white"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-sb-primary bg-white"
             >
               <option value="admin">Admin</option>
               <option value="vendor">Vendor</option>
@@ -124,7 +134,7 @@ export default function AdminsSettingsPage() {
             </select>
           </div>
 
-          {/* Status Message */}
+          {/* Message */}
           {message && (
             <div
               className={`flex items-start gap-2 p-4 rounded-xl ${
@@ -134,44 +144,22 @@ export default function AdminsSettingsPage() {
               }`}
             >
               {message.type === "success" ? (
-                <CheckCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-5 w-5 mt-0.5" />
               ) : (
-                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="h-5 w-5 mt-0.5" />
               )}
               <span className="text-sm">{message.text}</span>
             </div>
           )}
 
-          {/* Submit Button */}
+          {/* Button */}
           <Button
             onClick={handleAssignRole}
             disabled={loading || !uid.trim()}
             className="w-full"
           >
             {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg
-                  className="animate-spin h-4 w-4"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Assigning Role...
-              </span>
+              "Assigning…"
             ) : (
               <span className="flex items-center justify-center gap-2">
                 <UserPlus className="h-4 w-4" />
@@ -182,15 +170,15 @@ export default function AdminsSettingsPage() {
         </div>
       </Card>
 
-      {/* Help Info */}
+      {/* Info */}
       <Card padding="md" className="bg-blue-50 border-blue-200">
         <div className="flex gap-3">
-          <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
           <div className="text-sm text-blue-800">
-            <p className="font-medium mb-1">Important Notes:</p>
-            <ul className="list-disc list-inside space-y-1 text-blue-700">
-              <li>Users must log out and back in after role changes</li>
-              <li>Only existing Firebase Auth users can be assigned roles</li>
+            <p className="font-medium mb-1">Important Notes</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>User must already exist in Firebase Auth</li>
+              <li>User must log out and log back in to receive new role</li>
               <li>Admin role grants full platform access</li>
             </ul>
           </div>
