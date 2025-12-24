@@ -1,59 +1,68 @@
+// src/app/store/[slug]/product/[id]/ProductClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { getAuth } from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { auth } from "@/lib/firebase/config";
+import { useCart } from "@/contexts/CartContext";
+import { ShoppingCart, Check, ArrowLeft } from "lucide-react";
 
-export default function ProductClient({
-  slug,
-  vendor,
-  product,
-}: any) {
-  const [selected, setSelected] = useState<any[]>([]);
+interface OptionItem {
+  id: string;
+  label: string;
+  priceDelta?: number;
+}
+
+interface OptionGroup {
+  id: string;
+  title: string;
+  type?: string;
+  options: OptionItem[];
+}
+
+interface SelectedOption {
+  groupId: string;
+  groupTitle: string;
+  optionId: string;
+  label: string;
+  priceDelta: number;
+}
+
+interface ProductClientProps {
+  slug: string;
+  vendor: {
+    id?: string;
+    name: string;
+  };
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    description?: string;
+    images?: string[];
+    options?: OptionGroup[];
+  };
+}
+
+export default function ProductClient({ slug, vendor, product }: ProductClientProps) {
+  const router = useRouter();
+  const [selected, setSelected] = useState<SelectedOption[]>([]);
   const [qty, setQty] = useState(1);
-  const [loading, setLoading] = useState(false);
+  const [addedToCart, setAddedToCart] = useState(false);
+
+  const { addItem } = useCart();
 
   const basePrice = product.price || 0;
 
   const finalUnitPrice = useMemo(() => {
-    return (
-      basePrice +
-      selected.reduce((sum, opt) => sum + (opt.priceDelta || 0), 0)
-    );
+    return basePrice + selected.reduce((sum, opt) => sum + (opt.priceDelta || 0), 0);
   }, [selected, basePrice]);
 
   const finalPrice = finalUnitPrice * qty;
 
-  const toggleOption = (group: any, option: any) => {
-  setSelected((prev) => {
-    const exists = prev.find(
-      (o) =>
-        o.groupId === group.id &&
-        o.optionId === option.id
-    );
-
-    // MULTI-SELECT (checkbox style)
-    if (group.type === "multiple") {
-      return exists
-        ? prev.filter((o) => o.optionId !== option.id)
-        : [...prev, buildSelection(group, option)];
-    }
-
-    // SINGLE-SELECT (radio style, BUT toggleable)
-    if (exists) {
-      // 🔥 clicking again deselects
-      return prev.filter((o) => o.optionId !== option.id);
-    }
-
-    return [
-      ...prev.filter((o) => o.groupId !== group.id),
-      buildSelection(group, option),
-    ];
-  });
-};
-
-  const buildSelection = (group: any, option: any) => ({
+  const buildSelection = (group: OptionGroup, option: OptionItem): SelectedOption => ({
     groupId: group.id,
     groupTitle: group.title,
     optionId: option.id,
@@ -61,55 +70,79 @@ export default function ProductClient({
     priceDelta: option.priceDelta || 0,
   });
 
-  const buyNow = async () => {
-    const auth = getAuth();
+  const toggleOption = (group: OptionGroup, option: OptionItem) => {
+    setSelected((prev) => {
+      const exists = prev.find(
+        (o) => o.groupId === group.id && o.optionId === option.id
+      );
+
+      if (group.type === "multiple") {
+        return exists
+          ? prev.filter((o) => o.optionId !== option.id)
+          : [...prev, buildSelection(group, option)];
+      }
+
+      if (exists) {
+        return prev.filter((o) => o.optionId !== option.id);
+      }
+
+      return [
+        ...prev.filter((o) => o.groupId !== group.id),
+        buildSelection(group, option),
+      ];
+    });
+  };
+
+  const vendorId = vendor.id || slug;
+
+  const handleAddToCart = () => {
+    addItem({
+      productId: product.id,
+      vendorId: vendorId,
+      vendorName: vendor.name,
+      name: product.name,
+      price: finalUnitPrice,
+      quantity: qty,
+      image: product.images?.[0],
+    });
+
+    setAddedToCart(true);
+    setTimeout(() => setAddedToCart(false), 2000);
+  };
+
+  const buyNow = () => {
     const user = auth.currentUser;
 
     if (!user) {
-      alert("Please log in to continue");
+      router.push("/login?redirect=" + encodeURIComponent(`/store/${slug}/product/${product.id}`));
       return;
     }
 
-    setLoading(true);
-
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: user.uid,
-        items: [
-          {
-            productId: product.id,
-            name: product.name,
-            image: product.images?.[0],
-            quantity: qty,
-            finalPrice: finalUnitPrice,
-            selectedOptions: selected.map((o) => ({
-              groupTitle: o.groupTitle,
-              label: o.label,
-              priceDelta: o.priceDelta,
-            })),
-          },
-        ],
-      }),
+    // Add to cart and redirect to checkout
+    addItem({
+      productId: product.id,
+      vendorId: vendorId,
+      vendorName: vendor.name,
+      name: product.name,
+      price: finalUnitPrice,
+      quantity: qty,
+      image: product.images?.[0],
     });
 
-    const data = await res.json();
-    window.location.href = data.url;
+    router.push("/cart");
   };
 
-  const images = product.images?.length
-    ? product.images
-    : ["/product-placeholder.jpg"];
+  const images = product.images?.length ? product.images : ["/product-placeholder.jpg"];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 pb-32 lg:pb-10 space-y-8">
       {/* BACK */}
       <Link
         href={`/store/${slug}`}
-        className="text-sm text-sb-primary hover:underline"
+        className="inline-flex items-center gap-2 text-sm text-[#55529d] hover:underline"
       >
-        ← Back to {vendor.name}
+        <ArrowLeft className="w-4 h-4" />
+        Back to {vendor.name}
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
@@ -131,7 +164,7 @@ export default function ProductClient({
         <div className="space-y-6">
           <h1 className="text-3xl font-bold">{product.name}</h1>
 
-          <p className="text-2xl font-semibold text-sb-primary">
+          <p className="text-2xl font-semibold text-[#55529d]">
             ${finalPrice.toFixed(2)}
           </p>
 
@@ -140,16 +173,14 @@ export default function ProductClient({
           )}
 
           {/* OPTIONS */}
-          {product.options?.length > 0 && (
+          {product.options && product.options.length > 0 && (
             <div className="space-y-6">
-              {product.options.map((group: any) => (
+              {product.options.map((group) => (
                 <div key={group.id} className="space-y-2">
                   <p className="font-semibold">{group.title}</p>
 
-                  {group.options.map((opt: any) => {
-                    const active = selected.some(
-                      (s) => s.optionId === opt.id
-                    );
+                  {group.options.map((opt) => {
+                    const active = selected.some((s) => s.optionId === opt.id);
 
                     return (
                       <button
@@ -158,14 +189,12 @@ export default function ProductClient({
                         onClick={() => toggleOption(group, opt)}
                         className={`w-full flex justify-between p-3 rounded-xl border ${
                           active
-                            ? "border-sb-primary bg-sb-primary/5"
+                            ? "border-[#55529d] bg-[#55529d]/5"
                             : "border-gray-200"
                         }`}
                       >
                         <span>{opt.label}</span>
-                        {opt.priceDelta ? (
-                          <span>+${opt.priceDelta}</span>
-                        ) : null}
+                        {opt.priceDelta ? <span>+${opt.priceDelta}</span> : null}
                       </button>
                     );
                   })}
@@ -185,34 +214,70 @@ export default function ProductClient({
                 −
               </button>
               <span className="px-4 font-semibold">{qty}</span>
-              <button
-                onClick={() => setQty(qty + 1)}
-                className="px-4 py-2"
-              >
+              <button onClick={() => setQty(qty + 1)} className="px-4 py-2">
                 +
               </button>
             </div>
           </div>
 
-          {/* DESKTOP BUY NOW */}
-          <button
-            onClick={buyNow}
-            disabled={loading}
-            className="hidden lg:block w-full bg-sb-primary text-white py-4 rounded-xl font-semibold"
-          >
-            {loading ? "Redirecting…" : "Buy Now"}
-          </button>
+          {/* DESKTOP BUTTONS */}
+          <div className="hidden lg:flex gap-3">
+            <button
+              onClick={handleAddToCart}
+              disabled={addedToCart}
+              className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-semibold border-2 transition-all ${
+                addedToCart
+                  ? "bg-green-500 border-green-500 text-white"
+                  : "border-[#55529d] text-[#55529d] hover:bg-[#55529d]/5"
+              }`}
+            >
+              {addedToCart ? (
+                <>
+                  <Check className="w-5 h-5" />
+                  Added!
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="w-5 h-5" />
+                  Add to Cart
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={buyNow}
+              className="flex-1 bg-[#55529d] text-white py-4 rounded-xl font-semibold hover:bg-[#444287] transition-colors"
+            >
+              Buy Now
+            </button>
+          </div>
         </div>
       </div>
 
       {/* MOBILE STICKY BAR */}
-      <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t p-4">
-        <div className="flex justify-between items-center">
-          <span className="font-bold">${finalPrice.toFixed(2)}</span>
+      <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t p-4 z-50">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-lg">${finalPrice.toFixed(2)}</span>
+
+          <button
+            onClick={handleAddToCart}
+            disabled={addedToCart}
+            className={`p-3 rounded-xl border-2 transition-all ${
+              addedToCart
+                ? "bg-green-500 border-green-500 text-white"
+                : "border-[#55529d] text-[#55529d]"
+            }`}
+          >
+            {addedToCart ? (
+              <Check className="w-5 h-5" />
+            ) : (
+              <ShoppingCart className="w-5 h-5" />
+            )}
+          </button>
+
           <button
             onClick={buyNow}
-            disabled={loading}
-            className="bg-sb-primary text-white px-6 py-3 rounded-xl font-semibold"
+            className="flex-1 bg-[#55529d] text-white px-6 py-3 rounded-xl font-semibold"
           >
             Buy Now
           </button>
