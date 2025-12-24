@@ -3,6 +3,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import admin from '@/lib/firebase/admin';
 
+interface Customer {
+  id: string;
+  displayName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  photoURL?: string | null;
+  role?: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  [key: string]: unknown; // Allow additional fields from Firestore
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Get auth token
@@ -32,18 +44,21 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const search = searchParams.get('search') || '';
 
-    let query: admin.firestore.Query = db.collection('customers')
+    const query: admin.firestore.Query = db.collection('customers')
       .orderBy('createdAt', 'desc')
       .limit(limit);
 
     const snapshot = await query.get();
     
-    let customers = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
-      updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString() || null,
-    }));
+    let customers: Customer[] = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null,
+      } as Customer;
+    });
 
     // Client-side search filter (Firestore doesn't support full-text search)
     if (search) {
