@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 
 import type { Product } from "@/lib/types";
+import { formatPrice } from "@/lib/utils/currency";
 
 import {
   ArrowRight,
@@ -1241,7 +1242,7 @@ function ProductCard({ product, index }: { product: ProductWithVendor; index: nu
             <p className="text-sm text-gray-500 mt-1">{product.vendor_name || "Vendor"}</p>
             <div className="mt-auto pt-3 flex items-center justify-between">
               <p className="font-bold text-[var(--sb-primary)] text-lg">
-                ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                {formatPrice(typeof product.price === 'number' ? product.price : 0)}
               </p>
               <span className="text-xs text-gray-400 group-hover:text-[var(--sb-primary)] transition-colors flex items-center gap-1">
                 View <ArrowRight className="w-3 h-3" />

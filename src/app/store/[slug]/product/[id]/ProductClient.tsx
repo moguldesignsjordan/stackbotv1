@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { useCart } from "@/contexts/CartContext";
+import { formatPrice } from "@/lib/utils/currency";
 import { ShoppingCart, Check, ArrowLeft } from "lucide-react";
 
 interface OptionItem {
@@ -165,7 +166,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
           <h1 className="text-3xl font-bold">{product.name}</h1>
 
           <p className="text-2xl font-semibold text-[#55529d]">
-            ${finalPrice.toFixed(2)}
+            {formatPrice(finalPrice)}
           </p>
 
           {product.description && (
@@ -194,7 +195,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                         }`}
                       >
                         <span>{opt.label}</span>
-                        {opt.priceDelta ? <span>+${opt.priceDelta}</span> : null}
+                        {opt.priceDelta ? <span>+{formatPrice(opt.priceDelta)}</span> : null}
                       </button>
                     );
                   })}
@@ -257,7 +258,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       {/* MOBILE STICKY BAR */}
       <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t p-4 z-50">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-lg">${finalPrice.toFixed(2)}</span>
+          <span className="font-bold text-lg">{formatPrice(finalPrice)}</span>
 
           <button
             onClick={handleAddToCart}
