@@ -45,7 +45,7 @@ export function AddToCartButton({
       name: product.name,
       price: product.price,
       quantity,
-      image: product.image,
+      imageUrl: product.image,
     };
 
     addItem(cartItem);
@@ -65,7 +65,7 @@ export function AddToCartButton({
       name: product.name,
       price: product.price,
       quantity,
-      image: product.image,
+      imageUrl: product.image,
     };
 
     addItem(cartItem);
