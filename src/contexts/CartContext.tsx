@@ -2,11 +2,17 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Cart, CartItem } from '@/lib/types/order';
+import { CartItem } from '@/lib/types/order';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+interface Cart {
+  items: CartItem[];
+  vendorId: string | null;
+  vendorName: string | null;
+}
 
 interface CartContextType {
   cart: Cart;
