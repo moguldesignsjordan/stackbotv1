@@ -363,7 +363,7 @@ function ProductsPage() {
     router.push(newURL, { scroll: false });
   };
 
-  const hasActiveFilters = activeSearch || selectedCategory !== "All" || sortBy !== "newest";
+  const hasActiveFilters = !!activeSearch || selectedCategory !== "All" || sortBy !== "newest";
 
   /* ======================================================
      RENDER
