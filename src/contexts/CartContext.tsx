@@ -17,7 +17,7 @@ interface CartContextType {
   itemCount: number;
   subtotal: number;
   deliveryFee: number;
-  serviceFee: number;
+  serviceFee: number; // Keep for backward compatibility, always 0
   tax: number;
   total: number;
 }
@@ -35,7 +35,6 @@ type CartAction =
 
 const CART_STORAGE_KEY = 'stackbot_cart';
 const DELIVERY_FEE = 3.99;
-const SERVICE_FEE_PERCENT = 0.05; // 5%
 const TAX_PERCENT = 0.18; // 18% ITBIS
 
 const initialCart: Cart = {
@@ -67,7 +66,7 @@ function cartReducer(state: Cart, action: CartAction): Cart {
         (item) => item.productId === newItem.productId
       );
 
-      if (existingIndex >= 0) {
+      if (existingIndex > -1) {
         // Update quantity
         const updatedItems = [...state.items];
         updatedItems[existingIndex] = {
@@ -79,13 +78,14 @@ function cartReducer(state: Cart, action: CartAction): Cart {
 
       // Add new item
       return {
+        ...state,
         items: [...state.items, newItem],
         vendorId: newItem.vendorId,
         vendorName: newItem.vendorName,
       };
     }
 
-    case 'REMOVE_ITEM': {
+    case 'REMOVE_ITEM':
       const filteredItems = state.items.filter(
         (item) => item.productId !== action.payload
       );
@@ -93,17 +93,22 @@ function cartReducer(state: Cart, action: CartAction): Cart {
         return initialCart;
       }
       return { ...state, items: filteredItems };
-    }
 
     case 'UPDATE_QUANTITY': {
       const { productId, quantity } = action.payload;
       if (quantity <= 0) {
-        return cartReducer(state, { type: 'REMOVE_ITEM', payload: productId });
+        const remaining = state.items.filter((item) => item.productId !== productId);
+        if (remaining.length === 0) {
+          return initialCart;
+        }
+        return { ...state, items: remaining };
       }
-      const updatedItems = state.items.map((item) =>
-        item.productId === productId ? { ...item, quantity } : item
-      );
-      return { ...state, items: updatedItems };
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.productId === productId ? { ...item, quantity } : item
+        ),
+      };
     }
 
     case 'CLEAR_CART':
@@ -133,22 +138,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Load cart from localStorage on mount
   useEffect(() => {
     try {
-      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-      if (savedCart) {
-        const parsed = JSON.parse(savedCart) as Cart;
-        dispatch({ type: 'LOAD_CART', payload: parsed });
+      const saved = localStorage.getItem(CART_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.items && Array.isArray(parsed.items)) {
+          dispatch({ type: 'LOAD_CART', payload: parsed });
+        }
       }
     } catch (error) {
-      console.error('Failed to load cart from storage:', error);
+      console.error('Failed to load cart from localStorage:', error);
     }
   }, []);
 
-  // Persist cart to localStorage on changes
+  // Save cart to localStorage on change
   useEffect(() => {
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
     } catch (error) {
-      console.error('Failed to save cart to storage:', error);
+      console.error('Failed to save cart to localStorage:', error);
     }
   }, [cart]);
 
@@ -158,9 +165,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     0
   );
   const deliveryFee = cart.items.length > 0 ? DELIVERY_FEE : 0;
-  const serviceFee = subtotal * SERVICE_FEE_PERCENT;
-  const tax = (subtotal + serviceFee) * TAX_PERCENT;
-  const total = subtotal + deliveryFee + serviceFee + tax;
+  const serviceFee = 0; // Service fee removed
+  const tax = (subtotal + deliveryFee) * TAX_PERCENT;
+  const total = subtotal + deliveryFee + tax;
   const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
 
   // Actions

@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
       country: body.country?.trim() || 'Dominican Republic',
       instructions: body.instructions?.trim() || '',
       isPinned: body.isPinned || existingAddresses.length === 0, // First address is auto-pinned
+      coordinates: body.coordinates || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
         postalCode: newAddress.postalCode,
         country: newAddress.country,
         instructions: newAddress.instructions,
+        coordinates: newAddress.coordinates,
       };
     }
 
@@ -161,6 +163,114 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error adding address:', error);
     return NextResponse.json({ error: 'Failed to add address' }, { status: 500 });
+  }
+}
+
+// PUT - Full update of an address (used when editing)
+export async function PUT(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    let decodedToken;
+    
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+    } catch {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { id, label, street, city, state, postalCode, country, instructions, isPinned, coordinates } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Address ID required' }, { status: 400 });
+    }
+
+    // Validate required fields
+    if (!label?.trim() || !street?.trim() || !city?.trim()) {
+      return NextResponse.json(
+        { error: 'Label, street, and city are required' },
+        { status: 400 }
+      );
+    }
+
+    const db = admin.firestore();
+    const customerRef = db.collection('customers').doc(decodedToken.uid);
+    const customerDoc = await customerRef.get();
+
+    if (!customerDoc.exists) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
+    const existingAddresses: SavedAddress[] = customerDoc.data()?.savedAddresses || [];
+    const addressIndex = existingAddresses.findIndex((a) => a.id === id);
+
+    if (addressIndex === -1) {
+      return NextResponse.json({ error: 'Address not found' }, { status: 404 });
+    }
+
+    // Build updated address
+    const updatedAddress: SavedAddress = {
+      id,
+      label: label.trim(),
+      street: street.trim(),
+      city: city.trim(),
+      state: state?.trim() || '',
+      postalCode: postalCode?.trim() || '',
+      country: country?.trim() || 'Dominican Republic',
+      instructions: instructions?.trim() || '',
+      isPinned: isPinned || false,
+      coordinates: coordinates || existingAddresses[addressIndex].coordinates,
+      createdAt: existingAddresses[addressIndex].createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // If setting as pinned, unpin all others
+    let updatedAddresses = [...existingAddresses];
+    if (updatedAddress.isPinned) {
+      updatedAddresses = updatedAddresses.map((addr) => ({
+        ...addr,
+        isPinned: addr.id === id,
+      }));
+    }
+
+    // Replace the address at the index
+    updatedAddresses[addressIndex] = updatedAddress;
+
+    const pinnedAddress = updatedAddresses.find((a) => a.isPinned);
+    
+    const updateData: Record<string, unknown> = {
+      savedAddresses: updatedAddresses,
+      pinnedAddressId: pinnedAddress?.id || null,
+      updatedAt: admin.firestore.Timestamp.now(),
+    };
+
+    // Keep defaultAddress in sync with pinned
+    if (pinnedAddress) {
+      updateData.defaultAddress = {
+        street: pinnedAddress.street,
+        city: pinnedAddress.city,
+        state: pinnedAddress.state,
+        postalCode: pinnedAddress.postalCode,
+        country: pinnedAddress.country,
+        instructions: pinnedAddress.instructions,
+        coordinates: pinnedAddress.coordinates,
+      };
+    }
+
+    await customerRef.update(updateData);
+
+    return NextResponse.json({
+      address: updatedAddress,
+      addresses: updatedAddresses,
+    });
+  } catch (error) {
+    console.error('Error updating address:', error);
+    return NextResponse.json({ error: 'Failed to update address' }, { status: 500 });
   }
 }
 
@@ -225,6 +335,7 @@ export async function PATCH(request: NextRequest) {
       ...(updates.country && { country: updates.country.trim() }),
       ...(updates.instructions !== undefined && { instructions: updates.instructions.trim() }),
       ...(updates.isPinned !== undefined && { isPinned: updates.isPinned }),
+      ...(updates.coordinates && { coordinates: updates.coordinates }),
       updatedAt: new Date().toISOString(),
     };
 
@@ -245,6 +356,7 @@ export async function PATCH(request: NextRequest) {
         postalCode: pinnedAddress.postalCode,
         country: pinnedAddress.country,
         instructions: pinnedAddress.instructions,
+        coordinates: pinnedAddress.coordinates,
       };
     }
 
@@ -322,6 +434,7 @@ export async function DELETE(request: NextRequest) {
         postalCode: pinnedAddress.postalCode,
         country: pinnedAddress.country,
         instructions: pinnedAddress.instructions,
+        coordinates: pinnedAddress.coordinates,
       };
     } else {
       updateData.defaultAddress = null;

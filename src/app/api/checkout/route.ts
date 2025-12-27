@@ -149,21 +149,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate order totals
+    // Calculate order totals (all in dollars)
+    // Note: FEES.DELIVERY_FEE is in cents, FEES.TAX_PERCENT is a whole number (18 for 18%)
     const subtotal = items.reduce(
       (sum, item) => sum + item.price * item.quantity,
       0
     );
-    const deliveryFee = FEES.DELIVERY_FEE;
-    const serviceFee = subtotal * FEES.SERVICE_FEE_PERCENT;
-const taxAmount = (subtotal + deliveryFee + serviceFee) * FEES.TAX_PERCENT;
-    const totalAmount = subtotal + deliveryFee + serviceFee + taxAmount;
+    const deliveryFee = FEES.DELIVERY_FEE / 100; // Convert cents to dollars (399 -> 3.99)
+    const taxAmount = (subtotal + deliveryFee) * (FEES.TAX_PERCENT / 100); // Convert 18 to 0.18
+    const totalAmount = subtotal + deliveryFee + taxAmount;
 
     // Generate order ID and tracking PIN
     const orderId = generateOrderId();
     const trackingPin = generateTrackingPin();
 
-    // Create line items for Stripe
+    // Create line items for Stripe (amounts in cents)
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = items.map(
       (item) => ({
         price_data: {
@@ -173,42 +173,32 @@ const taxAmount = (subtotal + deliveryFee + serviceFee) * FEES.TAX_PERCENT;
             description: item.description || undefined,
             images: item.imageUrl ? [item.imageUrl] : undefined,
           },
-          unit_amount: Math.round(item.price * 100),
+          unit_amount: Math.round(item.price * 100), // Convert dollars to cents
         },
         quantity: item.quantity,
       })
     );
 
-    // Add fees as line items
+    // Add delivery fee as line item
     lineItems.push({
       price_data: {
         currency: 'usd',
         product_data: {
           name: 'Delivery Fee',
         },
-        unit_amount: Math.round(deliveryFee * 100),
+        unit_amount: FEES.DELIVERY_FEE, // Already in cents
       },
       quantity: 1,
     });
 
+    // Add tax as line item
     lineItems.push({
       price_data: {
         currency: 'usd',
         product_data: {
-          name: 'Service Fee',
+          name: 'Tax (ITBIS 18%)',
         },
-        unit_amount: Math.round(serviceFee * 100),
-      },
-      quantity: 1,
-    });
-
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'Tax (ITBIS)',
-        },
-        unit_amount: Math.round(taxAmount * 100),
+        unit_amount: Math.round(taxAmount * 100), // Convert dollars to cents
       },
       quantity: 1,
     });
@@ -265,11 +255,11 @@ const taxAmount = (subtotal + deliveryFee + serviceFee) * FEES.TAX_PERCENT;
         deliveryCountry: validatedDeliveryAddress.country,
         deliveryInstructions: validatedDeliveryAddress.instructions,
         notes: notes || '',
-        subtotal: subtotal.toString(),
-        deliveryFee: deliveryFee.toString(),
-        serviceFee: serviceFee.toString(),
-        tax: taxAmount.toString(),
-        total: totalAmount.toString(),
+        subtotal: subtotal.toFixed(2),
+        deliveryFee: deliveryFee.toFixed(2),
+        serviceFee: '0.00', // Removed service fee
+        tax: taxAmount.toFixed(2),
+        total: totalAmount.toFixed(2),
         itemsJson: JSON.stringify(
           items.map((item) => ({
             productId: item.productId,

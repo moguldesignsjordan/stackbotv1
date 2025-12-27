@@ -4,6 +4,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { SavedAddress, AddressFormData } from '@/lib/types/address';
+import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
+import { LocationPicker } from '@/components/maps/LocationPicker';
 import {
   MapPin,
   Plus,
@@ -17,6 +19,7 @@ import {
   X,
   Check,
   AlertCircle,
+  Navigation,
 } from 'lucide-react';
 
 const LABEL_SUGGESTIONS = [
@@ -49,8 +52,27 @@ export default function AddressesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<AddressFormData>(EMPTY_FORM);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // Map picker state
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Fetch addresses
+  // Fetch addresses on mount
+  useEffect(() => {
+    fetchAddresses();
+  }, [user]);
+
+  // Clear messages after delay
+  useEffect(() => {
+    if (success || error) {
+      const timer = setTimeout(() => {
+        setSuccess(null);
+        setError(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success, error]);
+
   const fetchAddresses = async () => {
     if (!user) return;
 
@@ -65,39 +87,18 @@ export default function AddressesPage() {
       const data = await res.json();
       setAddresses(data.addresses || []);
     } catch (err) {
-      console.error('Error fetching addresses:', err);
       setError('Failed to load addresses');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchAddresses();
-  }, [user]);
-
-  // Clear messages after delay
-  useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => setSuccess(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success]);
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
-
   const handleAddNew = () => {
-    setFormData({
-      ...EMPTY_FORM,
-      isPinned: addresses.length === 0, // Auto-pin if first address
-    });
+    setFormData(EMPTY_FORM);
     setEditingId(null);
+    setCoordinates(null);
     setShowForm(true);
+    setShowMapPicker(false);
   };
 
   const handleEdit = (address: SavedAddress) => {
@@ -106,26 +107,30 @@ export default function AddressesPage() {
       street: address.street,
       city: address.city,
       state: address.state || '',
-      postalCode: address.postalCode,
+      postalCode: address.postalCode || '',
       country: address.country,
       instructions: address.instructions || '',
       isPinned: address.isPinned,
     });
     setEditingId(address.id);
+    setCoordinates(address.coordinates || null);
     setShowForm(true);
+    setShowMapPicker(false);
   };
 
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
     setFormData(EMPTY_FORM);
+    setCoordinates(null);
+    setShowMapPicker(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    // Validation
+    // Validate required fields
     if (!formData.label.trim()) {
       setError('Please enter a label for this address');
       return;
@@ -144,53 +149,34 @@ export default function AddressesPage() {
 
     try {
       const token = await user.getIdToken();
+      const method = editingId ? 'PUT' : 'POST';
+      
+      const payload = {
+        ...formData,
+        ...(editingId && { id: editingId }),
+        ...(coordinates && { coordinates }),
+      };
 
-      if (editingId) {
-        // Update existing
-        const res = await fetch('/api/customer/addresses', {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            addressId: editingId,
-            ...formData,
-          }),
-        });
+      const res = await fetch('/api/customer/addresses', {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to update address');
-        }
-
+      if (!res.ok) {
         const data = await res.json();
-        setAddresses(data.addresses);
-        setSuccess('Address updated successfully');
-      } else {
-        // Create new
-        const res = await fetch('/api/customer/addresses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(formData),
-        });
-
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to add address');
-        }
-
-        const data = await res.json();
-        setAddresses(data.addresses);
-        setSuccess('Address added successfully');
+        throw new Error(data.error || 'Failed to save address');
       }
 
+      const data = await res.json();
+      setAddresses(data.addresses);
+      setSuccess(editingId ? 'Address updated' : 'Address saved');
       handleCancel();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : 'Failed to save address');
     } finally {
       setSaving(false);
     }
@@ -247,6 +233,30 @@ export default function AddressesPage() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  // Handle location selection from map
+  const handleLocationSelect = (location: {
+    coordinates: { lat: number; lng: number };
+    address: string;
+    pinLocked?: boolean;
+  }) => {
+    setCoordinates(location.coordinates);
+    
+    // Parse the address string to fill form fields
+    const addressParts = location.address.split(',').map(s => s.trim());
+    
+    if (addressParts.length >= 1) {
+      setFormData(prev => ({
+        ...prev,
+        street: addressParts[0] || prev.street,
+        city: addressParts[1] || prev.city,
+        state: addressParts[2] || prev.state,
+        country: addressParts[addressParts.length - 1] || prev.country,
+      }));
+    }
+    
+    setShowMapPicker(false);
   };
 
   if (loading) {
@@ -308,6 +318,46 @@ export default function AddressesPage() {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Map Picker Section */}
+          {showMapPicker ? (
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-gray-900">Pin Your Location</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(false)}
+                  className="text-sm text-[#55529d] hover:underline"
+                >
+                  Enter manually instead
+                </button>
+              </div>
+              <GoogleMapsProvider>
+                <LocationPicker
+                  initialLocation={coordinates || undefined}
+                  onLocationSelect={handleLocationSelect}
+                  height="300px"
+                />
+              </GoogleMapsProvider>
+            </div>
+          ) : (
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-600 hover:border-[#55529d] hover:text-[#55529d] transition-colors"
+              >
+                <Navigation className="w-5 h-5" />
+                {coordinates ? 'Change Pin Location' : 'Pin Location on Map'}
+              </button>
+              {coordinates && (
+                <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
+                  <Check className="w-4 h-4" />
+                  Location pinned ({coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)})
+                </p>
+              )}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Label */}
@@ -523,6 +573,12 @@ export default function AddressesPage() {
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#55529d]/10 text-[#55529d] text-xs font-medium rounded-full">
                           <Star className="w-3 h-3 fill-current" />
                           Default
+                        </span>
+                      )}
+                      {address.coordinates && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          <Navigation className="w-3 h-3" />
+                          Pinned
                         </span>
                       )}
                     </div>

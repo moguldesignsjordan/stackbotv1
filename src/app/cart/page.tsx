@@ -39,7 +39,6 @@ export default function CartPage() {
     itemCount,
     subtotal,
     deliveryFee,
-    serviceFee,
     tax,
     total,
   } = useCart();
@@ -370,11 +369,7 @@ export default function CartPage() {
                   <span className="font-medium">{formatCurrency(deliveryFee)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Service Fee</span>
-                  <span className="font-medium">{formatCurrency(serviceFee)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tax</span>
+                  <span className="text-gray-600">Tax (ITBIS 18%)</span>
                   <span className="font-medium">{formatCurrency(tax)}</span>
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between">

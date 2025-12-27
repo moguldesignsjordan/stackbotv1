@@ -75,8 +75,8 @@ export function LocationPicker({
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   
   // Refs for stable callback references
-  const updateMarkerPositionRef = useRef<(coords: Coordinates) => void>();
-  const reverseGeocodeRef = useRef<(coords: Coordinates) => Promise<string>>();
+  const updateMarkerPositionRef = useRef<((coords: Coordinates) => void) | undefined>(undefined);
+  const reverseGeocodeRef = useRef<((coords: Coordinates) => Promise<string>) | undefined>(undefined);
 
   // Initialize geocoder
   useEffect(() => {
@@ -346,9 +346,23 @@ export function LocationPicker({
         setIsGettingLocation(false);
       },
       (err) => {
-        setError('Unable to get your location. Please search or click on the map.');
+        // Provide specific error messages based on error code
+        let errorMessage = 'Unable to get your location. Please search or click on the map.';
+        
+        if (err.code === 1) {
+          // PERMISSION_DENIED
+          errorMessage = 'Location access denied. Please enable location permissions in your browser settings, or search/click on the map.';
+        } else if (err.code === 2) {
+          // POSITION_UNAVAILABLE
+          errorMessage = 'Location unavailable. Please check your device\'s location settings, or search/click on the map.';
+        } else if (err.code === 3) {
+          // TIMEOUT
+          errorMessage = 'Location request timed out. Please try again or search/click on the map.';
+        }
+        
+        setError(errorMessage);
         setIsGettingLocation(false);
-        console.error('Geolocation error:', err);
+        console.warn('Geolocation error:', err.code, err.message);
       },
       {
         enableHighAccuracy: true,
