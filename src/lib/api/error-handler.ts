@@ -38,7 +38,7 @@ export function withApiHandler<T>(
   return async (
     request: Request,
     context?: { params: Record<string, string> }
-  ): Promise<NextResponse<ApiResponse<T>>> => {
+  ): Promise<NextResponse> => {
     const startTime = Date.now();
     const { pathname } = new URL(request.url);
 
