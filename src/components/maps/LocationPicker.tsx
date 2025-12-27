@@ -95,7 +95,7 @@ export function LocationPicker({
         location: coords,
       });
 
-      if (response.results[0]) {
+      if (response?.results?.[0]?.formatted_address) {
         return response.results[0].formatted_address;
       }
     } catch (err) {
@@ -111,20 +111,28 @@ export function LocationPicker({
     reverseGeocodeRef.current = reverseGeocode;
   }, [reverseGeocode]);
 
-  // Create/update AdvancedMarkerElement
+  // Create/update marker - use legacy Marker for better compatibility
   const updateMarkerPosition = useCallback(
     (coords: Coordinates) => {
       if (!map) return;
 
       // Remove existing marker
       if (advancedMarkerRef.current) {
-        advancedMarkerRef.current.map = null;
+        try {
+          if ('map' in advancedMarkerRef.current) {
+            advancedMarkerRef.current.map = null;
+          } else if ('setMap' in advancedMarkerRef.current) {
+            (advancedMarkerRef.current as google.maps.Marker).setMap(null);
+          }
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        advancedMarkerRef.current = null;
       }
 
       try {
-        // Create pin element
-        const pinElement = document.createElement('div');
-        pinElement.innerHTML = isLocked
+        // Create SVG icon URL
+        const svgIcon = isLocked
           ? `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="50" viewBox="0 0 40 50">
               <path d="M20 0C9 0 0 9 0 20c0 15 20 30 20 30s20-15 20-30C40 9 31 0 20 0z" fill="#16a34a"/>
               <circle cx="20" cy="18" r="8" fill="white"/>
@@ -137,69 +145,36 @@ export function LocationPicker({
               <circle cx="20" cy="18" r="5" fill="#55529d"/>
             </svg>`;
 
-        // Check if AdvancedMarkerElement is available
-        if (google.maps.marker?.AdvancedMarkerElement) {
-          advancedMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
-            map,
-            position: coords,
-            content: pinElement,
-            gmpDraggable: !isLocked,
-            title: isLocked ? 'Location Locked' : 'Drag to adjust',
-          });
+        // Use legacy Marker for better compatibility (AdvancedMarkerElement has issues)
+        const legacyMarker = new google.maps.Marker({
+          map,
+          position: coords,
+          draggable: !isLocked,
+          icon: {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgIcon),
+            scaledSize: new google.maps.Size(40, 50),
+            anchor: new google.maps.Point(20, 50),
+          },
+        });
 
-          // Add drag listener
-          if (!isLocked) {
-            advancedMarkerRef.current.addListener('dragend', async () => {
-              const position = advancedMarkerRef.current?.position;
-              if (position) {
-                const newCoords: Coordinates = {
-                  lat: typeof position.lat === 'function' ? position.lat() : position.lat,
-                  lng: typeof position.lng === 'function' ? position.lng() : position.lng,
-                };
-                setMarker(newCoords);
-                const addr = await reverseGeocodeRef.current?.(newCoords);
-                if (addr) {
-                  setAddress(addr);
-                  setSearchValue(addr);
-                }
-              }
-            });
-          }
-        } else {
-          // Fallback to legacy Marker if AdvancedMarkerElement not available
-          console.warn('AdvancedMarkerElement not available, using legacy Marker');
-          const legacyMarker = new google.maps.Marker({
-            map,
-            position: coords,
-            draggable: !isLocked,
-            icon: {
-              url:
-                'data:image/svg+xml;charset=UTF-8,' +
-                encodeURIComponent(pinElement.innerHTML),
-              scaledSize: new google.maps.Size(40, 50),
-              anchor: new google.maps.Point(20, 50),
-            },
-          });
-
-          legacyMarker.addListener('dragend', async () => {
-            const position = legacyMarker.getPosition();
-            if (position) {
-              const newCoords: Coordinates = {
-                lat: position.lat(),
-                lng: position.lng(),
-              };
-              setMarker(newCoords);
-              const addr = await reverseGeocodeRef.current?.(newCoords);
-              if (addr) {
-                setAddress(addr);
-                setSearchValue(addr);
-              }
+        legacyMarker.addListener('dragend', async () => {
+          const position = legacyMarker.getPosition();
+          if (position) {
+            const newCoords: Coordinates = {
+              lat: position.lat(),
+              lng: position.lng(),
+            };
+            setMarker(newCoords);
+            const addr = await reverseGeocodeRef.current?.(newCoords);
+            if (addr) {
+              setAddress(addr);
+              setSearchValue(addr);
             }
-          });
+          }
+        });
 
-          // Store reference for cleanup
-          (advancedMarkerRef as any).current = legacyMarker;
-        }
+        // Store reference for cleanup (cast to any since we're using legacy Marker)
+        advancedMarkerRef.current = legacyMarker as unknown as google.maps.marker.AdvancedMarkerElement;
       } catch (err) {
         console.error('Marker creation error:', err);
       }
@@ -285,7 +260,15 @@ export function LocationPicker({
 
   const onUnmount = useCallback(() => {
     if (advancedMarkerRef.current) {
-      advancedMarkerRef.current.map = null;
+      try {
+        if ('setMap' in advancedMarkerRef.current) {
+          (advancedMarkerRef.current as unknown as google.maps.Marker).setMap(null);
+        } else if ('map' in advancedMarkerRef.current) {
+          advancedMarkerRef.current.map = null;
+        }
+      } catch (e) {
+        // Ignore cleanup errors
+      }
     }
     setMap(null);
   }, []);
@@ -381,7 +364,16 @@ export function LocationPicker({
     setError(null);
 
     if (advancedMarkerRef.current) {
-      advancedMarkerRef.current.map = null;
+      try {
+        if ('setMap' in advancedMarkerRef.current) {
+          (advancedMarkerRef.current as unknown as google.maps.Marker).setMap(null);
+        } else if ('map' in advancedMarkerRef.current) {
+          advancedMarkerRef.current.map = null;
+        }
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+      advancedMarkerRef.current = null;
     }
 
     if (initialLocation) {
