@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   MapPin,
   Phone,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import StorefrontActions from "./StorefrontActions";
 import { formatPrice } from "@/lib/utils/currency";
+import { sanitizeSlug, isUrlLike, generateSlug } from "@/lib/utils/slug";
 
 type PageProps = {
   params: Promise<{ slug?: string }>;
@@ -42,42 +44,119 @@ export default async function VendorStorefront({ params }: PageProps) {
 
   /* ===============================
      1️⃣ FIND VENDOR BY SLUG OR ID
+     - Try exact slug match first
+     - Try sanitized slug (handles URLs entered as slugs)
+     - Try document ID as fallback
   =============================== */
   let vendorDoc: any = null;
   let vendor: any = null;
   let vendorId: string = "";
 
-  // First, try to find by slug
-  const vendorQuery = await getDocs(
-    query(
-      collection(db, "vendors"),
-      where("slug", "==", slug)
-    )
+  // Decode URL-encoded slug
+  const decodedSlug = decodeURIComponent(slug);
+  
+  // Generate sanitized version for searching
+  const sanitizedSlug = sanitizeSlug(decodedSlug);
+
+  // 1. Try exact slug match
+  const exactQuery = await getDocs(
+    query(collection(db, "vendors"), where("slug", "==", decodedSlug))
   );
 
-  if (!vendorQuery.empty) {
-    vendorDoc = vendorQuery.docs[0];
+  if (!exactQuery.empty) {
+    vendorDoc = exactQuery.docs[0];
     vendor = vendorDoc.data();
     vendorId = vendorDoc.id;
-  } else {
-    // Fallback: Try to find by document ID
-    const vendorRef = doc(db, "vendors", slug);
-    const vendorSnap = await getDoc(vendorRef);
+  }
+
+  // 2. If the incoming slug looks like a URL, try to find by the URL-like slug
+  //    (vendor may have entered "www.example.com" as their slug)
+  if (!vendor && isUrlLike(decodedSlug)) {
+    const urlQuery = await getDocs(
+      query(collection(db, "vendors"), where("slug", "==", decodedSlug))
+    );
+
+    if (!urlQuery.empty) {
+      vendorDoc = urlQuery.docs[0];
+      vendor = vendorDoc.data();
+      vendorId = vendorDoc.id;
+      
+      // Redirect to clean URL if we found a match
+      // This ensures shared links use clean slugs going forward
+      if (sanitizedSlug && sanitizedSlug !== decodedSlug) {
+        redirect(`/store/${sanitizedSlug}`);
+      }
+    }
+  }
+
+  // 3. Try sanitized slug match (e.g., "www.example.com" → "example")
+  if (!vendor && sanitizedSlug && sanitizedSlug !== decodedSlug) {
+    const sanitizedQuery = await getDocs(
+      query(collection(db, "vendors"), where("slug", "==", sanitizedSlug))
+    );
+
+    if (!sanitizedQuery.empty) {
+      vendorDoc = sanitizedQuery.docs[0];
+      vendor = vendorDoc.data();
+      vendorId = vendorDoc.id;
+    }
+  }
+
+  // 4. Try matching vendor name (for vendors with bad slugs)
+  if (!vendor) {
+    // Generate possible name from URL-like slug
+    const possibleName = generateSlug(decodedSlug);
     
-    if (vendorSnap.exists()) {
-      vendorDoc = vendorSnap;
-      vendor = vendorSnap.data();
-      vendorId = vendorSnap.id;
+    // Get all vendors and find by partial match (expensive but handles edge cases)
+    const allVendorsSnap = await getDocs(collection(db, "vendors"));
+    
+    for (const doc of allVendorsSnap.docs) {
+      const v = doc.data();
+      const vendorSlug = v.slug ? sanitizeSlug(v.slug) : "";
+      const vendorNameSlug = v.name ? generateSlug(v.name) : "";
+      
+      // Check if sanitized slugs match
+      if (
+        (vendorSlug && vendorSlug === sanitizedSlug) ||
+        (vendorNameSlug && vendorNameSlug === sanitizedSlug) ||
+        (v.slug && v.slug.toLowerCase() === decodedSlug.toLowerCase())
+      ) {
+        vendorDoc = doc;
+        vendor = v;
+        vendorId = doc.id;
+        break;
+      }
+    }
+  }
+
+  // 5. Fallback: Try to find by document ID
+  if (!vendor) {
+    try {
+      const vendorRef = doc(db, "vendors", slug);
+      const vendorSnap = await getDoc(vendorRef);
+      
+      if (vendorSnap.exists()) {
+        vendorDoc = vendorSnap;
+        vendor = vendorSnap.data();
+        vendorId = vendorSnap.id;
+      }
+    } catch (e) {
+      // Invalid document ID format, continue to not found
     }
   }
 
   // If still not found, show error
   if (!vendor) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-600 gap-4">
+      <div className="min-h-screen flex flex-col items-center justify-center text-gray-600 gap-4 px-4">
         <Store className="w-16 h-16 text-gray-300" />
         <h1 className="text-2xl font-bold">Store Not Found</h1>
-        <p className="text-gray-500">This vendor doesn&apos;t exist or has been removed.</p>
+        <p className="text-gray-500 text-center">
+          This vendor doesn&apos;t exist or has been removed.
+        </p>
+        <p className="text-sm text-gray-400">
+          Looking for: <code className="bg-gray-100 px-2 py-1 rounded">{decodedSlug}</code>
+        </p>
         <Link 
           href="/" 
           className="mt-4 inline-flex items-center gap-2 text-purple-600 font-semibold hover:underline"
@@ -89,8 +168,11 @@ export default async function VendorStorefront({ params }: PageProps) {
     );
   }
 
-  // Use slug for product links, fallback to vendorId
-  const storeSlug = vendor.slug || vendorId;
+  // Use sanitized slug for product links
+  // Prefer: sanitized vendor slug > vendor name slug > vendorId
+  const storeSlug = vendor.slug 
+    ? sanitizeSlug(vendor.slug) 
+    : (vendor.name ? generateSlug(vendor.name) : vendorId);
 
   /* ===============================
      2️⃣ LOAD PRODUCTS (VENDOR SUBCOLLECTION)
@@ -215,12 +297,12 @@ export default async function VendorStorefront({ params }: PageProps) {
               <div className="flex gap-2 items-center">
                 <Globe className="h-5 w-5 text-gray-500" />
                 <a
-                  href={vendor.website}
+                  href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-purple-600 underline"
                 >
-                  {vendor.website}
+                  {vendor.website.replace(/^https?:\/\/(www\.)?/, "")}
                 </a>
               </div>
             )}

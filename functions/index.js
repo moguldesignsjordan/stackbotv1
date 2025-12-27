@@ -1,6 +1,6 @@
 /**
  * STACKBOT — Firebase Cloud Functions
- * Fixed version with proper role-based authentication
+ * Updated with location/coordinates support for orders
  */
 
 const functions = require("firebase-functions");
@@ -23,6 +23,56 @@ function generatePassword() {
     pass += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return pass;
+}
+
+/**
+ * Validate coordinates object
+ */
+function isValidCoordinates(coords) {
+  if (!coords || typeof coords !== "object") return false;
+  return (
+    typeof coords.lat === "number" &&
+    typeof coords.lng === "number" &&
+    coords.lat >= -90 &&
+    coords.lat <= 90 &&
+    coords.lng >= -180 &&
+    coords.lng <= 180
+  );
+}
+
+/**
+ * Calculate distance between two coordinates (Haversine formula)
+ * @returns Distance in kilometers
+ */
+function calculateDistance(coord1, coord2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = toRad(coord2.lat - coord1.lat);
+  const dLng = toRad(coord2.lng - coord1.lng);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(coord1.lat)) *
+      Math.cos(toRad(coord2.lat)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function toRad(deg) {
+  return deg * (Math.PI / 180);
+}
+
+/**
+ * Calculate delivery fee based on distance
+ */
+function calculateDeliveryFee(distanceKm, baseFee = 3.0, perKmFee = 0.5, baseDistance = 3) {
+  if (distanceKm <= baseDistance) {
+    return baseFee;
+  }
+  const extraDistance = distanceKm - baseDistance;
+  return Math.round((baseFee + extraDistance * perKmFee) * 100) / 100;
 }
 
 // ⭐ Admin emails whitelist - ADD YOUR ADMIN EMAILS HERE
@@ -279,7 +329,7 @@ exports.approveVendor = functions.https.onRequest((req, res) => {
 });
 
 /* ============================================================
-    🏪 CREATE VENDOR APPLICATION (Callable)
+    🪪 CREATE VENDOR APPLICATION (Callable)
 ============================================================ */
 exports.createVendor = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -289,6 +339,7 @@ exports.createVendor = functions.https.onCall(async (data, context) => {
   const userId = context.auth.uid;
   const pin = generatePIN();
 
+  // Build vendor data with optional coordinates
   const vendorData = {
     owner_uid: userId,
     uid: userId,
@@ -311,6 +362,15 @@ exports.createVendor = functions.https.onCall(async (data, context) => {
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
   };
 
+  // Add coordinates if provided and valid
+  if (data.coordinates && isValidCoordinates(data.coordinates)) {
+    vendorData.coordinates = {
+      lat: data.coordinates.lat,
+      lng: data.coordinates.lng,
+    };
+    vendorData.serviceRadius = data.serviceRadius || 10; // Default 10km
+  }
+
   await admin.firestore().collection("vendors").doc(userId).set(vendorData);
 
   return { 
@@ -321,7 +381,59 @@ exports.createVendor = functions.https.onCall(async (data, context) => {
 });
 
 /* ============================================================
-    🧾 CREATE ORDER (Callable)
+    📍 UPDATE VENDOR LOCATION (Callable)
+============================================================ */
+exports.updateVendorLocation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { coordinates, address, serviceRadius } = data;
+
+  // Validate coordinates
+  if (!coordinates || !isValidCoordinates(coordinates)) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Invalid coordinates provided."
+    );
+  }
+
+  // Verify user is the vendor
+  const vendorRef = admin.firestore().collection("vendors").doc(userId);
+  const vendorSnap = await vendorRef.get();
+
+  if (!vendorSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "Vendor not found.");
+  }
+
+  // Update location
+  const updateData = {
+    coordinates: {
+      lat: coordinates.lat,
+      lng: coordinates.lng,
+    },
+    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (address) {
+    updateData.address = address;
+  }
+
+  if (typeof serviceRadius === "number" && serviceRadius > 0) {
+    updateData.serviceRadius = Math.min(serviceRadius, 100); // Cap at 100km
+  }
+
+  await vendorRef.update(updateData);
+
+  return {
+    success: true,
+    message: "Vendor location updated.",
+  };
+});
+
+/* ============================================================
+    🧾 CREATE ORDER (Callable) - Updated with coordinates
 ============================================================ */
 exports.createOrder = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -331,21 +443,76 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
   const orderId = admin.firestore().collection("orders").doc().id;
   const customerId = context.auth.uid;
 
+  // Build delivery address with coordinates
+  const deliveryAddress = {
+    street: data.deliveryAddress?.street || "",
+    city: data.deliveryAddress?.city || "",
+    state: data.deliveryAddress?.state || "",
+    postalCode: data.deliveryAddress?.postalCode || "",
+    country: data.deliveryAddress?.country || "Dominican Republic",
+    instructions: data.deliveryAddress?.instructions || "",
+  };
+
+  // Add coordinates if provided and valid
+  if (data.deliveryAddress?.coordinates && 
+      isValidCoordinates(data.deliveryAddress.coordinates)) {
+    deliveryAddress.coordinates = {
+      lat: data.deliveryAddress.coordinates.lat,
+      lng: data.deliveryAddress.coordinates.lng,
+    };
+    deliveryAddress.pinLocked = data.deliveryAddress.pinLocked || false;
+  }
+
+  // Calculate distance-based delivery fee if both have coordinates
+  let calculatedDeliveryFee = data.delivery_fee || 0;
+  let deliveryDistance = null;
+
+  if (deliveryAddress.coordinates) {
+    // Get vendor location
+    const vendorRef = admin.firestore().collection("vendors").doc(data.vendorId);
+    const vendorSnap = await vendorRef.get();
+
+    if (vendorSnap.exists) {
+      const vendorData = vendorSnap.data();
+      
+      if (vendorData.coordinates && isValidCoordinates(vendorData.coordinates)) {
+        deliveryDistance = calculateDistance(
+          vendorData.coordinates,
+          deliveryAddress.coordinates
+        );
+        
+        // Calculate fee based on distance (can be customized per vendor)
+        calculatedDeliveryFee = calculateDeliveryFee(
+          deliveryDistance,
+          vendorData.baseDeliveryFee || 3.0,
+          vendorData.perKmFee || 0.5,
+          vendorData.baseDeliveryDistance || 3
+        );
+      }
+    }
+  }
+
   const orderData = {
     orderId,
     vendorId: data.vendorId,
     customerId,
     items: data.items,
     subtotal: data.subtotal,
-    delivery_fee: data.delivery_fee,
+    delivery_fee: calculatedDeliveryFee,
+    deliveryDistance: deliveryDistance, // Store for reference
     total: data.total,
     status: "open",
     tracking_pin: generatePIN(),
+    deliveryAddress,
+    customerInfo: data.customerInfo || {},
+    notes: data.notes || "",
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
   };
 
+  // Save to orders collection
   await admin.firestore().collection("orders").doc(orderId).set(orderData);
 
+  // Save to vendor's orders subcollection
   await admin
     .firestore()
     .collection("vendors")
@@ -354,7 +521,97 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
     .doc(orderId)
     .set(orderData);
 
-  return { orderId };
+  // Save to customer's orders subcollection
+  await admin
+    .firestore()
+    .collection("customers")
+    .doc(customerId)
+    .collection("orders")
+    .doc(orderId)
+    .set(orderData);
+
+  return { 
+    orderId,
+    deliveryFee: calculatedDeliveryFee,
+    deliveryDistance,
+  };
+});
+
+/* ============================================================
+    📍 CALCULATE DELIVERY FEE (Callable)
+    Used for real-time fee calculation in checkout
+============================================================ */
+exports.calculateDeliveryFeeForOrder = functions.https.onCall(async (data, context) => {
+  const { vendorId, customerCoordinates } = data;
+
+  if (!vendorId) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Vendor ID is required."
+    );
+  }
+
+  // Default response if no coordinates
+  if (!customerCoordinates || !isValidCoordinates(customerCoordinates)) {
+    return {
+      fee: 3.0, // Default base fee
+      distance: null,
+      message: "Using default delivery fee (no coordinates provided).",
+    };
+  }
+
+  // Get vendor data
+  const vendorRef = admin.firestore().collection("vendors").doc(vendorId);
+  const vendorSnap = await vendorRef.get();
+
+  if (!vendorSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "Vendor not found.");
+  }
+
+  const vendorData = vendorSnap.data();
+
+  // Check if vendor has coordinates
+  if (!vendorData.coordinates || !isValidCoordinates(vendorData.coordinates)) {
+    return {
+      fee: vendorData.baseDeliveryFee || 3.0,
+      distance: null,
+      message: "Using default fee (vendor location not set).",
+    };
+  }
+
+  // Calculate distance
+  const distance = calculateDistance(
+    vendorData.coordinates,
+    customerCoordinates
+  );
+
+  // Check if within service radius
+  const serviceRadius = vendorData.serviceRadius || 50; // Default 50km
+  if (distance > serviceRadius) {
+    return {
+      fee: null,
+      distance,
+      serviceRadius,
+      available: false,
+      message: `Delivery not available. Distance (${distance.toFixed(1)}km) exceeds service radius (${serviceRadius}km).`,
+    };
+  }
+
+  // Calculate fee
+  const fee = calculateDeliveryFee(
+    distance,
+    vendorData.baseDeliveryFee || 3.0,
+    vendorData.perKmFee || 0.5,
+    vendorData.baseDeliveryDistance || 3
+  );
+
+  return {
+    fee,
+    distance: Math.round(distance * 100) / 100,
+    serviceRadius,
+    available: true,
+    message: `Delivery available. Distance: ${distance.toFixed(1)}km`,
+  };
 });
 
 /* ============================================================
@@ -365,23 +622,157 @@ exports.updateOrderStatus = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Login required.");
   }
 
-  const { orderId, vendorId, status } = data;
+  const { orderId, vendorId, status, customerId } = data;
 
-  await admin.firestore().collection("orders").doc(orderId).update({
+  const updateData = {
     status,
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  };
 
-  await admin
-    .firestore()
-    .collection("vendors")
-    .doc(vendorId)
-    .collection("orders")
-    .doc(orderId)
-    .update({
-      status,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  // Update main orders collection
+  await admin.firestore().collection("orders").doc(orderId).update(updateData);
+
+  // Update vendor's orders subcollection
+  if (vendorId) {
+    await admin
+      .firestore()
+      .collection("vendors")
+      .doc(vendorId)
+      .collection("orders")
+      .doc(orderId)
+      .update(updateData);
+  }
+
+  // Update customer's orders subcollection if we have customerId
+  if (customerId) {
+    await admin
+      .firestore()
+      .collection("customers")
+      .doc(customerId)
+      .collection("orders")
+      .doc(orderId)
+      .update(updateData);
+  }
 
   return { message: "Order status updated." };
+});
+
+/* ============================================================
+    📍 SAVE CUSTOMER LOCATION (Callable)
+============================================================ */
+exports.saveCustomerLocation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { label, address, coordinates, isDefault } = data;
+
+  // Validate inputs
+  if (!label || typeof label !== "string" || label.length > 50) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Invalid label provided."
+    );
+  }
+
+  if (!address || typeof address !== "string" || address.length > 500) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Invalid address provided."
+    );
+  }
+
+  if (!coordinates || !isValidCoordinates(coordinates)) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Invalid coordinates provided."
+    );
+  }
+
+  const locationsRef = admin
+    .firestore()
+    .collection("users")
+    .doc(userId)
+    .collection("savedLocations");
+
+  // If setting as default, remove default from others
+  if (isDefault) {
+    const existingDefaults = await locationsRef
+      .where("isDefault", "==", true)
+      .get();
+
+    const batch = admin.firestore().batch();
+    existingDefaults.forEach((doc) => {
+      batch.update(doc.ref, { isDefault: false });
+    });
+    await batch.commit();
+  }
+
+  // Check count (limit to 10 saved locations)
+  const countSnap = await locationsRef.count().get();
+  if (countSnap.data().count >= 10) {
+    throw new functions.https.HttpsError(
+      "resource-exhausted",
+      "Maximum saved locations (10) reached."
+    );
+  }
+
+  // Add new location
+  const newLocationRef = locationsRef.doc();
+  await newLocationRef.set({
+    label: label.trim(),
+    address: address.trim(),
+    coordinates: {
+      lat: coordinates.lat,
+      lng: coordinates.lng,
+    },
+    isDefault: isDefault || false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {
+    success: true,
+    locationId: newLocationRef.id,
+    message: "Location saved successfully.",
+  };
+});
+
+/* ============================================================
+    🗑️ DELETE CUSTOMER LOCATION (Callable)
+============================================================ */
+exports.deleteCustomerLocation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { locationId } = data;
+
+  if (!locationId) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Location ID required."
+    );
+  }
+
+  const locationRef = admin
+    .firestore()
+    .collection("users")
+    .doc(userId)
+    .collection("savedLocations")
+    .doc(locationId);
+
+  const locationSnap = await locationRef.get();
+
+  if (!locationSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "Location not found.");
+  }
+
+  await locationRef.delete();
+
+  return {
+    success: true,
+    message: "Location deleted successfully.",
+  };
 });

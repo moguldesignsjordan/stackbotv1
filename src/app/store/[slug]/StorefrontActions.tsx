@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Share2, Heart, Check, Phone } from "lucide-react";
+import { sanitizeSlug } from "@/lib/utils/slug";
 
 interface StorefrontActionsProps {
   storeName: string;
@@ -14,7 +15,9 @@ export default function StorefrontActions({ storeName, storeSlug, phone }: Store
   const [saved, setSaved] = useState(false);
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/store/${storeSlug}`;
+    // Sanitize the slug before sharing (fixes URLs entered as slugs)
+    const cleanSlug = sanitizeSlug(storeSlug);
+    const url = `${window.location.origin}/store/${cleanSlug}`;
     
     // Try native share first (mobile)
     if (navigator.share) {

@@ -5,24 +5,10 @@ export interface CartItem {
   vendorId: string;
   vendorName: string;
   name: string;
+  description?: string;
   price: number;
   quantity: number;
-  image?: string;
-}
-
-export interface Cart {
-  items: CartItem[];
-  vendorId: string | null;
-  vendorName: string | null;
-}
-
-export interface OrderItem {
-  productId: string;
-  name: string;
-  price: number;
-  quantity: number;
-  subtotal: number;
-  image?: string;
+  imageUrl?: string;
 }
 
 export interface CustomerInfo {
@@ -35,52 +21,9 @@ export interface DeliveryAddress {
   street: string;
   city: string;
   state?: string;
-  postalCode: string;
+  postalCode?: string;
   country: string;
   instructions?: string;
-  coordinates?: {
-    lat: number;
-    lng: number;
-  };
-}
-
-export type OrderStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'preparing'
-  | 'ready_for_pickup'
-  | 'out_for_delivery'
-  | 'delivered'
-  | 'cancelled'
-  | 'refunded';
-
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
-
-export interface Order {
-  id: string;
-  orderId: string;
-  customerId: string;
-  vendorId: string;
-  vendorName: string;
-  items: OrderItem[];
-  subtotal: number;
-  deliveryFee: number;
-  serviceFee: number;
-  tax: number;
-  total: number;
-  status: OrderStatus;
-  paymentStatus: PaymentStatus;
-  paymentMethod: 'stripe';
-  stripePaymentIntentId?: string;
-  stripeSessionId?: string;
-  customerInfo: CustomerInfo;
-  deliveryAddress: DeliveryAddress;
-  trackingPin: string;
-  notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  confirmedAt?: Date;
-  deliveredAt?: Date;
 }
 
 export interface CheckoutSessionRequest {
@@ -88,9 +31,53 @@ export interface CheckoutSessionRequest {
   customerInfo: CustomerInfo;
   deliveryAddress: DeliveryAddress;
   notes?: string;
+  saveAddress?: boolean; // Whether to save address to profile
 }
 
-export interface CheckoutSessionResponse {
-  sessionId: string;
-  url: string;
+export interface Order {
+  id: string;
+  orderId: string;
+  customerId: string;
+  vendorId: string;
+  vendorName: string;
+  items: CartItem[];
+  customerInfo: CustomerInfo;
+  deliveryAddress: DeliveryAddress;
+  notes?: string;
+  subtotal: number;
+  deliveryFee: number;
+  serviceFee: number;
+  tax: number;
+  total: number;
+  status: OrderStatus;
+  trackingPin: string;
+  stripeSessionId?: string;
+  stripePaymentIntentId?: string;
+  createdAt: string;
+  updatedAt: string;
+  paidAt?: string;
+  confirmedAt?: string;
+  preparingAt?: string;
+  outForDeliveryAt?: string;
+  deliveredAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
+}
+
+export type OrderStatus =
+  | 'pending'
+  | 'paid'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'cancelled'
+  | 'refunded';
+
+export interface OrderStatusUpdate {
+  status: OrderStatus;
+  updatedAt: string;
+  updatedBy?: string;
+  notes?: string;
 }
