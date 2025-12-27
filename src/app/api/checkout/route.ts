@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     );
     const deliveryFee = FEES.DELIVERY_FEE;
     const serviceFee = subtotal * FEES.SERVICE_FEE_PERCENT;
-    const taxAmount = (subtotal + deliveryFee + serviceFee) * FEES.TAX_RATE;
+const taxAmount = (subtotal + deliveryFee + serviceFee) * FEES.TAX_PERCENT;
     const totalAmount = subtotal + deliveryFee + serviceFee + taxAmount;
 
     // Generate order ID and tracking PIN
