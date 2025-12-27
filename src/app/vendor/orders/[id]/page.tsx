@@ -1,7 +1,7 @@
 // src/app/vendor/orders/[id]/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
@@ -69,7 +69,7 @@ export default function VendorOrderDetailPage() {
 
   const orderId = params.id as string;
 
-  const fetchOrder = async () => {
+  const fetchOrder = useCallback(async () => {
     if (!user || !orderId) return;
 
     try {
@@ -90,11 +90,11 @@ export default function VendorOrderDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, orderId, router]);
 
   useEffect(() => {
     fetchOrder();
-  }, [user, orderId]);
+  }, [fetchOrder]);
 
   const updateStatus = async (newStatus: string) => {
     if (!user || !order) return;
@@ -331,7 +331,7 @@ export default function VendorOrderDetailPage() {
                 <p className="text-gray-600">{order.deliveryAddress.country}</p>
                 {order.deliveryAddress.instructions && (
                   <p className="text-sm text-gray-500 mt-2 italic">
-                    "{order.deliveryAddress.instructions}"
+                    &quot;{order.deliveryAddress.instructions}&quot;
                   </p>
                 )}
               </div>

@@ -1,5 +1,9 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+// Note: Using <img> because imagePreviews are blob URLs from URL.createObjectURL
+// which don't work well with next/image without additional configuration
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -333,8 +337,8 @@ export default function CreateProductPage() {
             <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
               <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500 text-sm">
-                No option groups yet. Add groups like "Size", "Color", or
-                "Add-ons" to give customers choices.
+                No option groups yet. Add groups like &quot;Size&quot;, &quot;Color&quot;, or
+                &quot;Add-ons&quot; to give customers choices.
               </p>
               <button
                 type="button"
