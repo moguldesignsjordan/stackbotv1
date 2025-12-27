@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
 import { SavedAddress } from '@/lib/types/address';
+import { CartItem } from '@/lib/types/order';
 import {
   ShoppingCart,
   Trash2,
@@ -299,7 +300,7 @@ export default function CartPage() {
             </div>
 
             {/* Items */}
-            {cart.items.map((item) => (
+            {cart.items.map((item: CartItem) => (
               <div
                 key={item.productId}
                 className="bg-white rounded-xl shadow-sm p-4 flex gap-4"
