@@ -119,10 +119,10 @@ export function LocationPicker({
       // Remove existing marker
       if (advancedMarkerRef.current) {
         try {
-          if ('map' in advancedMarkerRef.current) {
+          if ('setMap' in advancedMarkerRef.current) {
+            (advancedMarkerRef.current as unknown as google.maps.Marker).setMap(null);
+          } else if ('map' in advancedMarkerRef.current) {
             advancedMarkerRef.current.map = null;
-          } else if ('setMap' in advancedMarkerRef.current) {
-            (advancedMarkerRef.current as google.maps.Marker).setMap(null);
           }
         } catch (e) {
           // Ignore cleanup errors
