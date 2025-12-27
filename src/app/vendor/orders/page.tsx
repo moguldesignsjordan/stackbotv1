@@ -1,7 +1,7 @@
 // src/app/vendor/orders/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -49,7 +49,7 @@ export default function VendorOrdersPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('active');
 
-  const fetchOrders = async (showRefresh = false) => {
+  const fetchOrders = useCallback(async (showRefresh = false) => {
     if (!user) return;
 
     if (showRefresh) setRefreshing(true);
@@ -67,7 +67,7 @@ export default function VendorOrdersPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     fetchOrders();
@@ -75,7 +75,7 @@ export default function VendorOrdersPage() {
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => fetchOrders(), 30000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [fetchOrders]);
 
   const filteredOrders = orders.filter((order) => {
     if (activeTab === 'active') {

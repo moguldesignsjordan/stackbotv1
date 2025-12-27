@@ -19,7 +19,6 @@ import {
   LocationPin,
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
-  CARIBBEAN_BOUNDS,
 } from '@/lib/types/location';
 
 interface LocationPickerProps {
@@ -47,9 +46,6 @@ const mapOptions: google.maps.MapOptions = {
   mapTypeControl: false,
   fullscreenControl: true,
   clickableIcons: false,
-  // Map ID is required for AdvancedMarkerElement
-  // Create one at: https://console.cloud.google.com/google/maps-apis/studio/maps
-  // For development, we can use a demo map ID or omit for basic functionality
   mapId: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID',
 };
 
@@ -77,6 +73,10 @@ export function LocationPicker({
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const autocompleteInputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  
+  // Refs for stable callback references
+  const updateMarkerPositionRef = useRef<(coords: Coordinates) => void>();
+  const reverseGeocodeRef = useRef<(coords: Coordinates) => Promise<string>>();
 
   // Initialize geocoder
   useEffect(() => {
@@ -85,59 +85,31 @@ export function LocationPicker({
     }
   }, []);
 
-  // Initialize Places Autocomplete (using legacy API with deprecation awareness)
-  // Note: PlaceAutocompleteElement is a web component that requires different handling
-  // For React compatibility, we continue using Autocomplete but it still works
-  useEffect(() => {
-    if (!autocompleteInputRef.current || !map) return;
-    if (typeof google === 'undefined' || !google.maps?.places) return;
+  // Reverse geocode coordinates to address
+  const reverseGeocode = useCallback(async (coords: Coordinates): Promise<string> => {
+    if (!geocoderRef.current) return '';
 
+    setIsGeocoding(true);
     try {
-      const options: google.maps.places.AutocompleteOptions = {
-        types: ['address'],
-        fields: ['formatted_address', 'geometry', 'name'],
-      };
-
-      if (restrictToCaribbean) {
-        options.componentRestrictions = {
-          country: ['do', 'pr', 'jm', 'ht', 'cu', 'bs', 'bb', 'tt', 'aw', 'cw'],
-        };
-      }
-
-      autocompleteRef.current = new google.maps.places.Autocomplete(
-        autocompleteInputRef.current,
-        options
-      );
-
-      autocompleteRef.current.addListener('place_changed', () => {
-        const place = autocompleteRef.current?.getPlace();
-
-        if (place?.geometry?.location) {
-          const coords: Coordinates = {
-            lat: place.geometry.location.lat(),
-            lng: place.geometry.location.lng(),
-          };
-
-          setMarker(coords);
-          setAddress(place.formatted_address || '');
-          setSearchValue(place.formatted_address || '');
-          setError(null);
-          updateMarkerPosition(coords);
-
-          map?.panTo(coords);
-          map?.setZoom(17);
-        }
+      const response = await geocoderRef.current.geocode({
+        location: coords,
       });
-    } catch (err) {
-      console.error('Autocomplete init error:', err);
-    }
 
-    return () => {
-      if (autocompleteRef.current) {
-        google.maps.event.clearInstanceListeners(autocompleteRef.current);
+      if (response.results[0]) {
+        return response.results[0].formatted_address;
       }
-    };
-  }, [map, restrictToCaribbean]);
+    } catch (err) {
+      console.error('Reverse geocode error:', err);
+    } finally {
+      setIsGeocoding(false);
+    }
+    return '';
+  }, []);
+
+  // Keep ref updated
+  useEffect(() => {
+    reverseGeocodeRef.current = reverseGeocode;
+  }, [reverseGeocode]);
 
   // Create/update AdvancedMarkerElement
   const updateMarkerPosition = useCallback(
@@ -185,9 +157,11 @@ export function LocationPicker({
                   lng: typeof position.lng === 'function' ? position.lng() : position.lng,
                 };
                 setMarker(newCoords);
-                const addr = await reverseGeocode(newCoords);
-                setAddress(addr);
-                setSearchValue(addr);
+                const addr = await reverseGeocodeRef.current?.(newCoords);
+                if (addr) {
+                  setAddress(addr);
+                  setSearchValue(addr);
+                }
               }
             });
           }
@@ -215,9 +189,11 @@ export function LocationPicker({
                 lng: position.lng(),
               };
               setMarker(newCoords);
-              const addr = await reverseGeocode(newCoords);
-              setAddress(addr);
-              setSearchValue(addr);
+              const addr = await reverseGeocodeRef.current?.(newCoords);
+              if (addr) {
+                setAddress(addr);
+                setSearchValue(addr);
+              }
             }
           });
 
@@ -231,12 +207,69 @@ export function LocationPicker({
     [map, isLocked]
   );
 
+  // Keep ref updated
+  useEffect(() => {
+    updateMarkerPositionRef.current = updateMarkerPosition;
+  }, [updateMarkerPosition]);
+
   // Update marker when lock state changes
   useEffect(() => {
     if (marker) {
       updateMarkerPosition(marker);
     }
   }, [isLocked, marker, updateMarkerPosition]);
+
+  // Initialize Places Autocomplete
+  useEffect(() => {
+    if (!autocompleteInputRef.current || !map) return;
+    if (typeof google === 'undefined' || !google.maps?.places) return;
+
+    try {
+      const options: google.maps.places.AutocompleteOptions = {
+        types: ['address'],
+        fields: ['formatted_address', 'geometry', 'name'],
+      };
+
+      if (restrictToCaribbean) {
+        options.componentRestrictions = {
+          country: ['do', 'pr', 'jm', 'ht', 'cu', 'bs', 'bb', 'tt', 'aw', 'cw'],
+        };
+      }
+
+      autocompleteRef.current = new google.maps.places.Autocomplete(
+        autocompleteInputRef.current,
+        options
+      );
+
+      autocompleteRef.current.addListener('place_changed', () => {
+        const place = autocompleteRef.current?.getPlace();
+
+        if (place?.geometry?.location) {
+          const coords: Coordinates = {
+            lat: place.geometry.location.lat(),
+            lng: place.geometry.location.lng(),
+          };
+
+          setMarker(coords);
+          setAddress(place.formatted_address || '');
+          setSearchValue(place.formatted_address || '');
+          setError(null);
+          updateMarkerPositionRef.current?.(coords);
+
+          map?.panTo(coords);
+          map?.setZoom(17);
+        }
+      });
+    } catch (err) {
+      console.error('Autocomplete init error:', err);
+    }
+
+    return () => {
+      if (autocompleteRef.current) {
+        google.maps.event.clearInstanceListeners(autocompleteRef.current);
+      }
+    };
+  }, [map, restrictToCaribbean]);
 
   const onLoad = useCallback(
     (mapInstance: google.maps.Map) => {
@@ -257,27 +290,6 @@ export function LocationPicker({
     setMap(null);
   }, []);
 
-  // Reverse geocode coordinates to address
-  const reverseGeocode = useCallback(async (coords: Coordinates): Promise<string> => {
-    if (!geocoderRef.current) return '';
-
-    setIsGeocoding(true);
-    try {
-      const response = await geocoderRef.current.geocode({
-        location: coords,
-      });
-
-      if (response.results[0]) {
-        return response.results[0].formatted_address;
-      }
-    } catch (err) {
-      console.error('Reverse geocode error:', err);
-    } finally {
-      setIsGeocoding(false);
-    }
-    return '';
-  }, []);
-
   // Handle map click to place/move marker
   const handleMapClick = useCallback(
     async (e: google.maps.MapMouseEvent) => {
@@ -291,13 +303,15 @@ export function LocationPicker({
 
       setMarker(coords);
       setError(null);
-      updateMarkerPosition(coords);
+      updateMarkerPositionRef.current?.(coords);
 
-      const addr = await reverseGeocode(coords);
-      setAddress(addr);
-      setSearchValue(addr);
+      const addr = await reverseGeocodeRef.current?.(coords);
+      if (addr) {
+        setAddress(addr);
+        setSearchValue(addr);
+      }
     },
-    [isLocked, reverseGeocode, updateMarkerPosition]
+    [isLocked]
   );
 
   // Get user's current location
@@ -318,11 +332,13 @@ export function LocationPicker({
         };
 
         setMarker(coords);
-        updateMarkerPosition(coords);
+        updateMarkerPositionRef.current?.(coords);
 
-        const addr = await reverseGeocode(coords);
-        setAddress(addr);
-        setSearchValue(addr);
+        const addr = await reverseGeocodeRef.current?.(coords);
+        if (addr) {
+          setAddress(addr);
+          setSearchValue(addr);
+        }
 
         map?.panTo(coords);
         map?.setZoom(17);
@@ -340,7 +356,7 @@ export function LocationPicker({
         maximumAge: 0,
       }
     );
-  }, [map, reverseGeocode, updateMarkerPosition]);
+  }, [map]);
 
   // Reset to initial state
   const handleReset = useCallback(() => {
@@ -355,12 +371,12 @@ export function LocationPicker({
     }
 
     if (initialLocation) {
-      updateMarkerPosition(initialLocation);
+      updateMarkerPositionRef.current?.(initialLocation);
     }
 
     map?.setCenter(initialLocation || DEFAULT_MAP_CENTER);
     map?.setZoom(initialLocation ? 17 : DEFAULT_MAP_ZOOM);
-  }, [map, initialLocation, initialAddress, updateMarkerPosition]);
+  }, [map, initialLocation, initialAddress]);
 
   // Toggle lock state
   const toggleLock = useCallback(() => {

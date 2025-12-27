@@ -1,5 +1,9 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+// Note: Using <img> because currentImage can be a blob URL (from preview) 
+// or a Firebase Storage URL - both require special handling for next/image
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -280,14 +284,12 @@ export default function EditProductPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Product Name
+                Product Name <span className="text-red-500">*</span>
               </label>
               <input
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
                 value={product.name}
-                onChange={(e) =>
-                  setProduct({ ...product, name: e.target.value })
-                }
+                onChange={(e) => setProduct({ ...product, name: e.target.value })}
                 placeholder="Enter product name"
                 required
               />
@@ -295,7 +297,7 @@ export default function EditProductPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Price
+                Price <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
@@ -346,7 +348,7 @@ export default function EditProductPage() {
               {currentImage ? (
                 <img
                   src={currentImage}
-                  alt="Product"
+                  alt={product.name || "Product image"}
                   className="w-full h-full object-cover"
                 />
               ) : (

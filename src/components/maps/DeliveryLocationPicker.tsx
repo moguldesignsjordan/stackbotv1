@@ -1,7 +1,7 @@
 // src/components/maps/DeliveryLocationPicker.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   collection,
   query,
@@ -60,6 +60,28 @@ export function DeliveryLocationPicker({
   });
   const [showSavedExpanded, setShowSavedExpanded] = useState(true);
 
+  // Memoized handler for selecting saved locations
+  const handleSavedLocationSelect = useCallback((location: SavedLocation) => {
+    setSelectedSaved(location);
+    setSelectionMode('saved');
+
+    // Parse address into components (best effort)
+    const parts = location.address.split(',').map((p) => p.trim());
+
+    const address: DeliveryAddressWithPin = {
+      street: parts[0] || '',
+      city: parts[1] || '',
+      state: parts[2] || '',
+      postalCode: '',
+      country: parts[parts.length - 1] || 'Dominican Republic',
+      instructions: '',
+      coordinates: location.coordinates,
+      pinLocked: true,
+    };
+
+    onLocationConfirm(address);
+  }, [onLocationConfirm]);
+
   // Fetch saved locations
   useEffect(() => {
     const fetchLocations = async () => {
@@ -88,10 +110,9 @@ export function DeliveryLocationPicker({
 
         setSavedLocations(locs);
 
-        // Auto-select default if available
+        // Auto-select default if available and no initial address
         const defaultLoc = locs.find((l) => l.isDefault);
         if (defaultLoc && !initialAddress) {
-          setSelectedSaved(defaultLoc);
           handleSavedLocationSelect(defaultLoc);
         }
       } catch (error) {
@@ -102,30 +123,9 @@ export function DeliveryLocationPicker({
     };
 
     fetchLocations();
-  }, [user]);
+  }, [user, initialAddress, handleSavedLocationSelect]);
 
-  const handleSavedLocationSelect = (location: SavedLocation) => {
-    setSelectedSaved(location);
-    setSelectionMode('saved');
-
-    // Parse address into components (best effort)
-    const parts = location.address.split(',').map((p) => p.trim());
-
-    const address: DeliveryAddressWithPin = {
-      street: parts[0] || '',
-      city: parts[1] || '',
-      state: parts[2] || '',
-      postalCode: '',
-      country: parts[parts.length - 1] || 'Dominican Republic',
-      instructions: '',
-      coordinates: location.coordinates,
-      pinLocked: true,
-    };
-
-    onLocationConfirm(address);
-  };
-
-  const handleMapLocationSelect = (locationPin: LocationPin) => {
+  const handleMapLocationSelect = useCallback((locationPin: LocationPin) => {
     // Parse address into components
     const parts = locationPin.address.split(',').map((p) => p.trim());
 
@@ -145,17 +145,16 @@ export function DeliveryLocationPicker({
     setSelectedSaved(null);
     setShowMapPicker(false);
     onLocationConfirm(address);
-  };
+  }, [manualAddress.instructions, onLocationConfirm]);
 
-  const handleManualInputChange = (
+  const handleManualInputChange = useCallback((
     field: keyof DeliveryAddressWithPin,
     value: string
   ) => {
-    const updated = { ...manualAddress, [field]: value };
-    setManualAddress(updated);
+    setManualAddress((prev) => ({ ...prev, [field]: value }));
     setSelectionMode('manual');
     setSelectedSaved(null);
-  };
+  }, []);
 
   const getIcon = (label: string) => {
     return LOCATION_ICONS[label] || MapPin;
