@@ -8,7 +8,21 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { useCart } from "@/contexts/CartContext";
 import { formatPrice } from "@/lib/utils/currency";
-import { ShoppingCart, Check, ArrowLeft } from "lucide-react";
+import {
+  ShoppingCart,
+  Check,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Store,
+  Minus,
+  Plus,
+  X,
+  ZoomIn,
+  Share2,
+  Heart,
+  CheckCircle2,
+} from "lucide-react";
 
 interface OptionItem {
   id: string;
@@ -20,6 +34,7 @@ interface OptionGroup {
   id: string;
   title: string;
   type?: string;
+  required?: boolean;
   options: OptionItem[];
 }
 
@@ -36,6 +51,8 @@ interface ProductClientProps {
   vendor: {
     id?: string;
     name: string;
+    logoUrl?: string;
+    verified?: boolean;
   };
   product: {
     id: string;
@@ -52,10 +69,15 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
   const [selected, setSelected] = useState<SelectedOption[]>([]);
   const [qty, setQty] = useState(1);
   const [addedToCart, setAddedToCart] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [showLightbox, setShowLightbox] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const { addItem } = useCart();
 
   const basePrice = product.price || 0;
+  const images = product.images?.length ? product.images : ["/product-placeholder.jpg"];
+  const hasMultipleImages = images.length > 1;
 
   const finalUnitPrice = useMemo(() => {
     return basePrice + selected.reduce((sum, opt) => sum + (opt.priceDelta || 0), 0);
@@ -105,10 +127,11 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       price: finalUnitPrice,
       quantity: qty,
       imageUrl: product.images?.[0],
+      selectedOptions: selected.length > 0 ? selected : undefined,
     });
 
     setAddedToCart(true);
-    setTimeout(() => setAddedToCart(false), 2000);
+    setTimeout(() => setAddedToCart(false), 2500);
   };
 
   const buyNow = () => {
@@ -119,7 +142,6 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       return;
     }
 
-    // Add to cart and redirect to checkout
     addItem({
       productId: product.id,
       vendorId: vendorId,
@@ -128,126 +150,355 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       price: finalUnitPrice,
       quantity: qty,
       imageUrl: product.images?.[0],
+      selectedOptions: selected.length > 0 ? selected : undefined,
     });
 
     router.push("/cart");
   };
 
-  const images = product.images?.length ? product.images : ["/product-placeholder.jpg"];
+  const nextImage = () => {
+    setCurrentImageIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const prevImage = () => {
+    setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: product.name,
+          text: `Check out ${product.name} from ${vendor.name}!`,
+          url,
+        });
+      } catch (err) {}
+    } else {
+      await navigator.clipboard.writeText(url);
+      alert("Link copied to clipboard!");
+    }
+  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 pb-32 lg:pb-10 space-y-8">
-      {/* BACK */}
-      <Link
-        href={`/store/${slug}`}
-        className="inline-flex items-center gap-2 text-sm text-[#55529d] hover:underline"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to {vendor.name}
-      </Link>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* IMAGES */}
-        <div>
-          <div className="relative aspect-square bg-gray-100 rounded-2xl overflow-hidden">
-            <Image
-              src={images[0]}
-              alt={product.name}
-              fill
-              sizes="(max-width: 768px) 100vw, 50vw"
-              className="object-cover"
-              priority
-            />
+    <>
+      <div className="bg-gray-50 min-h-screen pb-32 lg:pb-10">
+        {/* Breadcrumb */}
+        <div className="bg-white border-b">
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Link href="/" className="text-gray-500 hover:text-gray-700">
+                Home
+              </Link>
+              <span className="text-gray-300">/</span>
+              <Link href={`/store/${slug}`} className="text-gray-500 hover:text-gray-700">
+                {vendor.name}
+              </Link>
+              <span className="text-gray-300">/</span>
+              <span className="text-gray-900 font-medium truncate max-w-[200px]">
+                {product.name}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* DETAILS */}
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">{product.name}</h1>
+        <div className="max-w-7xl mx-auto px-4 py-6 lg:py-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+            {/* IMAGE GALLERY */}
+            <div className="space-y-4">
+              {/* Main Image */}
+              <div className="relative aspect-square bg-white rounded-2xl overflow-hidden shadow-sm group">
+                <Image
+                  src={images[currentImageIndex]}
+                  alt={`${product.name} - Image ${currentImageIndex + 1}`}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  className="object-cover cursor-zoom-in"
+                  priority
+                  onClick={() => setShowLightbox(true)}
+                />
 
-          <p className="text-2xl font-semibold text-[#55529d]">
-            {formatPrice(finalPrice)}
-          </p>
+                {/* Zoom Button */}
+                <button
+                  onClick={() => setShowLightbox(true)}
+                  className="absolute top-4 right-4 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                >
+                  <ZoomIn className="w-5 h-5 text-gray-700" />
+                </button>
 
-          {product.description && (
-            <p className="text-gray-700">{product.description}</p>
-          )}
+                {/* Navigation Arrows */}
+                {hasMultipleImages && (
+                  <>
+                    <button
+                      onClick={prevImage}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-gray-700" />
+                    </button>
+                    <button
+                      onClick={nextImage}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                    >
+                      <ChevronRight className="w-5 h-5 text-gray-700" />
+                    </button>
 
-          {/* OPTIONS */}
-          {product.options && product.options.length > 0 && (
-            <div className="space-y-6">
-              {product.options.map((group) => (
-                <div key={group.id} className="space-y-2">
-                  <p className="font-semibold">{group.title}</p>
+                    {/* Image Counter */}
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/60 text-white text-sm font-medium rounded-full">
+                      {currentImageIndex + 1} / {images.length}
+                    </div>
+                  </>
+                )}
+              </div>
 
-                  {group.options.map((opt) => {
-                    const active = selected.some((s) => s.optionId === opt.id);
-
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => toggleOption(group, opt)}
-                        className={`w-full flex justify-between p-3 rounded-xl border ${
-                          active
-                            ? "border-[#55529d] bg-[#55529d]/5"
-                            : "border-gray-200"
-                        }`}
-                      >
-                        <span>{opt.label}</span>
-                        {opt.priceDelta ? <span>+{formatPrice(opt.priceDelta)}</span> : null}
-                      </button>
-                    );
-                  })}
+              {/* Thumbnail Strip */}
+              {hasMultipleImages && (
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {images.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCurrentImageIndex(idx)}
+                      className={`relative flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden transition-all ${
+                        idx === currentImageIndex
+                          ? "ring-2 ring-[#55529d] ring-offset-2"
+                          : "opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      <Image
+                        src={img}
+                        alt={`Thumbnail ${idx + 1}`}
+                        fill
+                        className="object-cover"
+                        sizes="80px"
+                      />
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
 
-          {/* QUANTITY */}
-          <div className="flex items-center gap-4">
-            <span className="font-medium">Quantity</span>
-            <div className="flex items-center border rounded-xl">
-              <button
-                onClick={() => setQty(Math.max(1, qty - 1))}
-                className="px-4 py-2"
+            {/* PRODUCT DETAILS */}
+            <div className="space-y-6">
+              {/* Vendor Link */}
+              <Link
+                href={`/store/${slug}`}
+                className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-[#55529d] transition-colors"
               >
-                −
-              </button>
-              <span className="px-4 font-semibold">{qty}</span>
-              <button onClick={() => setQty(qty + 1)} className="px-4 py-2">
-                +
-              </button>
+                {vendor.logoUrl ? (
+                  <Image
+                    src={vendor.logoUrl}
+                    alt={vendor.name}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 rounded-full object-cover"
+                  />
+                ) : (
+                  <Store className="w-5 h-5" />
+                )}
+                <span>{vendor.name}</span>
+                {vendor.verified && (
+                  <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                )}
+              </Link>
+
+              {/* Title & Actions */}
+              <div className="flex items-start justify-between gap-4">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                  {product.name}
+                </h1>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={handleShare}
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                    title="Share"
+                  >
+                    <Share2 className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setSaved(!saved)}
+                    className={`p-2 rounded-full transition-colors ${
+                      saved
+                        ? "text-red-500 bg-red-50"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                    }`}
+                    title="Save"
+                  >
+                    <Heart className={`w-5 h-5 ${saved ? "fill-current" : ""}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-3">
+                <span className="text-3xl font-bold text-[#55529d]">
+                  {formatPrice(finalPrice)}
+                </span>
+                {qty > 1 && (
+                  <span className="text-sm text-gray-500">
+                    ({formatPrice(finalUnitPrice)} each)
+                  </span>
+                )}
+              </div>
+
+              {/* Description */}
+              {product.description && (
+                <div className="prose prose-gray max-w-none">
+                  <p className="text-gray-600 leading-relaxed">{product.description}</p>
+                </div>
+              )}
+
+              {/* Options */}
+              {product.options && product.options.length > 0 && (
+                <div className="space-y-5 pt-2">
+                  {product.options.map((group) => (
+                    <div key={group.id} className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900">{group.title}</span>
+                        {group.required && (
+                          <span className="text-xs text-red-500">Required</span>
+                        )}
+                        {group.type === "multiple" && (
+                          <span className="text-xs text-gray-500">(Select multiple)</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {group.options.map((opt) => {
+                          const active = selected.some((s) => s.optionId === opt.id);
+
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => toggleOption(group, opt)}
+                              className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
+                                active
+                                  ? "border-[#55529d] bg-[#55529d]/5"
+                                  : "border-gray-200 hover:border-gray-300"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                    active
+                                      ? "border-[#55529d] bg-[#55529d]"
+                                      : "border-gray-300"
+                                  }`}
+                                >
+                                  {active && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                <span className={active ? "font-medium" : ""}>{opt.label}</span>
+                              </div>
+                              {opt.priceDelta ? (
+                                <span className="text-sm text-gray-500">
+                                  +{formatPrice(opt.priceDelta)}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Quantity */}
+              <div className="flex items-center gap-4 pt-2">
+                <span className="font-semibold text-gray-900">Quantity</span>
+                <div className="flex items-center border-2 border-gray-200 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setQty(Math.max(1, qty - 1))}
+                    className="px-4 py-2.5 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    disabled={qty <= 1}
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <span className="px-5 py-2.5 font-semibold text-gray-900 min-w-[60px] text-center border-x-2 border-gray-200">
+                    {qty}
+                  </span>
+                  <button
+                    onClick={() => setQty(qty + 1)}
+                    className="px-4 py-2.5 text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Desktop Buttons */}
+              <div className="hidden lg:flex gap-3 pt-4">
+                <button
+                  onClick={handleAddToCart}
+                  disabled={addedToCart}
+                  className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-semibold border-2 transition-all ${
+                    addedToCart
+                      ? "bg-green-500 border-green-500 text-white"
+                      : "border-[#55529d] text-[#55529d] hover:bg-[#55529d]/5"
+                  }`}
+                >
+                  {addedToCart ? (
+                    <>
+                      <Check className="w-5 h-5" />
+                      Added to Cart!
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-5 h-5" />
+                      Add to Cart
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={buyNow}
+                  className="flex-1 bg-[#55529d] text-white py-4 rounded-xl font-semibold hover:bg-[#444287] transition-colors shadow-lg shadow-[#55529d]/25"
+                >
+                  Buy Now
+                </button>
+              </div>
+
+              {/* Trust Badges */}
+              <div className="flex flex-wrap items-center gap-4 pt-4 border-t text-sm text-gray-500">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <span>Secure checkout</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <span>Quality guaranteed</span>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* DESKTOP BUTTONS */}
-          <div className="hidden lg:flex gap-3">
+        {/* Mobile Sticky Bar */}
+        <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t shadow-lg p-4 z-50">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0">
+              <p className="text-xs text-gray-500">Total</p>
+              <p className="font-bold text-lg text-gray-900">{formatPrice(finalPrice)}</p>
+            </div>
+
             <button
               onClick={handleAddToCart}
               disabled={addedToCart}
-              className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-semibold border-2 transition-all ${
+              className={`p-3 rounded-xl border-2 transition-all flex-shrink-0 ${
                 addedToCart
                   ? "bg-green-500 border-green-500 text-white"
-                  : "border-[#55529d] text-[#55529d] hover:bg-[#55529d]/5"
+                  : "border-[#55529d] text-[#55529d]"
               }`}
             >
               {addedToCart ? (
-                <>
-                  <Check className="w-5 h-5" />
-                  Added!
-                </>
+                <Check className="w-5 h-5" />
               ) : (
-                <>
-                  <ShoppingCart className="w-5 h-5" />
-                  Add to Cart
-                </>
+                <ShoppingCart className="w-5 h-5" />
               )}
             </button>
 
             <button
               onClick={buyNow}
-              className="flex-1 bg-[#55529d] text-white py-4 rounded-xl font-semibold hover:bg-[#444287] transition-colors"
+              className="flex-1 bg-[#55529d] text-white px-6 py-3.5 rounded-xl font-semibold shadow-lg"
             >
               Buy Now
             </button>
@@ -255,35 +506,92 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
         </div>
       </div>
 
-      {/* MOBILE STICKY BAR */}
-      <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t p-4 z-50">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-lg">{formatPrice(finalPrice)}</span>
-
+      {/* Lightbox */}
+      {showLightbox && (
+        <div
+          className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center"
+          onClick={() => setShowLightbox(false)}
+        >
+          {/* Close Button */}
           <button
-            onClick={handleAddToCart}
-            disabled={addedToCart}
-            className={`p-3 rounded-xl border-2 transition-all ${
-              addedToCart
-                ? "bg-green-500 border-green-500 text-white"
-                : "border-[#55529d] text-[#55529d]"
-            }`}
+            onClick={() => setShowLightbox(false)}
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors z-10"
           >
-            {addedToCart ? (
-              <Check className="w-5 h-5" />
-            ) : (
-              <ShoppingCart className="w-5 h-5" />
-            )}
+            <X className="w-8 h-8" />
           </button>
 
-          <button
-            onClick={buyNow}
-            className="flex-1 bg-[#55529d] text-white px-6 py-3 rounded-xl font-semibold"
+          {/* Image Counter */}
+          <div className="absolute top-4 left-4 text-white/80 font-medium">
+            {currentImageIndex + 1} / {images.length}
+          </div>
+
+          {/* Main Image */}
+          <div
+            className="relative w-full h-full max-w-5xl max-h-[80vh] mx-4"
+            onClick={(e) => e.stopPropagation()}
           >
-            Buy Now
-          </button>
+            <Image
+              src={images[currentImageIndex]}
+              alt={`${product.name} - Image ${currentImageIndex + 1}`}
+              fill
+              className="object-contain"
+              sizes="100vw"
+            />
+          </div>
+
+          {/* Navigation */}
+          {hasMultipleImages && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevImage();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-8 h-8 text-white" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextImage();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <ChevronRight className="w-8 h-8 text-white" />
+              </button>
+            </>
+          )}
+
+          {/* Thumbnail Strip */}
+          {hasMultipleImages && (
+            <div
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {images.map((img, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentImageIndex(idx)}
+                  className={`relative w-16 h-16 rounded-lg overflow-hidden transition-all ${
+                    idx === currentImageIndex
+                      ? "ring-2 ring-white"
+                      : "opacity-50 hover:opacity-100"
+                  }`}
+                >
+                  <Image
+                    src={img}
+                    alt={`Thumbnail ${idx + 1}`}
+                    fill
+                    className="object-cover"
+                    sizes="64px"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
