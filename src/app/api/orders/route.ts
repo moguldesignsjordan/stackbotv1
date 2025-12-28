@@ -1,154 +1,70 @@
-// src/app/api/orders/[id]/route.ts
+// src/app/api/orders/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import admin from '@/lib/firebase/admin';
 
-// GET single order
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest) {
   try {
-    const { id } = await params;
-    
+    // Get auth token
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
+    
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+    } catch {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
     const uid = decodedToken.uid;
     const role = decodedToken.role || 'customer';
-
     const db = admin.firestore();
-    const orderDoc = await db.collection('orders').doc(id).get();
 
-    if (!orderDoc.exists) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    // Get query params
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const limit = parseInt(searchParams.get('limit') || '50');
+
+    let ordersQuery: admin.firestore.Query = db.collection('orders');
+
+    // Filter based on role
+    if (role === 'admin') {
+      // Admin sees all orders
+    } else if (role === 'vendor') {
+      // Vendor sees only their orders
+      ordersQuery = ordersQuery.where('vendorId', '==', uid);
+    } else {
+      // Customer sees only their orders
+      ordersQuery = ordersQuery.where('customerId', '==', uid);
     }
 
-    const order = orderDoc.data();
-
-    // Check authorization
-    if (role !== 'admin') {
-      if (role === 'vendor' && order?.vendorId !== uid) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      if (role === 'customer' && order?.customerId !== uid) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
+    // Filter by status if provided
+    if (status && status !== 'all') {
+      ordersQuery = ordersQuery.where('status', '==', status);
     }
 
-    return NextResponse.json({
-      id: orderDoc.id,
-      ...order,
-      createdAt: order?.createdAt?.toDate?.()?.toISOString() || null,
-      updatedAt: order?.updatedAt?.toDate?.()?.toISOString() || null,
-    });
-  } catch (error) {
-    console.error('Error fetching order:', error);
-    return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });
-  }
-}
+    // Order by date and limit
+    ordersQuery = ordersQuery.orderBy('createdAt', 'desc').limit(limit);
 
-// PATCH - Update order status
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
+    const snapshot = await ordersQuery.get();
     
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const orders = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
+      updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString() || null,
+    }));
 
-    const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    const uid = decodedToken.uid;
-    const role = decodedToken.role || 'customer';
-
-    // Only vendors and admins can update orders
-    if (role !== 'vendor' && role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const db = admin.firestore();
-    const orderRef = db.collection('orders').doc(id);
-    const orderDoc = await orderRef.get();
-
-    if (!orderDoc.exists) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
-
-    const order = orderDoc.data();
-
-    // Vendors can only update their own orders
-    if (role === 'vendor' && order?.vendorId !== uid) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const { status } = body;
-
-    // Validate status
-    const validStatuses = [
-      'pending',
-      'confirmed',
-      'preparing',
-      'ready_for_pickup',
-      'out_for_delivery',
-      'delivered',
-      'cancelled',
-    ];
-
-    if (!validStatuses.includes(status)) {
-      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
-    }
-
-    // Update order
-    const updateData: Record<string, unknown> = {
-      status,
-      updatedAt: admin.firestore.Timestamp.now(),
-    };
-
-    // Add timestamp for specific statuses
-    if (status === 'confirmed') {
-      updateData.confirmedAt = admin.firestore.Timestamp.now();
-    } else if (status === 'delivered') {
-      updateData.deliveredAt = admin.firestore.Timestamp.now();
-    }
-
-    await orderRef.update(updateData);
-
-    // Also update vendor and customer subcollections
-    const batch = db.batch();
-    
-    if (order?.vendorId) {
-      const vendorOrderRef = db
-        .collection('vendors')
-        .doc(order.vendorId)
-        .collection('orders')
-        .doc(id);
-      batch.update(vendorOrderRef, { status, updatedAt: admin.firestore.Timestamp.now() });
-    }
-
-    if (order?.customerId) {
-      const customerOrderRef = db
-        .collection('customers')
-        .doc(order.customerId)
-        .collection('orders')
-        .doc(id);
-      batch.update(customerOrderRef, { status, updatedAt: admin.firestore.Timestamp.now() });
-    }
-
-    await batch.commit();
-
-    return NextResponse.json({ success: true, status });
+    return NextResponse.json({ orders, role });
   } catch (error) {
-    console.error('Error updating order:', error);
-    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+    console.error('Error fetching orders:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch orders' },
+      { status: 500 }
+    );
   }
 }
