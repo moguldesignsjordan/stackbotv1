@@ -127,7 +127,6 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       price: finalUnitPrice,
       quantity: qty,
       imageUrl: product.images?.[0],
-      selectedOptions: selected.length > 0 ? selected : undefined,
     });
 
     setAddedToCart(true);
@@ -150,7 +149,6 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       price: finalUnitPrice,
       quantity: qty,
       imageUrl: product.images?.[0],
-      selectedOptions: selected.length > 0 ? selected : undefined,
     });
 
     router.push("/cart");
