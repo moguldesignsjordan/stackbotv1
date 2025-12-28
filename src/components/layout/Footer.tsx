@@ -93,11 +93,11 @@ export default function Footer() {
             {/* Contact Info */}
             <div className="mt-6 space-y-3 text-sm">
               <a
-                href="mailto:support@stackbot.com"
+                href="mailto:support@stackbotglobal.com"
                 className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
               >
                 <Mail className="w-4 h-4 text-gray-500" />
-                support@stackbot.com
+                support@stackbotglobal.com
               </a>
               <a
                 href="tel:+18493917763"
