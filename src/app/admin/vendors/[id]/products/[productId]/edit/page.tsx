@@ -1,26 +1,23 @@
+// src/app/admin/vendors/[id]/products/[productId]/edit/page.tsx
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase/config";
+import Link from "next/link";
+import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
+import { auth, db, storage } from "@/lib/firebase/config";
 import {
   doc,
   getDoc,
   updateDoc,
   deleteDoc,
-  serverTimestamp,
   addDoc,
   collection,
+  serverTimestamp,
 } from "firebase/firestore";
-import {
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { nanoid } from "nanoid";
 import {
   ArrowLeft,
@@ -33,7 +30,7 @@ import {
   X,
   AlertTriangle,
   Loader2,
-  ShieldCheck,
+  Shield,
 } from "lucide-react";
 
 import type {
@@ -42,21 +39,32 @@ import type {
   ProductOptionItem,
 } from "@/lib/types/firestore";
 
+interface Vendor {
+  id: string;
+  name?: string;
+  business_name?: string;
+}
+
 export default function AdminEditProductPage() {
-  const { id: vendorId, productId } = useParams<{ id: string; productId: string }>();
   const router = useRouter();
-  const storage = getStorage();
+  const { id: vendorId, productId } = useParams<{
+    id: string;
+    productId: string;
+  }>();
 
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [vendorName, setVendorName] = useState<string>("");
+  const [vendor, setVendor] = useState<Vendor | null>(null);
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [newImage, setNewImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Multi-image state
+  const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [newImages, setNewImages] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
 
   /* ---------------- AUTH + ADMIN CHECK ---------------- */
   useEffect(() => {
@@ -66,68 +74,114 @@ export default function AdminEditProductPage() {
         return;
       }
 
-      // Check for admin claim
-      const tokenResult = await u.getIdTokenResult(true);
-      if (tokenResult.claims.role !== "admin") {
-        router.push("/");
-        return;
-      }
+      try {
+        const tokenResult = await getIdTokenResult(u);
+        const role = tokenResult.claims.role;
+        const adminClaim = tokenResult.claims.admin;
 
-      setUser(u);
-      setIsAdmin(true);
+        if (role !== "admin" && adminClaim !== true) {
+          router.push("/");
+          return;
+        }
+
+        setIsAdmin(true);
+        setUser(u);
+      } catch (err) {
+        console.error("Error checking admin role:", err);
+        router.push("/");
+      }
     });
   }, [router]);
 
   /* ---------------- LOAD VENDOR + PRODUCT ---------------- */
   useEffect(() => {
-    if (!isAdmin || !vendorId || !productId) return;
+    if (!vendorId || !productId || !isAdmin) return;
 
-    async function load() {
+    const loadData = async () => {
       try {
-        // Load vendor name for breadcrumb
-        const vendorSnap = await getDoc(doc(db, "vendors", vendorId));
-        if (vendorSnap.exists()) {
-          const vendorData = vendorSnap.data();
-          setVendorName(vendorData.business_name || vendorData.name || "Vendor");
+        // Load vendor
+        const vendorDoc = await getDoc(doc(db, "vendors", vendorId));
+        if (vendorDoc.exists()) {
+          setVendor({ id: vendorDoc.id, ...vendorDoc.data() } as Vendor);
         }
 
         // Load product
-        const productSnap = await getDoc(
+        const productDoc = await getDoc(
           doc(db, "vendors", vendorId, "products", productId)
         );
-
-        if (!productSnap.exists()) {
-          alert("Product not found");
+        if (productDoc.exists()) {
+          const data = productDoc.data() as Product;
+          setProduct({ ...data, id: productDoc.id });
+          setExistingImages(data.images || []);
+        } else {
           router.push(`/admin/vendors/${vendorId}`);
-          return;
         }
-
-        setProduct({
-          id: productSnap.id,
-          ...(productSnap.data() as Omit<Product, "id">),
-        });
       } catch (err) {
-        console.error("Error loading product:", err);
-        alert("Failed to load product");
-        router.push(`/admin/vendors/${vendorId}`);
+        console.error("Error loading data:", err);
       } finally {
         setLoading(false);
       }
-    }
+    };
 
-    load();
-  }, [isAdmin, vendorId, productId, router]);
+    loadData();
+  }, [vendorId, productId, isAdmin, router]);
 
-  /* ---------------- IMAGE PREVIEW ---------------- */
+  /* ---------------- NEW IMAGE PREVIEWS ---------------- */
   useEffect(() => {
-    if (!newImage) {
-      setImagePreview(null);
+    if (newImages.length === 0) {
+      setNewImagePreviews([]);
       return;
     }
-    const url = URL.createObjectURL(newImage);
-    setImagePreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [newImage]);
+    const urls = newImages.map((file) => URL.createObjectURL(file));
+    setNewImagePreviews(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [newImages]);
+
+  /* ---------------- AUDIT LOG ---------------- */
+  async function logAudit(action: string, extra?: object) {
+    if (!user || !vendorId || !productId) return;
+    try {
+      await addDoc(collection(db, "admin_audit_logs"), {
+        action,
+        vendorId,
+        productId,
+        productName: product?.name,
+        adminUid: user.uid,
+        adminEmail: user.email,
+        timestamp: serverTimestamp(),
+        ...extra,
+      });
+    } catch (err) {
+      console.error("Audit log error:", err);
+    }
+  }
+
+  /* ---------------- IMAGE HANDLERS ---------------- */
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setNewImages([...newImages, ...Array.from(e.target.files)]);
+    }
+  };
+
+  const removeExistingImage = (index: number) => {
+    setExistingImages(existingImages.filter((_, i) => i !== index));
+  };
+
+  const removeNewImage = (index: number) => {
+    setNewImages(newImages.filter((_, i) => i !== index));
+  };
+
+  async function uploadNewImages(): Promise<string[]> {
+    if (!vendorId) return [];
+    const urls: string[] = [];
+    for (const file of newImages) {
+      const path = `products/${vendorId}/${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      urls.push(await getDownloadURL(storageRef));
+    }
+    return urls;
+  }
 
   /* ---------------- OPTION GROUP HELPERS ---------------- */
   const addOptionGroup = () => {
@@ -149,9 +203,10 @@ export default function AdminEditProductPage() {
 
   const removeOptionGroup = (groupIndex: number) => {
     if (!product) return;
-    const updated = [...(product.options || [])];
-    updated.splice(groupIndex, 1);
-    setProduct({ ...product, options: updated });
+    setProduct({
+      ...product,
+      options: (product.options || []).filter((_, i) => i !== groupIndex),
+    });
   };
 
   const updateOptionGroup = (
@@ -196,45 +251,19 @@ export default function AdminEditProductPage() {
     setProduct({ ...product, options: updated });
   };
 
-  /* ---------------- AUDIT LOG ---------------- */
-  async function logAudit(action: string, details?: Record<string, any>) {
-    if (!user || !vendorId) return;
-
-    try {
-      await addDoc(collection(db, "admin_audit_logs"), {
-        action,
-        vendorId,
-        productId,
-        productName: product?.name,
-        adminUid: user.uid,
-        adminEmail: user.email,
-        details,
-        timestamp: serverTimestamp(),
-      });
-    } catch (err) {
-      console.error("Failed to log audit:", err);
-    }
-  }
-
   /* ---------------- SAVE ---------------- */
-  async function save(e: React.FormEvent) {
+  async function saveProduct(e: React.FormEvent) {
     e.preventDefault();
-    if (!product || !user || !vendorId) return;
+    if (!user || !product || !vendorId) return;
 
     setSaving(true);
 
     try {
-      let imageUrl = product.images?.[0] || "";
+      // Upload any new images
+      const uploadedUrls = await uploadNewImages();
 
-      if (newImage) {
-        // Use vendorId for storage path to keep files organized under vendor
-        const imgRef = ref(
-          storage,
-          `products/${vendorId}/${Date.now()}-${newImage.name}`
-        );
-        await uploadBytes(imgRef, newImage);
-        imageUrl = await getDownloadURL(imgRef);
-      }
+      // Combine existing + new images
+      const allImages = [...existingImages, ...uploadedUrls];
 
       await updateDoc(
         doc(db, "vendors", vendorId, "products", product.id),
@@ -242,7 +271,7 @@ export default function AdminEditProductPage() {
           name: product.name,
           description: product.description || "",
           price: Number(product.price),
-          images: imageUrl ? [imageUrl] : [],
+          images: allImages,
           options: product.options || [],
           updated_at: serverTimestamp(),
           updated_by_admin: user.uid,
@@ -253,6 +282,7 @@ export default function AdminEditProductPage() {
         changes: {
           name: product.name,
           price: product.price,
+          imageCount: allImages.length,
         },
       });
 
@@ -265,8 +295,8 @@ export default function AdminEditProductPage() {
     }
   }
 
-  /* ---------------- DELETE PRODUCT ---------------- */
-  async function deleteProduct() {
+  /* ---------------- DELETE ---------------- */
+  async function confirmDelete() {
     if (!product || !user || !vendorId) return;
     setDeleting(true);
 
@@ -282,421 +312,388 @@ export default function AdminEditProductPage() {
     }
   }
 
-  /* ---------------- COMPUTED ---------------- */
-  const currentImage = imagePreview || product?.images?.[0] || null;
-
   /* ---------------- LOADING STATE ---------------- */
-  if (loading || !isAdmin) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-sb-primary mx-auto mb-3" />
-          <p className="text-gray-500">Loading product...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-sb-primary" />
       </div>
     );
   }
 
   if (!product) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Product not found</p>
-          <button
-            onClick={() => router.push(`/admin/vendors/${vendorId}`)}
-            className="mt-4 text-sb-primary underline"
-          >
-            Back to Vendor
-          </button>
-        </div>
+      <div className="text-center py-12">
+        <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+        <p className="text-gray-500">Product not found</p>
       </div>
     );
   }
 
+  const vendorName = vendor?.name || vendor?.business_name || "Vendor";
+  const totalImages = existingImages.length + newImages.length;
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <form onSubmit={saveProduct} className="space-y-6 max-w-3xl pb-32">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push(`/admin/vendors/${vendorId}`)}
-              className="p-2 -ml-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-semibold text-gray-900">Edit Product</h1>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
-                  <ShieldCheck className="w-3 h-3" />
-                  Admin
+      <div className="flex items-center gap-3">
+        <Link
+          href={`/admin/vendors/${vendorId}`}
+          className="inline-flex items-center text-sb-primary font-medium hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" /> Back to {vendorName}
+        </Link>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          <Shield className="h-6 w-6 text-sb-primary" />
+          Edit Product
+        </h1>
+
+        <button
+          type="button"
+          onClick={() => setShowDeleteConfirm(true)}
+          className="inline-flex items-center gap-2 text-red-600 hover:text-red-700 font-medium"
+        >
+          <Trash2 className="w-4 h-4" />
+          Delete
+        </button>
+      </div>
+
+      {/* Admin Notice */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <Shield className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm text-amber-800 font-medium">Admin Edit Mode</p>
+          <p className="text-sm text-amber-700">
+            Editing product for: <strong>{vendorName}</strong>
+          </p>
+        </div>
+      </div>
+
+      {/* Basic Info Card */}
+      <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Package className="w-5 h-5 text-sb-primary" />
+          Product Details
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Product Name *
+            </label>
+            <input
+              type="text"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
+              value={product.name || ""}
+              onChange={(e) => setProduct({ ...product, name: e.target.value })}
+              placeholder="Product name"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Price (RD$) *
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
+              value={product.price ?? ""}
+              onChange={(e) =>
+                setProduct({
+                  ...product,
+                  price: e.target.value ? Number(e.target.value) : 0,
+                })
+              }
+              placeholder="0.00"
+              required
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Description
+            </label>
+            <textarea
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors resize-none"
+              rows={3}
+              value={product.description || ""}
+              onChange={(e) =>
+                setProduct({ ...product, description: e.target.value })
+              }
+              placeholder="Describe the product..."
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Image Card - Multi Upload */}
+      <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-sb-primary" />
+          Product Images
+          <span className="text-sm font-normal text-gray-500">
+            ({totalImages} image{totalImages !== 1 ? "s" : ""})
+          </span>
+        </h2>
+
+        {/* Image Previews Grid */}
+        {(existingImages.length > 0 || newImagePreviews.length > 0) && (
+          <div className="flex flex-wrap gap-3">
+            {/* Existing Images */}
+            {existingImages.map((url, index) => (
+              <div key={`existing-${index}`} className="relative group">
+                <img
+                  src={url}
+                  alt={`Product ${index + 1}`}
+                  className="w-24 h-24 object-cover rounded-lg border"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeExistingImage(index)}
+                  className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+                {index === 0 && (
+                  <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded">
+                    Main
+                  </span>
+                )}
+              </div>
+            ))}
+
+            {/* New Image Previews */}
+            {newImagePreviews.map((url, index) => (
+              <div key={`new-${index}`} className="relative group">
+                <img
+                  src={url}
+                  alt={`New ${index + 1}`}
+                  className="w-24 h-24 object-cover rounded-lg border border-green-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeNewImage(index)}
+                  className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+                <span className="absolute bottom-1 left-1 text-[10px] bg-green-500 text-white px-1.5 py-0.5 rounded">
+                  New
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Editing as admin for: {vendorName}
-              </p>
-            </div>
+            ))}
           </div>
+        )}
 
+        {/* Upload Area */}
+        <label className="block border-2 border-dashed border-gray-200 rounded-xl p-6 cursor-pointer hover:border-sb-primary/50 hover:bg-sb-primary/5 transition-colors">
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          <div className="text-center">
+            <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-600">
+              <span className="text-sb-primary font-medium">Click to upload</span>{" "}
+              or drag and drop
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              PNG, JPG up to 10MB each • First image is the main image
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* Product Options Card */}
+      <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Product Options</h2>
           <button
-            type="submit"
-            form="product-form"
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-sb-primary text-white rounded-lg text-sm font-medium hover:bg-sb-primary/90 disabled:opacity-50 transition-colors"
+            type="button"
+            onClick={addOptionGroup}
+            className="flex items-center gap-1.5 text-sm font-medium text-sb-primary hover:text-sb-primary/80 transition-colors"
           >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {saving ? "Saving..." : "Save"}
+            <Plus className="w-4 h-4" />
+            Add Group
           </button>
         </div>
-      </header>
 
-      {/* Form */}
-      <main className="max-w-3xl mx-auto px-4 py-6">
-        <form id="product-form" onSubmit={save} className="space-y-5">
-          {/* Product Details Card */}
-          <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Package className="w-5 h-5 text-sb-primary" />
-              Product Details
-            </h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Product Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
-                  value={product.name}
-                  onChange={(e) => setProduct({ ...product, name: e.target.value })}
-                  placeholder="Enter product name"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Price <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="w-full pl-8 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
-                    value={product.price}
-                    onChange={(e) =>
-                      setProduct({ ...product, price: Number(e.target.value) })
-                    }
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Description
-                </label>
-                <textarea
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors resize-none"
-                  rows={3}
-                  value={product.description || ""}
-                  onChange={(e) =>
-                    setProduct({ ...product, description: e.target.value })
-                  }
-                  placeholder="Describe your product..."
-                />
-              </div>
-            </div>
+        {(!product.options || product.options.length === 0) ? (
+          <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
+            <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 text-sm">
+              No option groups yet. Add groups like &quot;Size&quot;,
+              &quot;Color&quot;, or &quot;Add-ons&quot;.
+            </p>
           </div>
+        ) : (
+          <div className="space-y-4">
+            {product.options.map((group, groupIndex) => (
+              <div
+                key={group.id}
+                className="border rounded-xl p-4 space-y-4 bg-gray-50"
+              >
+                {/* Group Header */}
+                <div className="flex items-start gap-3">
+                  <GripVertical className="w-5 h-5 text-gray-400 mt-2.5 cursor-grab" />
 
-          {/* Image Card */}
-          <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <ImageIcon className="w-5 h-5 text-sb-primary" />
-              Product Image
-            </h2>
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={group.title}
+                      onChange={(e) =>
+                        updateOptionGroup(groupIndex, "title", e.target.value)
+                      }
+                      placeholder="Group name (e.g., Size)"
+                      className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                    />
 
-            <div className="flex flex-col sm:flex-row gap-4">
-              {/* Current/Preview Image */}
-              <div className="w-full sm:w-40 h-40 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0">
-                {currentImage ? (
-                  <img
-                    src={currentImage}
-                    alt="Product preview"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Package className="w-12 h-12 text-gray-300" />
+                    <select
+                      value={group.type || "single"}
+                      onChange={(e) =>
+                        updateOptionGroup(groupIndex, "type", e.target.value)
+                      }
+                      className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                    >
+                      <option value="single">Single choice</option>
+                      <option value="multiple">Multiple choices</option>
+                    </select>
                   </div>
-                )}
-              </div>
 
-              {/* Upload Controls */}
-              <div className="flex-1 space-y-3">
-                <label className="block">
-                  <span className="sr-only">Choose product image</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewImage(e.target.files?.[0] || null)}
-                    className="block w-full text-sm text-gray-500
-                      file:mr-3 file:py-2 file:px-4
-                      file:rounded-lg file:border-0
-                      file:text-sm file:font-medium
-                      file:bg-sb-primary/10 file:text-sb-primary
-                      hover:file:bg-sb-primary/20
-                      cursor-pointer"
-                  />
-                </label>
-
-                {newImage && (
                   <button
                     type="button"
-                    onClick={() => setNewImage(null)}
-                    className="inline-flex items-center gap-1.5 text-sm text-red-600 hover:text-red-700"
+                    onClick={() => removeOptionGroup(groupIndex)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                   >
-                    <X className="w-4 h-4" />
-                    Remove new image
+                    <Trash2 className="w-4 h-4" />
                   </button>
-                )}
+                </div>
 
-                <p className="text-xs text-gray-500">
-                  Recommended: Square image, at least 500x500px. Max 5MB.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Options Card */}
-          <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Package className="w-5 h-5 text-sb-primary" />
-                Product Options
-              </h2>
-              {(product.options?.length || 0) > 0 && (
-                <button
-                  type="button"
-                  onClick={addOptionGroup}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-sb-primary hover:bg-purple-50 rounded-lg transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Group
-                </button>
-              )}
-            </div>
-
-            {!product.options?.length ? (
-              <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
-                <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">
-                  No option groups yet. Add groups like &quot;Size&quot;, &quot;Color&quot;, or
-                  &quot;Add-ons&quot; to give customers choices.
-                </p>
-                <button
-                  type="button"
-                  onClick={addOptionGroup}
-                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-sb-primary text-white rounded-lg text-sm font-medium hover:bg-sb-primary/90 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Option Group
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {product.options.map((group, gi) => (
-                  <div
-                    key={group.id}
-                    className="border border-gray-200 rounded-xl overflow-hidden"
-                  >
-                    {/* Group Header */}
-                    <div className="bg-gray-50 px-4 py-3 flex items-center gap-3 border-b">
-                      <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
-                      <div className="flex-1 min-w-0">
+                {/* Options List */}
+                <div className="pl-8 space-y-2">
+                  {group.options.map((option, optionIndex) => (
+                    <div key={option.id} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={option.label}
+                        onChange={(e) =>
+                          updateOptionItem(
+                            groupIndex,
+                            optionIndex,
+                            "label",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Option label"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                          +RD$
+                        </span>
                         <input
-                          className="w-full bg-transparent font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none"
-                          placeholder="Group title (e.g., Size, Color)"
-                          value={group.title}
+                          type="number"
+                          step="0.01"
+                          value={option.priceDelta || ""}
                           onChange={(e) =>
-                            updateOptionGroup(gi, "title", e.target.value)
+                            updateOptionItem(
+                              groupIndex,
+                              optionIndex,
+                              "priceDelta",
+                              e.target.value ? Number(e.target.value) : 0
+                            )
                           }
+                          placeholder="0"
+                          className="w-28 pl-12 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
                         />
                       </div>
                       <button
                         type="button"
-                        onClick={() => removeOptionGroup(gi)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete group"
+                        onClick={() => removeOptionItem(groupIndex, optionIndex)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
+                  ))}
 
-                    {/* Group Body */}
-                    <div className="p-4 space-y-4">
-                      {/* Group Settings */}
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">
-                            Selection Type
-                          </label>
-                          <select
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                            value={group.type}
-                            onChange={(e) =>
-                              updateOptionGroup(gi, "type", e.target.value)
-                            }
-                          >
-                            <option value="single">Single select</option>
-                            <option value="multiple">Multiple select</option>
-                          </select>
-                        </div>
-                        <div className="flex items-end">
-                          <label className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                            <input
-                              type="checkbox"
-                              checked={group.required}
-                              onChange={(e) =>
-                                updateOptionGroup(gi, "required", e.target.checked)
-                              }
-                              className="w-4 h-4 text-sb-primary border-gray-300 rounded focus:ring-sb-primary"
-                            />
-                            <span className="text-sm text-gray-700">Required</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Options List */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-500">
-                          Options
-                        </label>
-
-                        {group.options.length === 0 ? (
-                          <p className="text-sm text-gray-400 italic">
-                            No options yet. Add at least one.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {group.options.map((opt, oi) => (
-                              <div
-                                key={opt.id}
-                                className="flex items-center gap-2"
-                              >
-                                <input
-                                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                                  placeholder="Option label"
-                                  value={opt.label}
-                                  onChange={(e) =>
-                                    updateOptionItem(gi, oi, "label", e.target.value)
-                                  }
-                                />
-                                <div className="relative w-24">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                                    +$
-                                  </span>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    className="w-full pl-7 pr-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                                    placeholder="0.00"
-                                    value={opt.priceDelta || ""}
-                                    onChange={(e) =>
-                                      updateOptionItem(
-                                        gi,
-                                        oi,
-                                        "priceDelta",
-                                        Number(e.target.value) || 0
-                                      )
-                                    }
-                                  />
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeOptionItem(gi, oi)}
-                                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => addOptionItem(gi)}
-                          className="inline-flex items-center gap-1.5 text-sm text-sb-primary hover:text-sb-primary/80"
-                        >
-                          <Plus className="w-4 h-4" />
-                          Add option
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => addOptionItem(groupIndex)}
+                    className="text-sm text-sb-primary hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add option
+                  </button>
+                </div>
               </div>
-            )}
+            ))}
           </div>
+        )}
+      </div>
 
-          {/* Danger Zone */}
-          <div className="bg-white rounded-xl shadow-sm border border-red-200 p-5">
-            <h2 className="text-lg font-semibold text-red-600 flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5" />
-              Danger Zone
-            </h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Permanently delete this product. This action cannot be undone.
+      {/* Save Button */}
+      <div className="sticky bottom-4 flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="inline-flex items-center gap-2 bg-sb-primary text-white px-8 py-3.5 rounded-xl font-semibold hover:bg-sb-primary/90 disabled:opacity-50 transition-colors shadow-lg"
+        >
+          {saving ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="w-5 h-5" />
+              Save Changes
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="text-lg font-semibold">Delete Product?</h3>
+            </div>
+            <p className="text-gray-600">
+              This will permanently delete &quot;{product.name}&quot;. This action cannot
+              be undone.
             </p>
-
-            {!showDeleteConfirm ? (
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
               >
-                <Trash2 className="w-4 h-4" />
-                Delete Product
+                Cancel
               </button>
-            ) : (
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={deleteProduct}
-                  disabled={deleting}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
-                >
-                  {deleting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                  {deleting ? "Deleting..." : "Confirm Delete"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm font-medium"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
           </div>
-        </form>
-      </main>
-    </div>
+        </div>
+      )}
+    </form>
   );
 }

@@ -22,9 +22,15 @@ import {
   Store,
   ShoppingBag,
   ChevronRight,
+  Sparkles,
+  Truck,
+  Package,
+  Briefcase,
+  BadgeCheck,
 } from "lucide-react";
 import StorefrontActions from "./StorefrontActions";
 import ReviewsSection from "./ReviewsSection";
+import HeroVideo from "./HeroVideo";
 import { formatPrice } from "@/lib/utils/currency";
 import { sanitizeSlug, isUrlLike, generateSlug } from "@/lib/utils/slug";
 
@@ -242,21 +248,27 @@ export default async function VendorStorefront({ params }: PageProps) {
     : null;
 
   /* ===============================
-     5️⃣ RENDER STOREFRONT
+     5️⃣ PREPARE CATEGORY & SERVICE TYPES
+  =============================== */
+  // Check multiple possible category field names
+  const vendorCategory = vendor.category || vendor.categories?.[0] || vendor.business_type || vendor.service_type;
+
+  const serviceTypes = {
+    delivery: vendor.supports_delivery ?? vendor.supportsDelivery ?? false,
+    pickup: vendor.supports_pickup ?? vendor.supportsPickup ?? false,
+    services: vendor.has_services ?? vendor.hasServices ?? false,
+  };
+  const hasServiceTypes = Object.values(serviceTypes).some(Boolean);
+
+  /* ===============================
+     6️⃣ RENDER STOREFRONT
   =============================== */
   return (
     <div className="bg-gray-50 min-h-screen pb-24">
       {/* HERO WITH VIDEO/IMAGE SUPPORT */}
       <section className="relative h-[340px] md:h-[420px] w-full overflow-hidden">
         {isVideo ? (
-          <video
-            src={coverMedia}
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute inset-0 w-full h-full object-cover"
-          />
+          <HeroVideo src={coverMedia} />
         ) : (
           <Image
             src={coverMedia}
@@ -307,18 +319,41 @@ export default async function VendorStorefront({ params }: PageProps) {
               
               {/* Name & Meta */}
               <div className="flex-1 min-w-0 pb-1">
-                <h1 className="text-2xl md:text-4xl font-bold text-white drop-shadow-lg truncate">
-                  {vendor.name}
-                </h1>
+                {/* Name with Verified Badge */}
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl md:text-4xl font-bold text-white drop-shadow-lg truncate">
+                    {vendor.name}
+                  </h1>
+                  {vendor.verified && (
+                    <BadgeCheck className="w-6 h-6 md:w-7 md:h-7 text-blue-400 flex-shrink-0" />
+                  )}
+                </div>
                 
-                {/* Category & Rating */}
-                <div className="flex flex-wrap items-center gap-3 mt-2">
-                  {vendor.category && (
+                {/* Badges Row: Featured, New, Category, Rating */}
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {/* Featured Badge */}
+                  {vendor.featured && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-yellow-400/90 text-yellow-900 text-sm font-semibold rounded-full">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Featured
+                    </span>
+                  )}
+
+                  {/* New Badge */}
+                  {vendor.isNew && (
+                    <span className="inline-flex px-3 py-1 bg-green-500 text-white text-sm font-medium rounded-full">
+                      New
+                    </span>
+                  )}
+
+                  {/* Category Badge - checks multiple fields */}
+                  {vendorCategory && (
                     <span className="inline-flex px-3 py-1 bg-white/20 backdrop-blur-md text-white text-sm font-medium rounded-full">
-                      {vendor.category}
+                      {vendorCategory}
                     </span>
                   )}
                   
+                  {/* Rating */}
                   {vendor.rating && (
                     <div className="flex items-center gap-1 text-white">
                       <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
@@ -331,6 +366,30 @@ export default async function VendorStorefront({ params }: PageProps) {
                     </div>
                   )}
                 </div>
+
+                {/* Service Type Tags */}
+                {hasServiceTypes && (
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    {serviceTypes.delivery && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/15 backdrop-blur-md text-white text-xs font-medium rounded-full border border-white/20">
+                        <Truck className="w-3.5 h-3.5" />
+                        Delivery
+                      </span>
+                    )}
+                    {serviceTypes.pickup && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/15 backdrop-blur-md text-white text-xs font-medium rounded-full border border-white/20">
+                        <Package className="w-3.5 h-3.5" />
+                        Pickup
+                      </span>
+                    )}
+                    {serviceTypes.services && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/15 backdrop-blur-md text-white text-xs font-medium rounded-full border border-white/20">
+                        <Briefcase className="w-3.5 h-3.5" />
+                        Services
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -449,13 +508,29 @@ export default async function VendorStorefront({ params }: PageProps) {
             )}
           </div>
 
-          {/* DESCRIPTION */}
+          {/* ABOUT / DESCRIPTION */}
           {(vendor.description || vendor.business_description) && (
             <div className="bg-white rounded-2xl shadow-sm p-6">
               <h3 className="font-semibold text-lg mb-3 text-gray-900">About</h3>
               <p className="text-gray-600 leading-relaxed">
                 {vendor.description || vendor.business_description}
               </p>
+              
+              {/* Custom Badges (if vendor has badges array) */}
+              {vendor.badges?.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {vendor.badges.map((badge: string, idx: number) => (
+                      <span
+                        key={idx}
+                        className="inline-flex px-3 py-1.5 bg-purple-50 text-purple-700 text-sm font-medium rounded-full"
+                      >
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -565,60 +640,28 @@ export default async function VendorStorefront({ params }: PageProps) {
               </div>
             )}
 
-            {/* Social Links in Sidebar */}
-            {hasSocialLinks && (
+            {/* Service Types in Sidebar */}
+            {hasServiceTypes && (
               <div className="mt-6 pt-6 border-t border-gray-100">
-                <h4 className="font-medium text-gray-900 mb-3">Follow Us</h4>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {socialLinks.instagram && (
-                    <a
-                      href={socialLinks.instagram.startsWith("http") ? socialLinks.instagram : `https://instagram.com/${socialLinks.instagram.replace("@", "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-9 h-9 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 rounded-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
-                    >
-                      <InstagramIcon className="w-4 h-4" />
-                    </a>
+                <h4 className="font-medium text-gray-900 mb-3">Available Options</h4>
+                <div className="flex flex-wrap gap-2">
+                  {serviceTypes.delivery && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 text-sm font-medium rounded-full">
+                      <Truck className="w-4 h-4" />
+                      Delivery
+                    </span>
                   )}
-                  {socialLinks.facebook && (
-                    <a
-                      href={socialLinks.facebook.startsWith("http") ? socialLinks.facebook : `https://facebook.com/${socialLinks.facebook}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-9 h-9 bg-[#1877F2] rounded-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
-                    >
-                      <FacebookIcon className="w-4 h-4" />
-                    </a>
+                  {serviceTypes.pickup && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-medium rounded-full">
+                      <Package className="w-4 h-4" />
+                      Pickup
+                    </span>
                   )}
-                  {socialLinks.tiktok && (
-                    <a
-                      href={socialLinks.tiktok.startsWith("http") ? socialLinks.tiktok : `https://tiktok.com/@${socialLinks.tiktok.replace("@", "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-9 h-9 bg-black rounded-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
-                    >
-                      <TikTokIcon className="w-4 h-4" />
-                    </a>
-                  )}
-                  {socialLinks.twitter && (
-                    <a
-                      href={socialLinks.twitter.startsWith("http") ? socialLinks.twitter : `https://x.com/${socialLinks.twitter.replace("@", "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-9 h-9 bg-black rounded-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
-                    >
-                      <TwitterIcon className="w-4 h-4" />
-                    </a>
-                  )}
-                  {socialLinks.youtube && (
-                    <a
-                      href={socialLinks.youtube.startsWith("http") ? socialLinks.youtube : `https://youtube.com/${socialLinks.youtube}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-9 h-9 bg-[#FF0000] rounded-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
-                    >
-                      <YouTubeIcon className="w-4 h-4" />
-                    </a>
+                  {serviceTypes.services && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">
+                      <Briefcase className="w-4 h-4" />
+                      Services
+                    </span>
                   )}
                 </div>
               </div>
