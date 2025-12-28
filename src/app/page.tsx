@@ -5,6 +5,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Footer from "@/components/layout/Footer";
+import { useAuth } from "@/hooks/useAuth";
+import { signOut, getIdTokenResult } from "firebase/auth";
+import { auth } from "@/lib/firebase/config";
+import { LogOut, User, ChevronDown } from "lucide-react";
 import { db } from "@/lib/firebase/config";
 import {
   collection,
@@ -485,12 +489,16 @@ function sortByCreatedAt(a: Vendor, b: Vendor) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// NAVBAR (Optimized)
+// NAVBAR (Auth-Aware)
 ////////////////////////////////////////////////////////////////////////////////
 
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const { user, loading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     let ticking = false;
@@ -507,11 +515,65 @@ function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Get user role for proper dashboard redirect
+  useEffect(() => {
+    const fetchRole = async () => {
+      if (user) {
+        try {
+          const token = await getIdTokenResult(user);
+          setUserRole((token.claims.role as string) || "customer");
+        } catch {
+          setUserRole("customer");
+        }
+      } else {
+        setUserRole(null);
+      }
+    };
+    fetchRole();
+  }, [user]);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setUserMenuOpen(false);
+      setMobileOpen(false);
+      router.push("/");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const getDashboardLink = () => {
+    if (userRole === "admin") return "/admin";
+    if (userRole === "vendor") return "/vendor";
+    return "/account";
+  };
+
+  const getDashboardLabel = () => {
+    if (userRole === "admin") return "Admin Dashboard";
+    if (userRole === "vendor") return "Vendor Dashboard";
+    return "My Account";
+  };
+
+  const getInitials = () => {
+    if (user?.displayName) {
+      return user.displayName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2);
+    }
+    return user?.email?.charAt(0).toUpperCase() || "U";
+  };
+
   return (
     <>
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? "glass shadow-lg py-3" : "bg-transparent py-5"
-      }`}>
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          scrolled ? "glass shadow-lg py-3" : "bg-transparent py-5"
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
             <Image
@@ -527,59 +589,187 @@ function Navbar() {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
             {[
-              { href: "/products", },
               { href: "/vendors", label: "Vendors" },
               { href: "/vendor-signup", label: "Become a Vendor" },
             ].map((link) => (
-              <Link 
+              <Link
                 key={link.href}
-                href={link.href} 
+                href={link.href}
                 className="text-sm font-medium text-gray-700 hover:text-[var(--sb-primary)] transition-colors relative group"
               >
                 {link.label}
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[var(--sb-primary)] transition-all duration-300 group-hover:w-full" />
               </Link>
             ))}
-            <Link
-              href="/login"
-              className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-all duration-300 shadow-md hover:shadow-xl"
-            >
-              Login
-            </Link>
+
+            {/* Auth-aware button/menu */}
+            {loading ? (
+              <div className="w-20 h-10 rounded-full bg-gray-200 animate-pulse" />
+            ) : user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 bg-[var(--sb-primary)]/10 hover:bg-[var(--sb-primary)]/20 px-4 py-2 rounded-full transition-all duration-300"
+                >
+                  <div className="w-8 h-8 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-sm font-semibold">
+                    {getInitials()}
+                  </div>
+                  <ChevronDown
+                    className={`w-4 h-4 text-[var(--sb-primary)] transition-transform duration-200 ${
+                      userMenuOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {/* Dropdown Menu */}
+                {userMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setUserMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-fade-in">
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {user.displayName || "Welcome!"}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {user.email}
+                        </p>
+                      </div>
+                      <Link
+                        href={getDashboardLink()}
+                        onClick={() => setUserMenuOpen(false)}
+                        className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <User className="w-4 h-4" />
+                        <span className="text-sm font-medium">
+                          {getDashboardLabel()}
+                        </span>
+                      </Link>
+                      <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 transition-colors w-full"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span className="text-sm font-medium">Logout</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-all duration-300 shadow-md hover:shadow-xl"
+              >
+                Login
+              </Link>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
-          <button 
+          <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="Toggle menu"
           >
-            {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {mobileOpen ? (
+              <X className="w-6 h-6" />
+            ) : (
+              <Menu className="w-6 h-6" />
+            )}
           </button>
         </div>
       </nav>
 
       {/* Mobile Menu */}
-      <div className={`fixed inset-0 z-40 md:hidden transition-all duration-300 ${
-        mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-      }`}>
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-        <div className={`absolute right-0 top-0 bottom-0 w-80 bg-white shadow-2xl transition-transform duration-300 ${
-          mobileOpen ? "translate-x-0" : "translate-x-full"
-        }`}>
-          <div className="p-6 pt-20 space-y-6">
-            <Link href="/products" className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors">
+      <div
+        className={`fixed inset-0 z-40 md:hidden transition-all duration-300 ${
+          mobileOpen
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMobileOpen(false)}
+        />
+        <div
+          className={`absolute right-0 top-0 bottom-0 w-80 bg-white shadow-2xl transition-transform duration-300 ${
+            mobileOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <div className="p-6 pt-20 space-y-4">
+            {/* User info when logged in */}
+            {user && (
+              <div className="pb-4 mb-4 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-lg font-semibold">
+                    {getInitials()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-gray-900 truncate">
+                      {user.displayName || "Welcome!"}
+                    </p>
+                    <p className="text-sm text-gray-500 truncate">
+                      {user.email}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <Link
+              href="/products"
+              onClick={() => setMobileOpen(false)}
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+            >
               Browse Products
             </Link>
-            <Link href="/vendors" className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors">
+            <Link
+              href="/vendors"
+              onClick={() => setMobileOpen(false)}
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+            >
               Browse Vendors
             </Link>
-            <Link href="/vendor-signup" className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors">
+            <Link
+              href="/vendor-signup"
+              onClick={() => setMobileOpen(false)}
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+            >
               Become a Vendor
             </Link>
-            <Link href="/login" className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold">
-              Login
-            </Link>
+
+            <div className="pt-4 space-y-3">
+              {user ? (
+                <>
+                  <Link
+                    href={getDashboardLink()}
+                    onClick={() => setMobileOpen(false)}
+                    className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
+                  >
+                    {getDashboardLabel()}
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center justify-center gap-2 w-full text-center border-2 border-red-200 text-red-600 px-6 py-3 rounded-full font-semibold hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setMobileOpen(false)}
+                  className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
+                >
+                  Login
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>

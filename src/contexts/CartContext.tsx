@@ -40,6 +40,8 @@ type CartAction =
 // ============================================================================
 
 const CART_STORAGE_KEY = 'stackbot_cart';
+const CART_VERSION_KEY = 'stackbot_cart_version';
+const CURRENT_CART_VERSION = 2; // Increment when cart schema changes
 const DELIVERY_FEE = 3.99;
 const TAX_PERCENT = 0.18; // 18% ITBIS
 
@@ -50,6 +52,72 @@ const initialCart: Cart = {
 };
 
 // ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/**
+ * Validates a single cart item has all required fields
+ */
+function isValidCartItem(item: unknown): item is CartItem {
+  if (!item || typeof item !== 'object') return false;
+  
+  const i = item as Record<string, unknown>;
+  
+  return (
+    typeof i.productId === 'string' && i.productId.length > 0 &&
+    typeof i.vendorId === 'string' && i.vendorId.length > 0 &&
+    typeof i.vendorName === 'string' && i.vendorName.length > 0 &&
+    typeof i.name === 'string' && i.name.length > 0 &&
+    typeof i.price === 'number' && i.price >= 0 &&
+    typeof i.quantity === 'number' && i.quantity > 0
+  );
+}
+
+/**
+ * Validates and migrates cart data from localStorage
+ * Returns null if cart is invalid and should be cleared
+ */
+function validateAndMigrateCart(data: unknown): Cart | null {
+  if (!data || typeof data !== 'object') return null;
+  
+  const cart = data as Record<string, unknown>;
+  
+  // Check if items array exists
+  if (!Array.isArray(cart.items)) return null;
+  
+  // Filter out invalid items
+  const validItems = cart.items.filter(isValidCartItem);
+  
+  // If no valid items remain, return empty cart
+  if (validItems.length === 0) {
+    return initialCart;
+  }
+  
+  // Log if we filtered out items
+  if (validItems.length !== cart.items.length) {
+    console.warn(
+      `[Cart] Filtered out ${cart.items.length - validItems.length} invalid cart items`
+    );
+  }
+  
+  // Ensure all items are from the same vendor
+  const firstItem = validItems[0];
+  const sameVendorItems = validItems.filter(
+    item => item.vendorId === firstItem.vendorId
+  );
+  
+  if (sameVendorItems.length !== validItems.length) {
+    console.warn('[Cart] Found items from multiple vendors, keeping only first vendor');
+  }
+  
+  return {
+    items: sameVendorItems,
+    vendorId: firstItem.vendorId,
+    vendorName: firstItem.vendorName,
+  };
+}
+
+// ============================================================================
 // Reducer
 // ============================================================================
 
@@ -57,6 +125,12 @@ function cartReducer(state: Cart, action: CartAction): Cart {
   switch (action.type) {
     case 'ADD_ITEM': {
       const newItem = action.payload;
+      
+      // Validate the new item
+      if (!isValidCartItem(newItem)) {
+        console.error('[Cart] Attempted to add invalid item:', newItem);
+        return state;
+      }
 
       // If cart has items from different vendor, clear and start fresh
       if (state.vendorId && state.vendorId !== newItem.vendorId) {
@@ -144,15 +218,35 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Load cart from localStorage on mount
   useEffect(() => {
     try {
+      const savedVersion = localStorage.getItem(CART_VERSION_KEY);
       const saved = localStorage.getItem(CART_STORAGE_KEY);
+      
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.items && Array.isArray(parsed.items)) {
-          dispatch({ type: 'LOAD_CART', payload: parsed });
+        
+        // Check version and migrate if needed
+        const version = savedVersion ? parseInt(savedVersion, 10) : 1;
+        
+        if (version < CURRENT_CART_VERSION) {
+          console.log(`[Cart] Migrating cart from v${version} to v${CURRENT_CART_VERSION}`);
         }
+        
+        // Validate and migrate cart data
+        const validatedCart = validateAndMigrateCart(parsed);
+        
+        if (validatedCart) {
+          dispatch({ type: 'LOAD_CART', payload: validatedCart });
+        } else {
+          console.warn('[Cart] Invalid cart data, clearing');
+          localStorage.removeItem(CART_STORAGE_KEY);
+        }
+        
+        // Update version
+        localStorage.setItem(CART_VERSION_KEY, String(CURRENT_CART_VERSION));
       }
     } catch (error) {
       console.error('Failed to load cart from localStorage:', error);
+      localStorage.removeItem(CART_STORAGE_KEY);
     }
   }, []);
 
@@ -171,12 +265,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
     0
   );
   const deliveryFee = cart.items.length > 0 ? DELIVERY_FEE : 0;
-  const serviceFee = 0; // Service fee removed
+  const serviceFee = 0; // Removed, kept for backward compat
   const tax = (subtotal + deliveryFee) * TAX_PERCENT;
   const total = subtotal + deliveryFee + tax;
+
   const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Actions
   const addItem = (item: CartItem) => {
     dispatch({ type: 'ADD_ITEM', payload: item });
   };
@@ -193,21 +287,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'CLEAR_CART' });
   };
 
-  const value: CartContextType = {
-    cart,
-    addItem,
-    removeItem,
-    updateQuantity,
-    clearCart,
-    itemCount,
-    subtotal,
-    deliveryFee,
-    serviceFee,
-    tax,
-    total,
-  };
-
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+  return (
+    <CartContext.Provider
+      value={{
+        cart,
+        addItem,
+        removeItem,
+        updateQuantity,
+        clearCart,
+        itemCount,
+        subtotal,
+        deliveryFee,
+        serviceFee,
+        tax,
+        total,
+      }}
+    >
+      {children}
+    </CartContext.Provider>
+  );
 }
 
 // ============================================================================

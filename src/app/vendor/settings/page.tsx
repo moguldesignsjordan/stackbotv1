@@ -1,3 +1,4 @@
+// src/app/vendor/settings/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -30,6 +31,14 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Video,
+  Image as ImageIcon,
+  MessageCircle,
+  Instagram,
+  Facebook,
+  Youtube,
+  Twitter,
+  Trash2,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -59,6 +68,15 @@ interface LocationInfo {
   location_address: string;
 }
 
+// TikTok icon (not in lucide-react)
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
+    </svg>
+  );
+}
+
 export default function VendorSettings() {
   const [user, setUser] = useState<any>(null);
   const [vendor, setVendor] = useState<any>(null);
@@ -76,10 +94,17 @@ export default function VendorSettings() {
     phone: "",
     email: "",
     website: "",
+    whatsapp: "",
     categories: [] as string[],
     hours: "",
     delivery_fee: "",
     min_order: "",
+    // Social media
+    instagram: "",
+    facebook: "",
+    tiktok: "",
+    twitter: "",
+    youtube: "",
   });
 
   // Bank info state
@@ -101,11 +126,12 @@ export default function VendorSettings() {
     location_address: "",
   });
 
-  // Image uploads
+  // Image/Video uploads
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverType, setCoverType] = useState<"image" | "video">("image");
 
   /* ---------------- AUTH & LOAD ---------------- */
   useEffect(() => {
@@ -124,11 +150,23 @@ export default function VendorSettings() {
           phone: data.phone || "",
           email: data.email || "",
           website: data.website || "",
+          whatsapp: data.whatsapp || "",
           categories: data.categories || [],
           hours: data.hours || "",
           delivery_fee: data.delivery_fee?.toString() || "",
           min_order: data.min_order?.toString() || "",
+          // Social media
+          instagram: data.instagram || data.social_instagram || "",
+          facebook: data.facebook || data.social_facebook || "",
+          tiktok: data.tiktok || data.social_tiktok || "",
+          twitter: data.twitter || data.social_twitter || "",
+          youtube: data.youtube || data.social_youtube || "",
         });
+
+        // Determine current cover type
+        if (data.cover_video_url) {
+          setCoverType("video");
+        }
 
         // Load bank info
         if (data.bank_info) {
@@ -155,7 +193,7 @@ export default function VendorSettings() {
     });
   }, []);
 
-  /* ---------------- IMAGE HANDLERS ---------------- */
+  /* ---------------- IMAGE/VIDEO HANDLERS ---------------- */
   const selectLogo = (file: File) => {
     setLogoFile(file);
     const reader = new FileReader();
@@ -163,18 +201,25 @@ export default function VendorSettings() {
     reader.readAsDataURL(file);
   };
 
-  const selectCover = (file: File) => {
+  const selectCover = (file: File, type: "image" | "video") => {
     setCoverFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setCoverPreview(reader.result as string);
-    reader.readAsDataURL(file);
+    setCoverType(type);
+    
+    if (type === "image") {
+      const reader = new FileReader();
+      reader.onload = () => setCoverPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      // For video, create object URL for preview
+      setCoverPreview(URL.createObjectURL(file));
+    }
   };
 
-  const uploadImage = async (file: File, path: string): Promise<string> => {
+  const uploadFile = async (file: File, path: string): Promise<string> => {
     const storage = getStorage();
-    const imageRef = ref(storage, path);
-    await uploadBytes(imageRef, file);
-    return getDownloadURL(imageRef);
+    const fileRef = ref(storage, path);
+    await uploadBytes(fileRef, file);
+    return getDownloadURL(fileRef);
   };
 
   /* ---------------- CATEGORY TOGGLE ---------------- */
@@ -229,10 +274,17 @@ export default function VendorSettings() {
         phone: form.phone.trim(),
         email: form.email.trim(),
         website: form.website.trim(),
+        whatsapp: form.whatsapp.trim(),
         categories: form.categories,
         hours: form.hours.trim(),
         delivery_fee: form.delivery_fee ? parseFloat(form.delivery_fee) : 0,
         min_order: form.min_order ? parseFloat(form.min_order) : 0,
+        // Social media
+        instagram: form.instagram.trim(),
+        facebook: form.facebook.trim(),
+        tiktok: form.tiktok.trim(),
+        twitter: form.twitter.trim(),
+        youtube: form.youtube.trim(),
         updated_at: serverTimestamp(),
       };
 
@@ -240,14 +292,22 @@ export default function VendorSettings() {
       if (logoFile) {
         const safeName = logoFile.name.replace(/\s+/g, "-");
         const path = `vendors/logos/${user.uid}/${Date.now()}-${safeName}`;
-        updates.logoUrl = await uploadImage(logoFile, path);
+        updates.logoUrl = await uploadFile(logoFile, path);
       }
 
       // Upload cover if changed
       if (coverFile) {
         const safeName = coverFile.name.replace(/\s+/g, "-");
         const path = `vendors/covers/${user.uid}/${Date.now()}-${safeName}`;
-        updates.cover_image_url = await uploadImage(coverFile, path);
+        const url = await uploadFile(coverFile, path);
+        
+        if (coverType === "video") {
+          updates.cover_video_url = url;
+          updates.cover_image_url = ""; // Clear image when video is set
+        } else {
+          updates.cover_image_url = url;
+          updates.cover_video_url = ""; // Clear video when image is set
+        }
       }
 
       // Update location if set
@@ -300,7 +360,7 @@ export default function VendorSettings() {
     setSaving(false);
   };
 
-  /* ---------------- REMOVE IMAGES ---------------- */
+  /* ---------------- REMOVE IMAGES/VIDEOS ---------------- */
   const removeLogo = async () => {
     if (!confirm("Remove logo?")) return;
     await updateDoc(doc(db, "vendors", user.uid), {
@@ -312,17 +372,23 @@ export default function VendorSettings() {
   };
 
   const removeCover = async () => {
-    if (!confirm("Remove cover image?")) return;
+    if (!confirm("Remove cover media?")) return;
     await updateDoc(doc(db, "vendors", user.uid), {
       cover_image_url: "",
+      cover_video_url: "",
       updated_at: serverTimestamp(),
     });
-    setVendor((v: any) => ({ ...v, cover_image_url: "" }));
-    setMessage({ type: "success", text: "Cover image removed" });
+    setVendor((v: any) => ({ ...v, cover_image_url: "", cover_video_url: "" }));
+    setCoverPreview(null);
+    setMessage({ type: "success", text: "Cover removed" });
   };
 
   /* ---------------- LOADING STATE ---------------- */
   if (loading) return <LoadingSpinner text="Loading settings..." />;
+
+  // Determine current cover URL
+  const currentCoverUrl = vendor?.cover_video_url || vendor?.cover_image_url;
+  const isCurrentCoverVideo = !!vendor?.cover_video_url;
 
   /* ---------------- UI ---------------- */
   return (
@@ -364,32 +430,108 @@ export default function VendorSettings() {
         </div>
       )}
 
-      {/* COVER IMAGE */}
-      <Card title="Cover Image">
-        <div className="space-y-3">
+      {/* COVER IMAGE/VIDEO */}
+      <Card title="Cover Media">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Upload an image or video to display at the top of your store page. Videos will autoplay on loop.
+          </p>
+          
+          {/* Preview */}
           <div className="relative h-40 sm:h-48 rounded-xl overflow-hidden bg-gray-100">
-            <Image
-              src={coverPreview || vendor?.cover_image_url || "/placeholder-cover.png"}
-              fill
-              alt="Cover"
-              className="object-cover"
-            />
-            <label className="absolute bottom-3 right-3 cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
-              <Camera className="h-4 w-4" />
-              Change
-              <input
-                hidden
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files && selectCover(e.target.files[0])}
-              />
-            </label>
+            {coverPreview ? (
+              coverType === "video" ? (
+                <video
+                  src={coverPreview}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Image
+                  src={coverPreview}
+                  fill
+                  alt="Cover preview"
+                  className="object-cover"
+                />
+              )
+            ) : currentCoverUrl ? (
+              isCurrentCoverVideo ? (
+                <video
+                  src={currentCoverUrl}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Image
+                  src={currentCoverUrl}
+                  fill
+                  alt="Cover"
+                  className="object-cover"
+                />
+              )
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                <ImageIcon className="w-12 h-12" />
+              </div>
+            )}
+            
+            {/* Upload Buttons */}
+            <div className="absolute bottom-3 right-3 flex gap-2">
+              <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
+                <ImageIcon className="h-4 w-4" />
+                Image
+                <input
+                  hidden
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => e.target.files && selectCover(e.target.files[0], "image")}
+                />
+              </label>
+              <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
+                <Video className="h-4 w-4" />
+                Video
+                <input
+                  hidden
+                  type="file"
+                  accept="video/mp4,video/webm,video/ogg,video/quicktime"
+                  onChange={(e) => e.target.files && selectCover(e.target.files[0], "video")}
+                />
+              </label>
+            </div>
           </div>
-          {vendor?.cover_image_url && (
-            <button onClick={removeCover} className="text-red-600 text-sm font-medium">
-              Remove Cover
-            </button>
+          
+          {/* Current type indicator */}
+          {(currentCoverUrl || coverPreview) && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500 flex items-center gap-2">
+                {(coverPreview ? coverType === "video" : isCurrentCoverVideo) ? (
+                  <>
+                    <Video className="h-4 w-4" />
+                    Video cover
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="h-4 w-4" />
+                    Image cover
+                  </>
+                )}
+              </span>
+              <button onClick={removeCover} className="text-red-600 text-sm font-medium flex items-center gap-1">
+                <Trash2 className="h-3.5 w-3.5" />
+                Remove
+              </button>
+            </div>
           )}
+          
+          <p className="text-xs text-gray-400">
+            Supported: JPG, PNG, GIF, WebP for images • MP4, WebM, MOV for videos • Max 50MB
+          </p>
         </div>
       </Card>
 
@@ -511,17 +653,32 @@ export default function VendorSettings() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Mail className="inline h-4 w-4 mr-1" />
-                Email
+                <MessageCircle className="inline h-4 w-4 mr-1 text-green-600" />
+                WhatsApp Number
               </label>
               <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                type="tel"
+                value={form.whatsapp}
+                onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
                 className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                placeholder="store@example.com"
+                placeholder="+1 (809) 555-0123"
               />
+              <p className="text-xs text-gray-400 mt-1">Primary contact method for customers</p>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Mail className="inline h-4 w-4 mr-1" />
+              Email
+            </label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="store@example.com"
+            />
           </div>
 
           <div>
@@ -537,14 +694,141 @@ export default function VendorSettings() {
               placeholder="https://yourwebsite.com"
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Clock className="inline h-4 w-4 mr-1" />
+              Store Hours
+            </label>
+            <input
+              type="text"
+              value={form.hours}
+              onChange={(e) => setForm({ ...form, hours: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="Mon-Fri 9AM-6PM, Sat 10AM-4PM"
+            />
+          </div>
         </div>
       </Card>
 
-      {/* ============= LOCATION / MAP PIN ============= */}
+      {/* SOCIAL MEDIA */}
+      <Card title="Social Media">
+        <p className="text-sm text-gray-500 mb-4">
+          Add your social media links so customers can follow you
+        </p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Instagram className="h-4 w-4 text-pink-600" />
+              Instagram
+            </label>
+            <input
+              type="text"
+              value={form.instagram}
+              onChange={(e) => setForm({ ...form, instagram: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="@yourstorename or full URL"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Facebook className="h-4 w-4 text-blue-600" />
+              Facebook
+            </label>
+            <input
+              type="text"
+              value={form.facebook}
+              onChange={(e) => setForm({ ...form, facebook: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="yourstorepage or full URL"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <TikTokIcon className="h-4 w-4" />
+              TikTok
+            </label>
+            <input
+              type="text"
+              value={form.tiktok}
+              onChange={(e) => setForm({ ...form, tiktok: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="@yourstorename or full URL"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <Twitter className="h-4 w-4" />
+                X (Twitter)
+              </label>
+              <input
+                type="text"
+                value={form.twitter}
+                onChange={(e) => setForm({ ...form, twitter: e.target.value })}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                placeholder="@yourhandle"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <Youtube className="h-4 w-4 text-red-600" />
+                YouTube
+              </label>
+              <input
+                type="text"
+                value={form.youtube}
+                onChange={(e) => setForm({ ...form, youtube: e.target.value })}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                placeholder="@yourchannel or full URL"
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* DELIVERY SETTINGS */}
+      <Card title="Delivery Settings">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Delivery Fee (RD$)
+            </label>
+            <input
+              type="number"
+              value={form.delivery_fee}
+              onChange={(e) => setForm({ ...form, delivery_fee: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="0"
+              min="0"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Minimum Order (RD$)
+            </label>
+            <input
+              type="number"
+              value={form.min_order}
+              onChange={(e) => setForm({ ...form, min_order: e.target.value })}
+              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              placeholder="0"
+              min="0"
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* LOCATION / MAP PIN */}
       <Card title="Store Location (Map Pin)">
         <div className="space-y-4">
           <p className="text-sm text-gray-500">
-            Set your exact map coordinates so customers can find you.
+            Set your exact location so customers can find you on the map.
           </p>
 
           <button
@@ -626,62 +910,30 @@ export default function VendorSettings() {
         <div className="space-y-4">
           {/* Display current bank info */}
           {bankInfo.bank_name && !showBankEdit ? (
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-gray-600" />
-                  {bankInfo.bank_name}
-                </h4>
-                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
-                  Active
-                </span>
+                <span className="text-sm text-gray-500">Bank</span>
+                <span className="font-medium">{bankInfo.bank_name}</span>
               </div>
-
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-500">Account Holder</p>
-                  <p className="font-medium">{bankInfo.account_holder}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Account</p>
-                  <p className="font-medium">••••••{bankInfo.account_last4}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Routing</p>
-                  <p className="font-medium">{bankInfo.routing_number}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Type</p>
-                  <p className="font-medium capitalize">{bankInfo.account_type}</p>
-                </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">Account</span>
+                <span className="font-medium">•••• {bankInfo.account_last4}</span>
               </div>
-
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">Type</span>
+                <span className="font-medium capitalize">{bankInfo.account_type}</span>
+              </div>
               <button
                 onClick={() => setShowBankEdit(true)}
-                className="text-sb-primary text-sm font-medium hover:underline"
+                className="text-sb-primary text-sm font-medium mt-2"
               >
-                Edit Bank Information
+                Edit Bank Info
               </button>
             </div>
           ) : (
-            <div className="space-y-4 p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between">
-                <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <Wallet className="h-5 w-5 text-blue-600" />
-                  {bankInfo.bank_name ? "Update Bank Information" : "Add Bank Information"}
-                </h4>
-                {showBankEdit && (
-                  <button
-                    onClick={() => setShowBankEdit(false)}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                )}
-              </div>
-
-              <p className="text-sm text-gray-600">
-                Enter your bank account details to receive payouts.
+            <>
+              <p className="text-sm text-gray-500">
+                For receiving payouts from orders. This information is securely stored.
               </p>
 
               <div>
@@ -723,7 +975,9 @@ export default function VendorSettings() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {bankInfo.account_last4 ? "New Account Number" : "Account Number"}
+                    {bankInfo.account_last4
+                      ? "New Account Number (optional)"
+                      : "Account Number"}
                   </label>
                   <div className="relative">
                     <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -734,16 +988,11 @@ export default function VendorSettings() {
                       className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                       placeholder={
                         bankInfo.account_last4
-                          ? `Current: ••••••${bankInfo.account_last4}`
-                          : "Account number"
+                          ? `Current: •••• ${bankInfo.account_last4}`
+                          : "••••••••••"
                       }
                     />
                   </div>
-                  {bankInfo.account_last4 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Leave blank to keep current account
-                    </p>
-                  )}
                 </div>
 
                 <div>
@@ -766,111 +1015,59 @@ export default function VendorSettings() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Account Type
                 </label>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="account_type"
-                      value="checking"
-                      checked={bankInfo.account_type === "checking"}
-                      onChange={() =>
-                        setBankInfo({ ...bankInfo, account_type: "checking" })
-                      }
-                      className="w-4 h-4 text-sb-primary focus:ring-sb-primary"
-                    />
-                    <span className="text-sm text-gray-700">Checking</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="account_type"
-                      value="savings"
-                      checked={bankInfo.account_type === "savings"}
-                      onChange={() =>
-                        setBankInfo({ ...bankInfo, account_type: "savings" })
-                      }
-                      className="w-4 h-4 text-sb-primary focus:ring-sb-primary"
-                    />
-                    <span className="text-sm text-gray-700">Savings</span>
-                  </label>
+                  {(["checking", "savings"] as const).map((type) => (
+                    <label key={type} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="account_type"
+                        value={type}
+                        checked={bankInfo.account_type === type}
+                        onChange={() =>
+                          setBankInfo({ ...bankInfo, account_type: type })
+                        }
+                        className="w-4 h-4 text-sb-primary focus:ring-sb-primary"
+                      />
+                      <span className="capitalize">{type}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
 
-              <p className="text-xs text-gray-500 flex items-start gap-1.5">
-                <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                Your bank details are encrypted. We only store the last 4 digits
-                of your account number.
-              </p>
-            </div>
+              {bankInfo.bank_name && vendor?.bank_info && (
+                <button
+                  onClick={() => setShowBankEdit(false)}
+                  className="text-gray-500 text-sm"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </>
           )}
         </div>
       </Card>
 
-      {/* BUSINESS DETAILS */}
-      <Card title="Business Details">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Clock className="inline h-4 w-4 mr-1" />
-              Business Hours
-            </label>
-            <input
-              type="text"
-              value={form.hours}
-              onChange={(e) => setForm({ ...form, hours: e.target.value })}
-              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-              placeholder="Mon-Fri 9am-6pm, Sat 10am-4pm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Delivery Fee ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.delivery_fee}
-                onChange={(e) => setForm({ ...form, delivery_fee: e.target.value })}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                placeholder="0.00"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Min. Order ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.min_order}
-                onChange={(e) => setForm({ ...form, min_order: e.target.value })}
-                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-        </div>
-      </Card>
-
       {/* SAVE BUTTON */}
-      <div className="sticky bottom-4">
+      <div className="sticky bottom-4 flex justify-end">
         <button
           onClick={handleSave}
           disabled={saving}
-          className="w-full py-4 bg-sb-primary text-white font-semibold rounded-xl shadow-lg
-                     hover:bg-sb-primary/90 disabled:opacity-50 disabled:cursor-not-allowed
-                     flex items-center justify-center gap-2 transition"
+          className="flex items-center gap-2 px-6 py-3 bg-sb-primary text-white rounded-xl font-semibold shadow-lg hover:bg-sb-primary/90 disabled:opacity-50 transition"
         >
-          <Save className="h-5 w-5" />
-          {saving ? "Saving..." : "Save Changes"}
+          {saving ? (
+            <>
+              <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              Save Settings
+            </>
+          )}
         </button>
       </div>
     </div>

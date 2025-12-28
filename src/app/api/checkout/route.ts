@@ -7,11 +7,25 @@ import { CheckoutSessionRequest, CartItem } from '@/lib/types/order';
 import admin from '@/lib/firebase/admin';
 import { SavedAddress } from '@/lib/types/address';
 
+/**
+ * Validates a cart item has all required fields
+ */
+function validateCartItem(item: CartItem, index: number): string | null {
+  if (!item.productId) return `Item ${index + 1}: Missing productId`;
+  if (!item.vendorId) return `Item ${index + 1}: Missing vendorId`;
+  if (!item.vendorName) return `Item ${index + 1}: Missing vendorName`;
+  if (!item.name) return `Item ${index + 1}: Missing name`;
+  if (typeof item.price !== 'number' || item.price < 0) return `Item ${index + 1}: Invalid price`;
+  if (typeof item.quantity !== 'number' || item.quantity < 1) return `Item ${index + 1}: Invalid quantity`;
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get auth token from header
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      console.log('[Checkout] Missing Authorization header');
       return NextResponse.json(
         { error: 'Unauthorized - Please sign in to checkout' },
         { status: 401 }
@@ -25,7 +39,7 @@ export async function POST(request: NextRequest) {
     try {
       decodedToken = await admin.auth().verifyIdToken(token);
     } catch (err) {
-      console.error('Token verification failed:', err);
+      console.error('[Checkout] Token verification failed:', err);
       return NextResponse.json(
         { error: 'Session expired - Please sign in again' },
         { status: 401 }
@@ -36,21 +50,62 @@ export async function POST(request: NextRequest) {
     const customerEmail = decodedToken.email;
 
     // Parse request body
-    const body: CheckoutSessionRequest = await request.json();
+    let body: CheckoutSessionRequest;
+    try {
+      body = await request.json();
+    } catch (err) {
+      console.error('[Checkout] Failed to parse request body:', err);
+      return NextResponse.json(
+        { error: 'Invalid request format' },
+        { status: 400 }
+      );
+    }
+
     const { items, customerInfo, deliveryAddress, notes, saveAddress } = body;
 
-    // Validate items
-    if (!items || items.length === 0) {
+    // Validate items array exists
+    if (!items || !Array.isArray(items)) {
+      console.log('[Checkout] Items is not an array:', typeof items);
+      return NextResponse.json(
+        { error: 'Invalid cart data - please refresh and try again' },
+        { status: 400 }
+      );
+    }
+
+    if (items.length === 0) {
+      console.log('[Checkout] Cart is empty');
       return NextResponse.json(
         { error: 'Cart is empty' },
         { status: 400 }
       );
     }
 
+    // Validate each cart item
+    for (let i = 0; i < items.length; i++) {
+      const validationError = validateCartItem(items[i], i);
+      if (validationError) {
+        console.error('[Checkout] Cart item validation failed:', validationError, items[i]);
+        return NextResponse.json(
+          { error: 'Cart contains invalid items. Please clear your cart and try again.' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Validate all items are from same vendor
     const vendorId = items[0].vendorId;
     const vendorName = items[0].vendorName;
+
+    if (!vendorId || !vendorName) {
+      console.error('[Checkout] First item missing vendor info:', items[0]);
+      return NextResponse.json(
+        { error: 'Cart data is corrupted. Please clear your cart and try again.' },
+        { status: 400 }
+      );
+    }
+
     if (!items.every((item) => item.vendorId === vendorId)) {
+      console.log('[Checkout] Items from multiple vendors');
       return NextResponse.json(
         { error: 'All items must be from the same vendor' },
         { status: 400 }
@@ -65,6 +120,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (!validatedCustomerInfo.email) {
+      console.log('[Checkout] Missing email');
       return NextResponse.json(
         { error: 'Email is required' },
         { status: 400 }
@@ -72,6 +128,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!validatedCustomerInfo.phone) {
+      console.log('[Checkout] Missing phone');
       return NextResponse.json(
         { error: 'Phone number is required for delivery coordination' },
         { status: 400 }
@@ -80,6 +137,7 @@ export async function POST(request: NextRequest) {
 
     // Validate delivery address
     if (!deliveryAddress?.street?.trim() || !deliveryAddress?.city?.trim()) {
+      console.log('[Checkout] Missing delivery address:', deliveryAddress);
       return NextResponse.json(
         { error: 'Delivery address is required' },
         { status: 400 }
@@ -133,7 +191,7 @@ export async function POST(request: NextRequest) {
           savedAddresses: [newAddress],
           pinnedAddressId: newAddress.id,
           defaultAddress: validatedDeliveryAddress,
-          phone: validatedCustomerInfo.phone, // Also save phone
+          phone: validatedCustomerInfo.phone,
           updatedAt: admin.firestore.Timestamp.now(),
         },
         { merge: true }
@@ -205,10 +263,23 @@ export async function POST(request: NextRequest) {
 
     // Get or create Stripe customer
     let stripeCustomerId: string | undefined;
-    if (customerDoc.exists && customerDoc.data()?.stripeCustomerId) {
-      stripeCustomerId = customerDoc.data()?.stripeCustomerId;
-    } else {
-      // Create Stripe customer
+    const existingStripeId = customerDoc.exists ? customerDoc.data()?.stripeCustomerId : null;
+
+    if (existingStripeId) {
+      // Verify the customer exists in current Stripe mode (test vs live)
+      try {
+        await stripe.customers.retrieve(existingStripeId);
+        stripeCustomerId = existingStripeId;
+        console.log('[Checkout] Using existing Stripe customer:', stripeCustomerId);
+      } catch (err) {
+        // Customer doesn't exist (likely test/live mode mismatch) - create new one
+        console.log('[Checkout] Stripe customer not found, creating new one. Old ID:', existingStripeId);
+        stripeCustomerId = undefined;
+      }
+    }
+
+    if (!stripeCustomerId) {
+      // Create new Stripe customer
       const stripeCustomer = await stripe.customers.create({
         email: validatedCustomerInfo.email,
         name: validatedCustomerInfo.name,
@@ -218,6 +289,7 @@ export async function POST(request: NextRequest) {
         },
       });
       stripeCustomerId = stripeCustomer.id;
+      console.log('[Checkout] Created new Stripe customer:', stripeCustomerId);
 
       // Save Stripe customer ID to Firestore
       await customerRef.set(
@@ -230,8 +302,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Create Stripe Checkout Session
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.stackbotglobal.com';
+
+    console.log('[Checkout] Creating Stripe session for order:', orderId);
+
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       mode: 'payment',
@@ -277,15 +351,18 @@ export async function POST(request: NextRequest) {
       expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 min expiry
     });
 
+    console.log('[Checkout] Session created:', session.id);
+
     return NextResponse.json({
       sessionId: session.id,
       url: session.url,
       orderId,
     });
   } catch (error) {
-    console.error('Checkout error:', error);
-    
+    console.error('[Checkout] Error:', error);
+
     if (error instanceof Stripe.errors.StripeError) {
+      console.error('[Checkout] Stripe error:', error.type, error.message);
       return NextResponse.json(
         { error: `Payment error: ${error.message}` },
         { status: 400 }
