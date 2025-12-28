@@ -599,7 +599,7 @@ export default function AdminVendorDetailPage() {
            EDIT MODE
         =============================== */
         <div className="space-y-6">
-          {/* COVER MEDIA */}
+          {/* COVER MEDIA - Only in Edit Mode */}
           <Card padding="lg">
             <h3 className="font-semibold text-lg mb-4">Cover Media</h3>
             <div className="space-y-4">
@@ -932,12 +932,12 @@ export default function AdminVendorDetailPage() {
                     alt={vendor.name}
                     width={96}
                     height={96}
-                    className="rounded-xl bg-gray-100"
+                    className="rounded-xl bg-gray-100 flex-shrink-0"
                   />
                 )}
 
-                <div className="space-y-3 flex-1">
-                  <p>{vendor.description || "No description provided."}</p>
+                <div className="space-y-3 flex-1 min-w-0">
+                  <p className="text-gray-700">{vendor.description || "No description provided."}</p>
 
                   <div className="flex flex-wrap gap-2">
                     {vendor.categories?.map((c) => (
@@ -947,18 +947,51 @@ export default function AdminVendorDetailPage() {
                     ))}
                   </div>
 
-                  <div className="text-sm text-gray-600 space-y-1">
-                    {vendor.email && <p>📧 {vendor.email}</p>}
-                    {vendor.phone && <p>📞 {vendor.phone}</p>}
-                    {vendor.whatsapp && <p>💬 WhatsApp: {vendor.whatsapp}</p>}
-                    {vendor.address && <p>📍 {vendor.address}</p>}
-                    {vendor.website && <p>🌐 {vendor.website}</p>}
-                    {vendor.hours && <p>🕐 {vendor.hours}</p>}
+                  {/* Contact Info - Clean icons, no emojis */}
+                  <div className="text-sm text-gray-600 space-y-2 pt-2">
+                    {vendor.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span className="truncate">{vendor.email}</span>
+                      </div>
+                    )}
+                    {vendor.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span>{vendor.phone}</span>
+                      </div>
+                    )}
+                    {vendor.whatsapp && (
+                      <div className="flex items-center gap-2">
+                        <MessageCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        <span>WhatsApp: {vendor.whatsapp}</span>
+                      </div>
+                    )}
+                    {vendor.address && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span>{vendor.address}</span>
+                      </div>
+                    )}
+                    {vendor.website && (
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <a href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer" className="text-sb-primary hover:underline truncate">
+                          {vendor.website}
+                        </a>
+                      </div>
+                    )}
+                    {vendor.hours && (
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span>{vendor.hours}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Social Links */}
                   {(vendor.instagram || vendor.facebook || vendor.tiktok || vendor.twitter || vendor.youtube) && (
-                    <div className="flex items-center gap-3 pt-2">
+                    <div className="flex items-center gap-3 pt-3 border-t">
                       {vendor.instagram && (
                         <a href={vendor.instagram.startsWith("http") ? vendor.instagram : `https://instagram.com/${vendor.instagram.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-700">
                           <Instagram className="h-5 w-5" />
@@ -1004,7 +1037,7 @@ export default function AdminVendorDetailPage() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Rating</p>
-                  <p className="text-2xl font-bold">{vendor.rating?.toFixed(1) || "N/A"}</p>
+                  <p className="text-2xl font-bold">{vendor.rating?.toFixed(1) || "0.0"}</p>
                 </div>
                 {vendor.stackbot_pin && (
                   <div>
@@ -1015,30 +1048,6 @@ export default function AdminVendorDetailPage() {
               </div>
             </Card>
           </div>
-
-          {/* COVER PREVIEW */}
-          {currentCoverUrl && (
-            <Card padding="lg">
-              <h3 className="font-semibold text-lg mb-4">Cover Media</h3>
-              <div className="relative h-48 rounded-xl overflow-hidden bg-gray-100">
-                {isCurrentCoverVideo ? (
-                  <video
-                    src={currentCoverUrl}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Image src={currentCoverUrl} fill alt="Cover" className="object-cover" />
-                )}
-              </div>
-              <p className="text-sm text-gray-500 mt-2">
-                {isCurrentCoverVideo ? "Video cover" : "Image cover"}
-              </p>
-            </Card>
-          )}
 
           {/* PRODUCTS */}
           <div>
@@ -1053,7 +1062,12 @@ export default function AdminVendorDetailPage() {
             </div>
 
             {products.length === 0 ? (
-              <p className="text-gray-500">No products yet.</p>
+              <Card padding="lg">
+                <div className="text-center py-8">
+                  <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No products yet.</p>
+                </div>
+              </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {products.map((p) => (
