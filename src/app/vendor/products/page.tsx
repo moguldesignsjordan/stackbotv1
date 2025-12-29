@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase/config";
-import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, addDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import Link from "next/link";
 import Image from "next/image";
-import { Package, Plus, Edit, Trash2, Loader2 } from "lucide-react";
+import { Package, Plus, Edit, Trash2, Loader2, Copy } from "lucide-react";
 import { formatPrice } from "@/lib/utils/currency";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (user) => {
@@ -26,6 +27,40 @@ export default function ProductsPage() {
       setLoading(false);
     });
   }, []);
+
+  async function duplicateProduct(product: any) {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    setDuplicating(product.id);
+    try {
+      // Create a copy of the product data, excluding the id
+      const { id, createdAt, updatedAt, ...productData } = product;
+      
+      const newProduct = {
+        ...productData,
+        name: `Copy of ${product.name}`,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(
+        collection(db, "vendors", user.uid, "products"),
+        newProduct
+      );
+
+      // Add the new product to state
+      setProducts((prev) => [
+        { id: docRef.id, ...newProduct, createdAt: new Date(), updatedAt: new Date() },
+        ...prev,
+      ]);
+    } catch (error) {
+      console.error("Error duplicating product:", error);
+      alert("Failed to duplicate product. Please try again.");
+    } finally {
+      setDuplicating(null);
+    }
+  }
 
   async function deleteProduct(productId: string) {
     if (!confirm("Delete this product permanently?")) return;
@@ -101,26 +136,39 @@ export default function ProductsPage() {
                 </p>
 
                 {/* Actions */}
-                <div className="flex gap-3 mt-4 pt-4 border-t">
+                <div className="flex gap-2 mt-4 pt-4 border-t">
                   <Link
                     href={`/vendor/products/${p.id}/edit`}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sb-primary bg-purple-50 rounded-lg font-medium hover:bg-purple-100 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sb-primary bg-purple-50 rounded-lg font-medium hover:bg-purple-100 transition-colors text-sm"
                   >
                     <Edit className="w-4 h-4" />
                     Edit
                   </Link>
 
                   <button
+                    onClick={() => duplicateProduct(p)}
+                    disabled={duplicating === p.id}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-gray-700 bg-gray-100 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm disabled:opacity-50"
+                  >
+                    {duplicating === p.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    Duplicate
+                  </button>
+
+                  <button
                     onClick={() => deleteProduct(p.id)}
                     disabled={deleting === p.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-red-600 bg-red-50 rounded-lg font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+                    title="Delete product"
                   >
                     {deleting === p.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Trash2 className="w-4 h-4" />
                     )}
-                    Delete
                   </button>
                 </div>
               </div>

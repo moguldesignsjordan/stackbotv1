@@ -48,6 +48,8 @@ import {
   Twitter,
   CheckCircle2,
   AlertCircle,
+  Copy,
+  Loader2,
 } from "lucide-react";
 
 // TikTok icon
@@ -121,6 +123,7 @@ export default function AdminVendorDetailPage() {
 
   const [working, setWorking] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [duplicatingProductId, setDuplicatingProductId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
 
   // Form state for editing
@@ -458,6 +461,45 @@ export default function AdminVendorDetailPage() {
       alert("Failed to delete product.");
     } finally {
       setDeletingProductId(null);
+    }
+  }
+
+  /* ===============================
+     DUPLICATE PRODUCT
+  =============================== */
+  async function duplicateProduct(product: Product) {
+    if (!vendorId) return;
+
+    setDuplicatingProductId(product.id);
+    try {
+      // Create a copy of the product data, excluding the id
+      const { id, ...productData } = product;
+
+      const newProduct = {
+        ...productData,
+        name: `Copy of ${product.name}`,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(
+        collection(db, "vendors", vendorId, "products"),
+        newProduct
+      );
+
+      // Add the new product to state at the beginning
+      setProducts((prev) => [
+        { id: docRef.id, ...newProduct } as Product,
+        ...prev,
+      ]);
+
+      await logAudit(`product_duplicated: ${product.id} -> ${docRef.id}`);
+      setMessage({ type: "success", text: `Product duplicated: Copy of ${product.name}` });
+    } catch (err) {
+      console.error("Error duplicating product:", err);
+      alert("Failed to duplicate product. Please try again.");
+    } finally {
+      setDuplicatingProductId(null);
     }
   }
 
@@ -1106,6 +1148,19 @@ export default function AdminVendorDetailPage() {
                             <Pencil className="h-4 w-4 inline mr-1" />
                             Edit
                           </Link>
+
+                          <button
+                            disabled={duplicatingProductId === p.id}
+                            onClick={() => duplicateProduct(p)}
+                            className="text-sm text-gray-600 hover:text-gray-800 underline disabled:opacity-50"
+                          >
+                            {duplicatingProductId === p.id ? (
+                              <Loader2 className="h-4 w-4 inline mr-1 animate-spin" />
+                            ) : (
+                              <Copy className="h-4 w-4 inline mr-1" />
+                            )}
+                            {duplicatingProductId === p.id ? "..." : "Duplicate"}
+                          </button>
 
                           <button
                             disabled={deletingProductId === p.id}
