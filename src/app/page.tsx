@@ -1281,11 +1281,18 @@ function VendorCard({ vendor, index }: { vendor: Vendor; index: number }) {
   
   const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
   const description = vendor.business_description || vendor.description;
-  const address = vendor.business_address || vendor.address;
+// Handle address - could be string or location object
+const addressRaw = vendor.business_address || vendor.address;
+const address = typeof addressRaw === 'string' 
+  ? addressRaw 
+  : (addressRaw as any)?.location_address || '';
   const logoUrl = vendor.logo_url || vendor.logoUrl;
   const bannerUrl = vendor.banner_url || vendor.cover_image_url;
   const category = vendor.category || vendor.categories?.[0];
   const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+
+  // Use banner first, fallback to logo
+  const coverImage = bannerUrl || logoUrl;
 
   return (
     <div ref={ref} className={`animate-on-scroll stagger-${(index % 4) + 1} ${isInView ? "in-view" : ""}`}>
@@ -1301,27 +1308,26 @@ function VendorCard({ vendor, index }: { vendor: Vendor; index: number }) {
               </span>
             </div>
             
-            {bannerUrl ? (
-              <Image
-                src={bannerUrl}
-                alt={displayName}
-                width={400}
-                height={225}
-                loading="lazy"
-                onLoad={() => setImageLoaded(true)}
-                className={`object-cover w-full h-full group-hover:scale-105 transition-transform duration-500 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-              />
-            ) : logoUrl ? (
-              <div className="flex items-center justify-center h-full p-8 bg-gradient-to-br from-[var(--sb-primary)] to-[var(--sb-primary-light)]">
+            {coverImage ? (
+              <>
+                {/* Image fills entire container */}
                 <Image
-                  src={logoUrl}
+                  src={coverImage}
                   alt={displayName}
-                  width={120}
-                  height={120}
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                   loading="lazy"
-                  className="object-contain max-h-full drop-shadow-lg"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`object-cover group-hover:scale-105 transition-transform duration-500 ${
+                    imageLoaded ? 'opacity-100' : 'opacity-0'
+                  }`}
                 />
-              </div>
+                
+                {/* Loading skeleton */}
+                {!imageLoaded && (
+                  <div className="absolute inset-0 skeleton" />
+                )}
+              </>
             ) : (
               <div className="flex items-center justify-center h-full">
                 <Store className="w-16 h-16 text-white/50" />
@@ -1383,8 +1389,9 @@ function VendorCard({ vendor, index }: { vendor: Vendor; index: number }) {
   );
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
-// PRODUCT CARD (Enhanced)
+// PRODUCT CARD (Fixed - Images Fill Container)
 ////////////////////////////////////////////////////////////////////////////////
 
 function ProductCard({ product, index }: { product: ProductWithVendor; index: number }) {
@@ -1395,6 +1402,8 @@ function ProductCard({ product, index }: { product: ProductWithVendor; index: nu
   const productLink = vendorSlug 
     ? `/store/${vendorSlug}/product/${product.id}`
     : `/product/${product.id}`;
+
+  const productImage = product.images?.[0];
 
   return (
     <div ref={ref} className={`animate-on-scroll stagger-${(index % 4) + 1} ${isInView ? "in-view" : ""}`}>
@@ -1409,16 +1418,25 @@ function ProductCard({ product, index }: { product: ProductWithVendor; index: nu
               </span>
             </div>
             
-            {product.images?.[0] ? (
-              <Image
-                src={product.images[0]}
-                alt={product.name}
-                width={300}
-                height={300}
-                loading="lazy"
-                onLoad={() => setImageLoaded(true)}
-                className={`object-cover w-full h-full group-hover:scale-105 transition-transform duration-500 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-              />
+            {productImage ? (
+              <>
+                <Image
+                  src={productImage}
+                  alt={product.name}
+                  fill
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                  loading="lazy"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`object-cover group-hover:scale-105 transition-transform duration-500 ${
+                    imageLoaded ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+                
+                {/* Loading skeleton */}
+                {!imageLoaded && (
+                  <div className="absolute inset-0 skeleton" />
+                )}
+              </>
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400">
                 <Store className="w-12 h-12" />

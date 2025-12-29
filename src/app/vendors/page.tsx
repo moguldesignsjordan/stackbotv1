@@ -38,8 +38,8 @@ type Vendor = {
   featured?: boolean;
   verified?: boolean;
   isNew?: boolean;
-  address?: string;
-  location?: string;
+  address?: string | { location_address?: string; lat?: number; lng?: number };
+  location?: string | { location_address?: string; lat?: number; lng?: number };
   city?: string;
   state?: string;
   zip?: string;
@@ -48,6 +48,21 @@ type Vendor = {
 };
 
 type SortOption = "newest" | "alphabetical" | "rating";
+
+/* ======================================================
+   HELPER: Extract string from address/location field
+====================================================== */
+
+function extractAddressString(
+  value: string | { location_address?: string; lat?: number; lng?: number } | undefined
+): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.location_address) {
+    return value.location_address;
+  }
+  return "";
+}
 
 /* ======================================================
    MAIN PAGE COMPONENT
@@ -236,7 +251,7 @@ export default function VendorsPage() {
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-medium focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer"
+              className="px-4 py-2 bg-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
             >
               <option value="all">All Categories</option>
               {categories.map((cat) => (
@@ -250,7 +265,7 @@ export default function VendorsPage() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortOption)}
-              className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-medium focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer"
+              className="px-4 py-2 bg-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
             >
               <option value="newest">Newest First</option>
               <option value="alphabetical">A-Z</option>
@@ -407,7 +422,7 @@ function EmptyState({
 }
 
 /* ======================================================
-   VENDOR CARD (Matching Search/Homepage Design)
+   VENDOR CARD (Fixed address/location handling)
 ====================================================== */
 
 function VendorCard({ vendor }: { vendor: Vendor }) {
@@ -418,11 +433,13 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   const logoUrl = vendor.logoUrl || vendor.logo_url;
   const coverUrl = vendor.cover_image_url || vendor.banner_url;
 
-  // Build location string
-  const locationParts = [vendor.address, vendor.city, vendor.state, vendor.zip].filter(
-    Boolean
-  );
-  const locationString = vendor.location || locationParts.join(", ");
+  // FIXED: Safely extract address strings (handle object or string)
+  const addressStr = extractAddressString(vendor.address);
+  const locationStr = extractAddressString(vendor.location);
+  
+  // Build location string from available parts
+  const locationParts = [addressStr, vendor.city, vendor.state, vendor.zip].filter(Boolean);
+  const locationString = locationStr || locationParts.join(", ");
 
   const hasBackgroundImage = coverUrl || logoUrl;
 
