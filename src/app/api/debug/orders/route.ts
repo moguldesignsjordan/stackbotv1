@@ -27,11 +27,12 @@ export async function GET(request: NextRequest) {
       .limit(10)
       .get();
 
-    const orders = ordersSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
-    }));
+ const orders: any[] = ordersSnap.docs.map(doc => ({
+  id: doc.id,
+  ...doc.data(),
+  createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
+}));
+
 
     // Get orders count
     const countSnap = await db.collection('orders').count().get();

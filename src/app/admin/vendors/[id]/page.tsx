@@ -666,13 +666,13 @@ export default function AdminVendorDetailPage() {
           )}
           
           {!editMode ? (
-            <Button onClick={() => setEditMode(true)} variant="outline">
+<Button onClick={() => setEditMode(true)} variant="secondary">
               <Pencil className="h-4 w-4 mr-2" />
               Edit
             </Button>
           ) : (
             <>
-              <Button onClick={() => setEditMode(false)} variant="outline">
+<Button onClick={() => setEditMode(false)} variant="secondary">
                 <X className="h-4 w-4 mr-2" />
                 Cancel
               </Button>
@@ -953,7 +953,8 @@ export default function AdminVendorDetailPage() {
               <Button
                 onClick={toggleSuspension}
                 disabled={working}
-                variant={isSuspended ? "outline" : "danger"}
+          variant={isSuspended ? "secondary" : "danger"}
+
               >
                 {isSuspended ? (
                   <>
