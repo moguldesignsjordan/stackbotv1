@@ -1,29 +1,10 @@
-// src/app/order-confirmation/page.tsx
-'use client';
+import { Suspense } from 'react';
+import OrderConfirmationClient from './OrderConfirmationClient';
 
-import { useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
-
-export default function OrderConfirmationRedirect() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const sessionId = searchParams.get('session_id');
-
-  useEffect(() => {
-    if (sessionId) {
-      // Redirect to the actual success page with the session_id
-      router.replace(`/checkout/success?session_id=${sessionId}`);
-    } else {
-      // If no session_id, redirect to homepage
-      router.replace('/');
-    }
-  }, [sessionId, router]);
-
-  // Show a simple loader while redirecting
+export default function OrderConfirmationPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
-    </div>
+    <Suspense fallback={<div className="p-8 text-center">Loading order…</div>}>
+      <OrderConfirmationClient />
+    </Suspense>
   );
 }
