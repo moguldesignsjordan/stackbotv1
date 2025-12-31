@@ -9,6 +9,8 @@ import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
 import { SavedAddress } from '@/lib/types/address';
 import { CartItem } from '@/lib/types/order';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 import {
   ShoppingCart,
   Trash2,
@@ -26,7 +28,17 @@ import {
   LogIn,
   AlertCircle,
   Check,
+  Store,
+  Truck,
+  Navigation,
 } from 'lucide-react';
+
+type FulfillmentType = 'delivery' | 'pickup';
+
+interface VendorLocation {
+  address: string;
+  coordinates?: { lat: number; lng: number };
+}
 
 export default function CartPage() {
   const router = useRouter();
@@ -46,6 +58,11 @@ export default function CartPage() {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fulfillment type (delivery vs pickup)
+  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>('delivery');
+  const [vendorLocation, setVendorLocation] = useState<VendorLocation | null>(null);
+  const [loadingVendorLocation, setLoadingVendorLocation] = useState(false);
 
   // Saved addresses
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
@@ -72,6 +89,39 @@ export default function CartPage() {
 
   const [notes, setNotes] = useState('');
 
+  // Calculate adjusted totals based on fulfillment type
+  const TAX_PERCENT = 0.18;
+  const adjustedDeliveryFee = fulfillmentType === 'pickup' ? 0 : deliveryFee;
+  const adjustedTax = (subtotal + adjustedDeliveryFee) * TAX_PERCENT;
+  const adjustedTotal = subtotal + adjustedDeliveryFee + adjustedTax;
+
+  // Fetch vendor location when cart has items
+  useEffect(() => {
+    const fetchVendorLocation = async () => {
+      if (!cart.vendorId) return;
+
+      setLoadingVendorLocation(true);
+      try {
+        const vendorRef = doc(db, 'vendors', cart.vendorId);
+        const vendorSnap = await getDoc(vendorRef);
+
+        if (vendorSnap.exists()) {
+          const data = vendorSnap.data();
+          setVendorLocation({
+            address: data.address || data.business_address || '',
+            coordinates: data.coordinates,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch vendor location:', err);
+      } finally {
+        setLoadingVendorLocation(false);
+      }
+    };
+
+    fetchVendorLocation();
+  }, [cart.vendorId]);
+
   // Fetch saved addresses when user is authenticated
   useEffect(() => {
     const fetchAddresses = async () => {
@@ -87,7 +137,7 @@ export default function CartPage() {
         if (res.ok) {
           const data = await res.json();
           setSavedAddresses(data.addresses || []);
-          
+
           // Auto-select pinned address
           if (data.pinnedAddressId) {
             setSelectedAddressId(data.pinnedAddressId);
@@ -134,6 +184,13 @@ export default function CartPage() {
     return savedAddresses.find((a) => a.id === selectedAddressId);
   };
 
+  const openInMaps = () => {
+    if (!vendorLocation?.coordinates) return;
+    const { lat, lng } = vendorLocation.coordinates;
+    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    window.open(url, '_blank');
+  };
+
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -152,27 +209,29 @@ export default function CartPage() {
       return;
     }
 
-    // Validate address
-    const selectedAddress = getSelectedAddress();
-    if (!selectedAddress && !useNewAddress) {
-      // No address selected and not using new address
-      if (savedAddresses.length === 0) {
-        setUseNewAddress(true);
-        setError('Please enter a delivery address');
+    // Validate address only for delivery
+    if (fulfillmentType === 'delivery') {
+      const selectedAddress = getSelectedAddress();
+      if (!selectedAddress && !useNewAddress) {
+        // No address selected and not using new address
+        if (savedAddresses.length === 0) {
+          setUseNewAddress(true);
+          setError('Please enter a delivery address');
+          return;
+        }
+        setError('Please select a delivery address');
         return;
       }
-      setError('Please select a delivery address');
-      return;
-    }
 
-    if (useNewAddress) {
-      if (!manualAddress.street.trim()) {
-        setError('Please enter a street address');
-        return;
-      }
-      if (!manualAddress.city.trim()) {
-        setError('Please enter a city');
-        return;
+      if (useNewAddress) {
+        if (!manualAddress.street.trim()) {
+          setError('Please enter a street address');
+          return;
+        }
+        if (!manualAddress.city.trim()) {
+          setError('Please enter a city');
+          return;
+        }
       }
     }
 
@@ -184,17 +243,21 @@ export default function CartPage() {
         throw new Error('Authentication required');
       }
 
-      // Build delivery address from selected or manual
-      const deliveryAddress = selectedAddress
-        ? {
-            street: selectedAddress.street,
-            city: selectedAddress.city,
-            state: selectedAddress.state || '',
-            postalCode: selectedAddress.postalCode,
-            country: selectedAddress.country,
-            instructions: selectedAddress.instructions || '',
-          }
-        : manualAddress;
+      // Build delivery address from selected or manual (or null for pickup)
+      let deliveryAddress = null;
+      if (fulfillmentType === 'delivery') {
+        const selectedAddress = getSelectedAddress();
+        deliveryAddress = selectedAddress
+          ? {
+              street: selectedAddress.street,
+              city: selectedAddress.city,
+              state: selectedAddress.state || '',
+              postalCode: selectedAddress.postalCode,
+              country: selectedAddress.country,
+              instructions: selectedAddress.instructions || '',
+            }
+          : manualAddress;
+      }
 
       const response = await fetch('/api/checkout', {
         method: 'POST',
@@ -206,6 +269,7 @@ export default function CartPage() {
           items: cart.items,
           customerInfo,
           deliveryAddress,
+          fulfillmentType,
           notes,
         }),
       });
@@ -274,7 +338,7 @@ export default function CartPage() {
                 Your Cart ({itemCount} {itemCount === 1 ? 'item' : 'items'})
               </h1>
             </div>
-            
+
             {cart.items.length > 0 && (
               <button
                 onClick={clearCart}
@@ -314,11 +378,11 @@ export default function CartPage() {
                     />
                   </div>
                 )}
-                
+
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-gray-900 truncate">{item.name}</h3>
                   <p className="text-[#55529d] font-semibold">{formatCurrency(item.price)}</p>
-                  
+
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-2 bg-gray-100 rounded-lg">
                       <button
@@ -335,7 +399,7 @@ export default function CartPage() {
                         <Plus className="w-4 h-4" />
                       </button>
                     </div>
-                    
+
                     <button
                       onClick={() => removeItem(item.productId)}
                       className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
@@ -344,7 +408,7 @@ export default function CartPage() {
                     </button>
                   </div>
                 </div>
-                
+
                 <div className="text-right shrink-0">
                   <p className="font-semibold text-gray-900">
                     {formatCurrency(item.price * item.quantity)}
@@ -358,23 +422,73 @@ export default function CartPage() {
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-sm p-6 sticky top-24">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Order Summary</h2>
-              
+
+              {/* Fulfillment Type Toggle */}
+              <div className="mb-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">How would you like to receive your order?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('delivery')}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all ${
+                      fulfillmentType === 'delivery'
+                        ? 'border-[#55529d] bg-[#55529d]/5 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <Truck className="w-5 h-5" />
+                    <span className="font-medium">Delivery</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('pickup')}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all ${
+                      fulfillmentType === 'pickup'
+                        ? 'border-[#55529d] bg-[#55529d]/5 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <Store className="w-5 h-5" />
+                    <span className="font-medium">Pickup</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Pickup savings badge */}
+              {fulfillmentType === 'pickup' && deliveryFee > 0 && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-700 font-medium flex items-center gap-2">
+                    <Check className="w-4 h-4" />
+                    You save {formatCurrency(deliveryFee)} with pickup!
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Delivery Fee</span>
-                  <span className="font-medium">{formatCurrency(deliveryFee)}</span>
+                  <span className="text-gray-600">
+                    {fulfillmentType === 'pickup' ? 'Delivery Fee' : 'Delivery Fee'}
+                  </span>
+                  {fulfillmentType === 'pickup' ? (
+                    <span className="font-medium text-green-600 flex items-center gap-1">
+                      <span className="line-through text-gray-400">{formatCurrency(deliveryFee)}</span>
+                      FREE
+                    </span>
+                  ) : (
+                    <span className="font-medium">{formatCurrency(deliveryFee)}</span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Tax (ITBIS 18%)</span>
-                  <span className="font-medium">{formatCurrency(tax)}</span>
+                  <span className="font-medium">{formatCurrency(adjustedTax)}</span>
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
                   <span className="font-bold text-gray-900">Total</span>
-                  <span className="font-bold text-[#55529d]">{formatCurrency(total)}</span>
+                  <span className="font-bold text-[#55529d]">{formatCurrency(adjustedTotal)}</span>
                 </div>
               </div>
 
@@ -392,7 +506,7 @@ export default function CartPage() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <button
                     onClick={handleProceedToCheckout}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium"
@@ -400,7 +514,7 @@ export default function CartPage() {
                     <LogIn className="w-5 h-5" />
                     Sign In to Checkout
                   </button>
-                  
+
                   <p className="text-center text-sm text-gray-500 mt-3">
                     New customer?{' '}
                     <Link href="/login?redirect=/cart" className="text-[#55529d] hover:underline">
@@ -437,7 +551,7 @@ export default function CartPage() {
                       <User className="w-4 h-4" />
                       Your Details
                     </h3>
-                    
+
                     <input
                       type="text"
                       placeholder="Full Name"
@@ -445,7 +559,7 @@ export default function CartPage() {
                       onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                     />
-                    
+
                     <input
                       type="email"
                       placeholder="Email"
@@ -453,7 +567,7 @@ export default function CartPage() {
                       onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                     />
-                    
+
                     <input
                       type="tel"
                       placeholder="Phone Number"
@@ -463,119 +577,168 @@ export default function CartPage() {
                     />
                   </div>
 
-                  {/* Delivery Address */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                        <MapPin className="w-4 h-4" />
-                        Delivery Address
-                      </h3>
-                      <Link
-                        href="/account/addresses"
-                        className="text-sm text-[#55529d] hover:underline"
-                      >
-                        Manage
-                      </Link>
-                    </div>
-
-                    {loadingAddresses ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                      </div>
-                    ) : savedAddresses.length > 0 && !useNewAddress ? (
-                      <div className="space-y-2">
-                        {savedAddresses.map((address) => (
-                          <label
-                            key={address.id}
-                            className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                              selectedAddressId === address.id
-                                ? 'border-[#55529d] bg-[#55529d]/5'
-                                : 'border-gray-200 hover:border-gray-300'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name="address"
-                              checked={selectedAddressId === address.id}
-                              onChange={() => setSelectedAddressId(address.id)}
-                              className="mt-1 text-[#55529d] focus:ring-[#55529d]"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-900">{address.label}</span>
-                                {address.isPinned && (
-                                  <Star className="w-3 h-3 text-[#55529d] fill-current" />
-                                )}
-                              </div>
-                              <p className="text-sm text-gray-600 truncate">{address.street}</p>
-                              <p className="text-sm text-gray-500">
-                                {address.city}, {address.country}
-                              </p>
-                            </div>
-                          </label>
-                        ))}
-                        
-                        <button
-                          type="button"
-                          onClick={() => setUseNewAddress(true)}
-                          className="w-full p-3 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-[#55529d] hover:text-[#55529d] transition-colors text-sm"
+                  {/* Conditional: Delivery Address OR Pickup Location */}
+                  {fulfillmentType === 'delivery' ? (
+                    /* Delivery Address */
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                          <MapPin className="w-4 h-4" />
+                          Delivery Address
+                        </h3>
+                        <Link
+                          href="/account/addresses"
+                          className="text-sm text-[#55529d] hover:underline"
                         >
-                          + Use a different address
-                        </button>
+                          Manage
+                        </Link>
                       </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {savedAddresses.length > 0 && (
+
+                      {loadingAddresses ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                        </div>
+                      ) : savedAddresses.length > 0 && !useNewAddress ? (
+                        <div className="space-y-2">
+                          {savedAddresses.map((address) => (
+                            <label
+                              key={address.id}
+                              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                                selectedAddressId === address.id
+                                  ? 'border-[#55529d] bg-[#55529d]/5'
+                                  : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="address"
+                                checked={selectedAddressId === address.id}
+                                onChange={() => setSelectedAddressId(address.id)}
+                                className="mt-1 text-[#55529d] focus:ring-[#55529d]"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-gray-900">{address.label}</span>
+                                  {address.isPinned && (
+                                    <Star className="w-3 h-3 text-[#55529d] fill-current" />
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-600 truncate">{address.street}</p>
+                                <p className="text-sm text-gray-500">
+                                  {address.city}, {address.country}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+
                           <button
                             type="button"
-                            onClick={() => setUseNewAddress(false)}
-                            className="text-sm text-[#55529d] hover:underline"
+                            onClick={() => setUseNewAddress(true)}
+                            className="w-full p-3 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-[#55529d] hover:text-[#55529d] transition-colors text-sm"
                           >
-                            ← Use saved address
+                            + Use a different address
                           </button>
-                        )}
-                        
-                        <input
-                          type="text"
-                          placeholder="Street Address"
-                          value={manualAddress.street}
-                          onChange={(e) => setManualAddress({ ...manualAddress, street: e.target.value })}
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                        />
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            type="text"
-                            placeholder="City"
-                            value={manualAddress.city}
-                            onChange={(e) => setManualAddress({ ...manualAddress, city: e.target.value })}
-                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Postal Code"
-                            value={manualAddress.postalCode}
-                            onChange={(e) => setManualAddress({ ...manualAddress, postalCode: e.target.value })}
-                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                          />
                         </div>
-                        
-                        <input
-                          type="text"
-                          placeholder="Delivery Instructions (optional)"
-                          value={manualAddress.instructions}
-                          onChange={(e) => setManualAddress({ ...manualAddress, instructions: e.target.value })}
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                        />
+                      ) : (
+                        <div className="space-y-3">
+                          {savedAddresses.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setUseNewAddress(false)}
+                              className="text-sm text-[#55529d] hover:underline"
+                            >
+                              ← Use saved address
+                            </button>
+                          )}
 
-                        {savedAddresses.length === 0 && (
-                          <p className="text-xs text-gray-500">
-                            This address will be saved to your account for future orders.
+                          <input
+                            type="text"
+                            placeholder="Street Address"
+                            value={manualAddress.street}
+                            onChange={(e) => setManualAddress({ ...manualAddress, street: e.target.value })}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
+                          />
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              placeholder="City"
+                              value={manualAddress.city}
+                              onChange={(e) => setManualAddress({ ...manualAddress, city: e.target.value })}
+                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Postal Code"
+                              value={manualAddress.postalCode}
+                              onChange={(e) => setManualAddress({ ...manualAddress, postalCode: e.target.value })}
+                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
+                            />
+                          </div>
+
+                          <input
+                            type="text"
+                            placeholder="Delivery Instructions (optional)"
+                            value={manualAddress.instructions}
+                            onChange={(e) => setManualAddress({ ...manualAddress, instructions: e.target.value })}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
+                          />
+
+                          {savedAddresses.length === 0 && (
+                            <p className="text-xs text-gray-500">
+                              This address will be saved to your account for future orders.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Pickup Location */
+                    <div className="space-y-3">
+                      <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                        <Store className="w-4 h-4" />
+                        Pickup Location
+                      </h3>
+
+                      {loadingVendorLocation ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                        </div>
+                      ) : vendorLocation?.address ? (
+                        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 bg-[#55529d]/10 rounded-lg shrink-0">
+                              <MapPin className="w-5 h-5 text-[#55529d]" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-gray-900">{cart.vendorName}</p>
+                              <p className="text-sm text-gray-600 mt-1">{vendorLocation.address}</p>
+                              {vendorLocation.coordinates && (
+                                <button
+                                  type="button"
+                                  onClick={openInMaps}
+                                  className="mt-2 text-sm text-[#55529d] hover:underline flex items-center gap-1"
+                                >
+                                  <Navigation className="w-4 h-4" />
+                                  Get directions
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm text-amber-700">
+                            Contact the vendor for pickup location details.
                           </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-gray-500">
+                        You&apos;ll receive a notification when your order is ready for pickup.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Order Notes */}
                   <div>
@@ -606,7 +769,7 @@ export default function CartPage() {
                     ) : (
                       <>
                         <Check className="w-5 h-5" />
-                        Pay {formatCurrency(total)}
+                        Pay {formatCurrency(adjustedTotal)}
                       </>
                     )}
                   </button>

@@ -103,16 +103,36 @@ async function handleCheckoutComplete(
   }
 
   // Parse metadata
-  const items = JSON.parse(metadata.items || '[]');
-  const customerInfo = JSON.parse(metadata.customerInfo || '{}');
-  const deliveryAddress = JSON.parse(metadata.deliveryAddress || '{}');
+  const items = JSON.parse(metadata.itemsJson || '[]');
+  const fulfillmentType = (metadata.fulfillmentType || 'delivery') as 'delivery' | 'pickup';
+  const isPickup = fulfillmentType === 'pickup';
+
+  // Build customer info
+  const customerInfo = {
+    name: metadata.customerName || '',
+    email: metadata.customerEmail || '',
+    phone: metadata.customerPhone || '',
+  };
+
+  // Build delivery address (empty for pickup orders)
+  const deliveryAddress = isPickup
+    ? null
+    : {
+        street: metadata.deliveryStreet || '',
+        city: metadata.deliveryCity || '',
+        state: metadata.deliveryState || '',
+        postalCode: metadata.deliveryPostalCode || '',
+        country: metadata.deliveryCountry || 'Dominican Republic',
+        instructions: metadata.deliveryInstructions || '',
+      };
 
   // Create order document
-  const orderData = {
+  const orderData: Record<string, unknown> = {
     orderId: metadata.orderId,
     customerId: metadata.customerId,
     vendorId: metadata.vendorId,
     vendorName: metadata.vendorName,
+    fulfillmentType,
     items: items.map((item: { productId: string; name: string; price: number; quantity: number }) => ({
       productId: item.productId,
       name: item.name,
@@ -120,71 +140,54 @@ async function handleCheckoutComplete(
       quantity: item.quantity,
       subtotal: item.price * item.quantity,
     })),
-    subtotal: parseFloat(metadata.subtotal),
-    deliveryFee: parseFloat(metadata.deliveryFee),
-    serviceFee: parseFloat(metadata.serviceFee),
-    tax: parseFloat(metadata.tax),
-    total: parseFloat(metadata.total),
+    subtotal: parseFloat(metadata.subtotal || '0'),
+    deliveryFee: parseFloat(metadata.deliveryFee || '0'),
+    serviceFee: parseFloat(metadata.serviceFee || '0'),
+    tax: parseFloat(metadata.tax || '0'),
+    total: parseFloat(metadata.total || '0'),
     status: 'pending',
     paymentStatus: 'paid',
     paymentMethod: 'stripe',
     stripeSessionId: session.id,
     stripePaymentIntentId: session.payment_intent as string,
     customerInfo,
-    deliveryAddress,
     trackingPin: metadata.trackingPin,
     notes: metadata.notes || null,
-    createdAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now(),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // Use batch write for atomicity
+  // Only include deliveryAddress for delivery orders
+  if (!isPickup && deliveryAddress) {
+    orderData.deliveryAddress = deliveryAddress;
+  }
+
+  console.log(`Creating order ${metadata.orderId} with fulfillmentType: ${fulfillmentType}`);
+
+  // Batch write to all locations
   const batch = db.batch();
 
-  // Create main order document
-  const orderRef = db.collection('orders').doc();
+  // Main orders collection
+  const orderRef = db.collection('orders').doc(metadata.orderId);
   batch.set(orderRef, orderData);
 
-  // Create order reference in vendor's orders subcollection
+  // Vendor's orders subcollection
   const vendorOrderRef = db
     .collection('vendors')
     .doc(metadata.vendorId)
     .collection('orders')
-    .doc(orderRef.id);
-  batch.set(vendorOrderRef, {
-    orderId: metadata.orderId,
-    orderRef: orderRef.id,
-    customerId: metadata.customerId,
-    total: parseFloat(metadata.total),
-    status: 'pending',
-    createdAt: admin.firestore.Timestamp.now(),
-  });
+    .doc(metadata.orderId);
+  batch.set(vendorOrderRef, orderData);
 
-  // Create order reference in customer's orders
+  // Customer's orders subcollection
   const customerOrderRef = db
     .collection('customers')
     .doc(metadata.customerId)
     .collection('orders')
-    .doc(orderRef.id);
-  batch.set(customerOrderRef, {
-    orderId: metadata.orderId,
-    orderRef: orderRef.id,
-    vendorId: metadata.vendorId,
-    vendorName: metadata.vendorName,
-    total: parseFloat(metadata.total),
-    status: 'pending',
-    createdAt: admin.firestore.Timestamp.now(),
-  });
-
-  // Update vendor stats
-  const vendorRef = db.collection('vendors').doc(metadata.vendorId);
-  batch.update(vendorRef, {
-    totalOrders: admin.firestore.FieldValue.increment(1),
-    totalRevenue: admin.firestore.FieldValue.increment(parseFloat(metadata.subtotal)),
-    updatedAt: admin.firestore.Timestamp.now(),
-  });
+    .doc(metadata.orderId);
+  batch.set(customerOrderRef, orderData);
 
   await batch.commit();
 
-  console.log(`Order created successfully: ${metadata.orderId}`);
+  console.log(`Order ${metadata.orderId} created successfully (${fulfillmentType})`);
 }

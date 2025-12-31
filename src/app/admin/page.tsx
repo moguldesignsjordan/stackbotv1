@@ -83,10 +83,11 @@ export default function AdminDashboard() {
           }))
         );
 
+        // Fixed: Use createdAt instead of timestamp
         const roSnap = await getDocs(
           query(
             collection(db, "orders"),
-            orderBy("timestamp", "desc"),
+            orderBy("createdAt", "desc"),
             limit(5)
           )
         );

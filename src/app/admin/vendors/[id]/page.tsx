@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { formatPrice } from "@/lib/utils/currency";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Store,
   ArrowLeft,
@@ -50,6 +51,8 @@ import {
   AlertCircle,
   Copy,
   Loader2,
+  ShoppingBag,
+  ChevronRight,
 } from "lucide-react";
 
 // TikTok icon
@@ -89,6 +92,8 @@ interface Vendor {
   slug?: string;
   total_orders?: number;
   total_revenue?: number;
+  totalOrders?: number;
+  totalRevenue?: number;
   rating?: number;
   stackbot_pin?: string;
   status?: "approved" | "suspended" | "pending";
@@ -111,13 +116,36 @@ interface Product {
   description?: string;
 }
 
+interface Order {
+  id: string;
+  orderId: string;
+  customerInfo: { name: string; email: string; phone?: string };
+  total: number;
+  status: string;
+  items: { name: string; quantity: number; price: number }[];
+  createdAt: string;
+}
+
+const statusConfig: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending: { label: 'Pending', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
+  confirmed: { label: 'Confirmed', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  preparing: { label: 'Preparing', color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  ready_for_pickup: { label: 'Ready', color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  out_for_delivery: { label: 'Delivering', color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
+  delivered: { label: 'Delivered', color: 'text-green-700', bgColor: 'bg-green-100' },
+  cancelled: { label: 'Cancelled', color: 'text-red-700', bgColor: 'bg-red-100' },
+};
+
 export default function AdminVendorDetailPage() {
   const { id: vendorId } = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -223,6 +251,47 @@ export default function AdminVendorDetailPage() {
 
     load();
   }, [vendorId]);
+
+  /* ===============================
+     LOAD VENDOR ORDERS (via API)
+  =============================== */
+  useEffect(() => {
+    if (!vendorId || !user) return;
+
+    const loadOrders = async () => {
+      setOrdersLoading(true);
+      try {
+        const token = await user.getIdToken();
+        // Fetch orders for this specific vendor
+        const res = await fetch(`/api/admin/vendors/${vendorId}/orders`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setOrders(data.orders || []);
+        } else {
+          // Fallback: fetch all orders and filter client-side
+          const allRes = await fetch('/api/orders', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (allRes.ok) {
+            const data = await allRes.json();
+            const vendorOrders = (data.orders || []).filter(
+              (order: any) => order.vendorId === vendorId
+            );
+            setOrders(vendorOrders);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load orders:", err);
+      } finally {
+        setOrdersLoading(false);
+      }
+    };
+
+    loadOrders();
+  }, [vendorId, user]);
 
   /* ===============================
      FILE UPLOAD HELPERS
@@ -524,6 +593,18 @@ export default function AdminVendorDetailPage() {
   }
 
   /* ===============================
+     FORMAT DATE
+  =============================== */
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  /* ===============================
      UI STATES
   =============================== */
   if (loading) return <LoadingSpinner text="Loading vendor..." />;
@@ -546,228 +627,158 @@ export default function AdminVendorDetailPage() {
   const currentCoverUrl = vendor.cover_video_url || vendor.cover_image_url;
   const isCurrentCoverVideo = !!vendor.cover_video_url;
 
+  // Get order/revenue counts (handle both field naming conventions)
+  const totalOrders = vendor.totalOrders ?? vendor.total_orders ?? 0;
+  const totalRevenue = vendor.totalRevenue ?? vendor.total_revenue ?? 0;
+
   return (
     <div className="space-y-8 pb-24">
       {/* HEADER */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-4">
           <Link
             href="/admin/vendors"
-            className="inline-flex items-center text-sb-primary font-medium hover:underline"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back
+            <ArrowLeft className="h-5 w-5 text-gray-600" />
           </Link>
-
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Store className="h-6 w-6 lg:h-7 lg:w-7 text-sb-primary" />
-            {vendor.name}
-          </h1>
-
-          <Badge variant={isSuspended ? "danger" : vendor.verified ? "success" : "warning"}>
-            {isSuspended ? "Suspended" : vendor.verified ? "Approved" : "Pending"}
-          </Badge>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{vendor.name}</h1>
+            {/* Only show Verified badge if verified */}
+            {vendor.verified && (
+              <Badge variant="info" className="flex items-center gap-1 mt-1">
+                <CheckCircle2 className="h-3 w-3" /> Verified
+              </Badge>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {!editMode && (
-            <Button onClick={() => setEditMode(true)} variant="secondary">
-              <Pencil className="h-4 w-4 mr-1" />
-              Edit Vendor
-            </Button>
+        <div className="flex items-center gap-2">
+          {vendor.slug && (
+            <Link
+              href={`/store/${vendor.slug}`}
+              target="_blank"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ExternalLink className="h-4 w-4" />
+              View Store
+            </Link>
           )}
-
-          <Button
-            onClick={toggleSuspension}
-            loading={working}
-            variant={isSuspended ? "secondary" : "danger"}
-          >
-            {isSuspended ? (
-              <>
-                <ShieldCheck className="h-4 w-4 mr-1" />
-                Reinstate
-              </>
-            ) : (
-              <>
-                <ShieldBan className="h-4 w-4 mr-1" />
-                Suspend
-              </>
-            )}
-          </Button>
-
-          <Button onClick={deleteVendor} loading={working} variant="danger">
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
+          
+          {!editMode ? (
+            <Button onClick={() => setEditMode(true)} variant="outline">
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => setEditMode(false)} variant="outline">
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                Save
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* STATUS MESSAGE */}
+      {/* MESSAGE */}
       {message && (
-        <div
-          className={`p-4 rounded-xl flex items-center justify-between ${
-            message.type === "success"
-              ? "bg-green-50 text-green-800 border border-green-200"
-              : "bg-red-50 text-red-800 border border-red-200"
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            {message.type === "success" ? (
-              <CheckCircle2 className="h-4 w-4" />
-            ) : (
-              <AlertCircle className="h-4 w-4" />
-            )}
-            {message.text}
-          </span>
-          <button onClick={() => setMessage(null)}>
-            <X className="h-4 w-4" />
-          </button>
+        <div className={`p-4 rounded-lg flex items-center gap-2 ${
+          message.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+        }`}>
+          {message.type === "success" ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+          {message.text}
         </div>
       )}
 
-      {/* PUBLIC LINK */}
-      {vendor.slug && (
-        <Link
-          href={`/store/${vendor.slug}`}
-          className="text-sb-primary font-semibold underline text-sm inline-flex items-center gap-1"
-          target="_blank"
-        >
-          View Public Storefront
-          <ExternalLink className="h-3.5 w-3.5" />
-        </Link>
-      )}
-
       {editMode ? (
-        /* ===============================
-           EDIT MODE
-        =============================== */
+        /* ===== EDIT MODE ===== */
         <div className="space-y-6">
-          {/* COVER MEDIA - Only in Edit Mode */}
+          {/* Basic Info */}
           <Card padding="lg">
-            <h3 className="font-semibold text-lg mb-4">Cover Media</h3>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-500">
-                Upload an image or video for the store hero section.
-              </p>
-              
-              <div className="relative h-48 rounded-xl overflow-hidden bg-gray-100">
-                {coverPreview ? (
-                  coverType === "video" ? (
-                    <video
-                      src={coverPreview}
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Image src={coverPreview} fill alt="Cover preview" className="object-cover" />
-                  )
-                ) : currentCoverUrl ? (
-                  isCurrentCoverVideo ? (
-                    <video
-                      src={currentCoverUrl}
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Image src={currentCoverUrl} fill alt="Cover" className="object-cover" />
-                  )
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <ImageIcon className="w-12 h-12" />
-                  </div>
-                )}
-                
-                <div className="absolute bottom-3 right-3 flex gap-2">
-                  <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
-                    <ImageIcon className="h-4 w-4" />
-                    Image
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => e.target.files && selectCover(e.target.files[0], "image")}
-                    />
-                  </label>
-                  <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
-                    <Video className="h-4 w-4" />
-                    Video
-                    <input
-                      hidden
-                      type="file"
-                      accept="video/mp4,video/webm,video/ogg,video/quicktime"
-                      onChange={(e) => e.target.files && selectCover(e.target.files[0], "video")}
-                    />
-                  </label>
-                </div>
-              </div>
-              
-              {(currentCoverUrl || coverPreview) && (
-                <button onClick={removeCover} className="text-red-600 text-sm font-medium">
-                  Remove Cover
-                </button>
-              )}
-            </div>
-          </Card>
-
-          {/* LOGO & BASIC INFO */}
-          <Card padding="lg">
-            <h3 className="font-semibold text-lg mb-4">Store Identity</h3>
-            <div className="space-y-6">
-              {/* Logo */}
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <Image
-                    src={logoPreview || vendor.logoUrl || "/placeholder.png"}
-                    width={80}
-                    height={80}
-                    alt="Logo"
-                    className="rounded-xl border object-cover"
-                  />
-                  <label className="absolute -bottom-2 -right-2 cursor-pointer bg-sb-primary text-white p-2 rounded-full shadow-lg hover:bg-sb-primary/90 transition">
-                    <Camera className="h-4 w-4" />
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => e.target.files && selectLogo(e.target.files[0])}
-                    />
-                  </label>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Store Logo</p>
-                </div>
-              </div>
-
-              {/* Name */}
+            <h3 className="font-semibold text-lg mb-4">Basic Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Store Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
-
-              {/* Description */}
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
+                <input
+                  type="tel"
+                  value={form.whatsapp}
+                  onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
+                <input
+                  type="url"
+                  value={form.website}
+                  onChange={(e) => setForm({ ...form, website: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Hours</label>
+                <input
+                  type="text"
+                  value={form.hours}
+                  placeholder="e.g. Mon-Fri 9am-5pm"
+                  onChange={(e) => setForm({ ...form, hours: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={3}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent resize-none"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
             </div>
           </Card>
 
-          {/* CATEGORIES */}
+          {/* Categories */}
           <Card padding="lg">
             <h3 className="font-semibold text-lg mb-4">Categories</h3>
             <div className="flex flex-wrap gap-2">
@@ -775,7 +786,7 @@ export default function AdminVendorDetailPage() {
                 <button
                   key={cat}
                   onClick={() => toggleCategory(cat)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                     form.categories.includes(cat)
                       ? "bg-sb-primary text-white"
                       : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -787,196 +798,203 @@ export default function AdminVendorDetailPage() {
             </div>
           </Card>
 
-          {/* CONTACT INFO */}
-          <Card padding="lg">
-            <h3 className="font-semibold text-lg mb-4">Contact Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <MapPin className="inline h-4 w-4 mr-1" />
-                  Address
-                </label>
-                <input
-                  type="text"
-                  value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Phone className="inline h-4 w-4 mr-1" />
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <MessageCircle className="inline h-4 w-4 mr-1 text-green-600" />
-                  WhatsApp
-                </label>
-                <input
-                  type="tel"
-                  value={form.whatsapp}
-                  onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Mail className="inline h-4 w-4 mr-1" />
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Globe className="inline h-4 w-4 mr-1" />
-                  Website
-                </label>
-                <input
-                  type="url"
-                  value={form.website}
-                  onChange={(e) => setForm({ ...form, website: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Clock className="inline h-4 w-4 mr-1" />
-                  Store Hours
-                </label>
-                <input
-                  type="text"
-                  value={form.hours}
-                  onChange={(e) => setForm({ ...form, hours: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="Mon-Fri 9AM-6PM"
-                />
-              </div>
-            </div>
-          </Card>
-
-          {/* SOCIAL MEDIA */}
+          {/* Social Media */}
           <Card padding="lg">
             <h3 className="font-semibold text-lg mb-4">Social Media</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                  <Instagram className="h-4 w-4 text-pink-600" />
-                  Instagram
-                </label>
+              <div className="flex items-center gap-2">
+                <Instagram className="h-5 w-5 text-pink-600 flex-shrink-0" />
                 <input
                   type="text"
+                  placeholder="Instagram username or URL"
                   value={form.instagram}
                   onChange={(e) => setForm({ ...form, instagram: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="@username or URL"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                  <Facebook className="h-4 w-4 text-blue-600" />
-                  Facebook
-                </label>
+              <div className="flex items-center gap-2">
+                <Facebook className="h-5 w-5 text-blue-600 flex-shrink-0" />
                 <input
                   type="text"
+                  placeholder="Facebook page"
                   value={form.facebook}
                   onChange={(e) => setForm({ ...form, facebook: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="Page name or URL"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                  <TikTokIcon className="h-4 w-4" />
-                  TikTok
-                </label>
+              <div className="flex items-center gap-2">
+                <TikTokIcon className="h-5 w-5 text-gray-900 flex-shrink-0" />
                 <input
                   type="text"
+                  placeholder="TikTok username"
                   value={form.tiktok}
                   onChange={(e) => setForm({ ...form, tiktok: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="@username or URL"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                  <Twitter className="h-4 w-4" />
-                  X (Twitter)
-                </label>
+              <div className="flex items-center gap-2">
+                <Twitter className="h-5 w-5 text-gray-900 flex-shrink-0" />
                 <input
                   type="text"
+                  placeholder="Twitter/X handle"
                   value={form.twitter}
                   onChange={(e) => setForm({ ...form, twitter: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="@handle"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                  <Youtube className="h-4 w-4 text-red-600" />
-                  YouTube
-                </label>
+              <div className="flex items-center gap-2">
+                <Youtube className="h-5 w-5 text-red-600 flex-shrink-0" />
                 <input
                   type="text"
+                  placeholder="YouTube channel"
                   value={form.youtube}
                   onChange={(e) => setForm({ ...form, youtube: e.target.value })}
-                  className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
-                  placeholder="@channel or URL"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
                 />
               </div>
             </div>
           </Card>
 
-          {/* SAVE / CANCEL BUTTONS */}
-          <div className="flex gap-3 justify-end sticky bottom-4">
-            <Button variant="secondary" onClick={() => setEditMode(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} loading={saving}>
-              <Save className="h-4 w-4 mr-1" />
-              Save Changes
-            </Button>
-          </div>
+          {/* Media */}
+          <Card padding="lg">
+            <h3 className="font-semibold text-lg mb-4">Media</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Logo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Logo</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center">
+                    {logoPreview || vendor.logoUrl ? (
+                      <Image
+                        src={logoPreview || vendor.logoUrl || ""}
+                        alt="Logo"
+                        width={80}
+                        height={80}
+                        className="object-cover w-full h-full"
+                      />
+                    ) : (
+                      <Store className="h-8 w-8 text-gray-400" />
+                    )}
+                  </div>
+                  <label className="cursor-pointer px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">
+                    <Camera className="h-4 w-4 inline mr-2" />
+                    Change Logo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => e.target.files?.[0] && selectLogo(e.target.files[0])}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Cover */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cover Image/Video</label>
+                <div className="space-y-2">
+                  {(coverPreview || currentCoverUrl) && (
+                    <div className="relative w-full h-32 rounded-lg overflow-hidden bg-gray-100">
+                      {(coverType === "video" || isCurrentCoverVideo) ? (
+                        <video
+                          src={coverPreview || vendor.cover_video_url}
+                          className="w-full h-full object-cover"
+                          muted
+                          loop
+                          autoPlay
+                        />
+                      ) : (
+                        <Image
+                          src={coverPreview || vendor.cover_image_url || ""}
+                          alt="Cover"
+                          fill
+                          className="object-cover"
+                        />
+                      )}
+                      <button
+                        onClick={removeCover}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <label className="cursor-pointer px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">
+                      <ImageIcon className="h-4 w-4 inline mr-1" />
+                      Image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => e.target.files?.[0] && selectCover(e.target.files[0], "image")}
+                      />
+                    </label>
+                    <label className="cursor-pointer px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">
+                      <Video className="h-4 w-4 inline mr-1" />
+                      Video
+                      <input
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        onChange={(e) => e.target.files?.[0] && selectCover(e.target.files[0], "video")}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Danger Zone */}
+          <Card padding="lg" className="border-red-200">
+            <h3 className="font-semibold text-lg mb-4 text-red-600">Danger Zone</h3>
+            <div className="flex flex-wrap gap-4">
+              <Button
+                onClick={toggleSuspension}
+                disabled={working}
+                variant={isSuspended ? "outline" : "danger"}
+              >
+                {isSuspended ? (
+                  <>
+                    <ShieldCheck className="h-4 w-4 mr-2" />
+                    Reinstate Vendor
+                  </>
+                ) : (
+                  <>
+                    <ShieldBan className="h-4 w-4 mr-2" />
+                    Suspend Vendor
+                  </>
+                )}
+              </Button>
+              <Button onClick={deleteVendor} disabled={working} variant="danger">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Vendor
+              </Button>
+            </div>
+          </Card>
         </div>
       ) : (
-        /* ===============================
-           VIEW MODE
-        =============================== */
+        /* ===== VIEW MODE ===== */
         <>
-          {/* PROFILE + METRICS */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* VENDOR INFO CARD */}
             <Card padding="lg" className="lg:col-span-2">
-              <div className="flex gap-6">
-                {vendor.logoUrl && (
-                  <Image
-                    src={vendor.logoUrl}
-                    alt={vendor.name}
-                    width={96}
-                    height={96}
-                    className="rounded-xl bg-gray-100 flex-shrink-0"
-                  />
-                )}
+              <div className="flex flex-col sm:flex-row gap-6">
+                {/* Logo only - removed cover thumbnail */}
+                <div className="w-24 h-24 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                  {vendor.logoUrl ? (
+                    <Image
+                      src={vendor.logoUrl}
+                      alt={vendor.name}
+                      width={96}
+                      height={96}
+                      className="object-cover w-full h-full"
+                    />
+                  ) : (
+                    <Store className="h-10 w-10 text-gray-400" />
+                  )}
+                </div>
 
                 <div className="space-y-3 flex-1 min-w-0">
                   <p className="text-gray-700">{vendor.description || "No description provided."}</p>
@@ -989,7 +1007,7 @@ export default function AdminVendorDetailPage() {
                     ))}
                   </div>
 
-                  {/* Contact Info - Clean icons, no emojis */}
+                  {/* Contact Info */}
                   <div className="text-sm text-gray-600 space-y-2 pt-2">
                     {vendor.email && (
                       <div className="flex items-center gap-2">
@@ -1071,11 +1089,11 @@ export default function AdminVendorDetailPage() {
               <div className="space-y-4">
                 <div>
                   <p className="text-sm text-gray-500">Total Orders</p>
-                  <p className="text-2xl font-bold">{vendor.total_orders ?? 0}</p>
+                  <p className="text-2xl font-bold">{totalOrders}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Total Revenue</p>
-                  <p className="text-2xl font-bold">${(vendor.total_revenue ?? 0).toLocaleString()}</p>
+                  <p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Rating</p>
@@ -1089,6 +1107,101 @@ export default function AdminVendorDetailPage() {
                 )}
               </div>
             </Card>
+          </div>
+
+          {/* RECENT ORDERS SECTION */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <ShoppingBag className="h-5 w-5 text-gray-400" />
+                Recent Orders ({orders.length})
+              </h2>
+              <Link
+                href="/admin/orders"
+                className="text-sb-primary font-semibold text-sm hover:underline"
+              >
+                View All Orders →
+              </Link>
+            </div>
+
+            {ordersLoading ? (
+              <Card padding="lg">
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-sb-primary" />
+                </div>
+              </Card>
+            ) : orders.length === 0 ? (
+              <Card padding="lg">
+                <div className="text-center py-8">
+                  <ShoppingBag className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No orders yet for this vendor.</p>
+                </div>
+              </Card>
+            ) : (
+              <Card padding="none">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Order</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Items</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Total</th>
+                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                        <th className="px-4 py-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {orders.slice(0, 10).map((order) => {
+                        const status = statusConfig[order.status] || statusConfig.pending;
+                        return (
+                          <tr key={order.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <span className="font-mono font-semibold text-sb-primary text-sm">
+                                {order.orderId}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div>
+                                <p className="font-medium text-gray-900 text-sm">{order.customerInfo?.name || 'N/A'}</p>
+                                <p className="text-xs text-gray-500">{order.customerInfo?.email || ''}</p>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-sm text-gray-600">
+                                {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${status.bgColor} ${status.color}`}>
+                                {status.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-semibold text-gray-900 text-sm">
+                                ${order.total?.toFixed(2) || '0.00'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right text-xs text-gray-500">
+                              {order.createdAt ? formatDate(order.createdAt) : 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <Link
+                                href={`/admin/orders/${order.id}`}
+                                className="text-sb-primary hover:text-sb-primary/80"
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
           </div>
 
           {/* PRODUCTS */}

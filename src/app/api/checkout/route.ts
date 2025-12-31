@@ -3,9 +3,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { stripe, FEES, generateOrderId, generateTrackingPin } from '@/lib/stripe/stripe';
-import { CheckoutSessionRequest, CartItem } from '@/lib/types/order';
+import { CartItem } from '@/lib/types/order';
 import admin from '@/lib/firebase/admin';
 import { SavedAddress } from '@/lib/types/address';
+
+type FulfillmentType = 'delivery' | 'pickup';
+
+interface CheckoutRequestBody {
+  items: CartItem[];
+  customerInfo: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+  deliveryAddress?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+    instructions?: string;
+  } | null;
+  fulfillmentType?: FulfillmentType;
+  notes?: string;
+  saveAddress?: boolean;
+}
 
 /**
  * Validates a cart item has all required fields
@@ -50,7 +72,7 @@ export async function POST(request: NextRequest) {
     const customerEmail = decodedToken.email;
 
     // Parse request body
-    let body: CheckoutSessionRequest;
+    let body: CheckoutRequestBody;
     try {
       body = await request.json();
     } catch (err) {
@@ -61,7 +83,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { items, customerInfo, deliveryAddress, notes, saveAddress } = body;
+    const { items, customerInfo, deliveryAddress, fulfillmentType = 'delivery', notes } = body;
+
+    // Validate fulfillment type
+    const isPickup = fulfillmentType === 'pickup';
+    console.log('[Checkout] Fulfillment type:', fulfillmentType);
 
     // Validate items array exists
     if (!items || !Array.isArray(items)) {
@@ -130,81 +156,105 @@ export async function POST(request: NextRequest) {
     if (!validatedCustomerInfo.phone) {
       console.log('[Checkout] Missing phone');
       return NextResponse.json(
-        { error: 'Phone number is required for delivery coordination' },
+        { error: 'Phone number is required for order coordination' },
         { status: 400 }
       );
     }
 
-    // Validate delivery address
-    if (!deliveryAddress?.street?.trim() || !deliveryAddress?.city?.trim()) {
-      console.log('[Checkout] Missing delivery address:', deliveryAddress);
-      return NextResponse.json(
-        { error: 'Delivery address is required' },
-        { status: 400 }
-      );
-    }
-
-    // Set defaults for delivery address
-    const validatedDeliveryAddress = {
-      street: deliveryAddress.street.trim(),
-      city: deliveryAddress.city.trim(),
-      state: deliveryAddress.state?.trim() || '',
-      postalCode: deliveryAddress.postalCode?.trim() || '',
-      country: deliveryAddress.country?.trim() || 'Dominican Republic',
-      instructions: deliveryAddress.instructions?.trim() || '',
+    // Validate delivery address only for delivery orders
+    let validatedDeliveryAddress = {
+      street: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: 'Dominican Republic',
+      instructions: '',
     };
 
-    // Save address to customer profile if it's new
+    if (!isPickup) {
+      // Delivery requires address
+      if (!deliveryAddress?.street?.trim() || !deliveryAddress?.city?.trim()) {
+        console.log('[Checkout] Missing delivery address:', deliveryAddress);
+        return NextResponse.json(
+          { error: 'Delivery address is required' },
+          { status: 400 }
+        );
+      }
+
+      validatedDeliveryAddress = {
+        street: deliveryAddress.street.trim(),
+        city: deliveryAddress.city.trim(),
+        state: deliveryAddress.state?.trim() || '',
+        postalCode: deliveryAddress.postalCode?.trim() || '',
+        country: deliveryAddress.country?.trim() || 'Dominican Republic',
+        instructions: deliveryAddress.instructions?.trim() || '',
+      };
+    }
+
+    // Save address to customer profile if it's new (only for delivery)
     const db = admin.firestore();
     const customerRef = db.collection('customers').doc(customerId);
     const customerDoc = await customerRef.get();
 
-    // Check if this is a new address (not already saved)
-    const existingAddresses: SavedAddress[] = customerDoc.exists
-      ? customerDoc.data()?.savedAddresses || []
-      : [];
+    if (!isPickup && validatedDeliveryAddress.street) {
+      // Check if this is a new address (not already saved)
+      const existingAddresses: SavedAddress[] = customerDoc.exists
+        ? customerDoc.data()?.savedAddresses || []
+        : [];
 
-    const addressExists = existingAddresses.some(
-      (addr) =>
-        addr.street.toLowerCase() === validatedDeliveryAddress.street.toLowerCase() &&
-        addr.city.toLowerCase() === validatedDeliveryAddress.city.toLowerCase()
-    );
-
-    // If address doesn't exist and customer has no addresses, save it
-    if (!addressExists && existingAddresses.length === 0) {
-      const newAddress: SavedAddress = {
-        id: `addr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        label: 'Home',
-        street: validatedDeliveryAddress.street,
-        city: validatedDeliveryAddress.city,
-        state: validatedDeliveryAddress.state,
-        postalCode: validatedDeliveryAddress.postalCode,
-        country: validatedDeliveryAddress.country,
-        instructions: validatedDeliveryAddress.instructions,
-        isPinned: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await customerRef.set(
-        {
-          savedAddresses: [newAddress],
-          pinnedAddressId: newAddress.id,
-          defaultAddress: validatedDeliveryAddress,
-          phone: validatedCustomerInfo.phone,
-          updatedAt: admin.firestore.Timestamp.now(),
-        },
-        { merge: true }
+      const addressExists = existingAddresses.some(
+        (addr) =>
+          addr.street.toLowerCase() === validatedDeliveryAddress.street.toLowerCase() &&
+          addr.city.toLowerCase() === validatedDeliveryAddress.city.toLowerCase()
       );
-    } else if (!customerDoc.exists || !customerDoc.data()?.phone) {
-      // Save phone if not already saved
-      await customerRef.set(
-        {
-          phone: validatedCustomerInfo.phone,
-          updatedAt: admin.firestore.Timestamp.now(),
-        },
-        { merge: true }
-      );
+
+      // If address doesn't exist and customer has no addresses, save it
+      if (!addressExists && existingAddresses.length === 0) {
+        const newAddress: SavedAddress = {
+          id: `addr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          label: 'Home',
+          street: validatedDeliveryAddress.street,
+          city: validatedDeliveryAddress.city,
+          state: validatedDeliveryAddress.state,
+          postalCode: validatedDeliveryAddress.postalCode,
+          country: validatedDeliveryAddress.country,
+          instructions: validatedDeliveryAddress.instructions,
+          isPinned: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await customerRef.set(
+          {
+            savedAddresses: [newAddress],
+            pinnedAddressId: newAddress.id,
+            defaultAddress: validatedDeliveryAddress,
+            phone: validatedCustomerInfo.phone,
+            updatedAt: admin.firestore.Timestamp.now(),
+          },
+          { merge: true }
+        );
+      } else if (!customerDoc.exists || !customerDoc.data()?.phone) {
+        // Save phone if not already saved
+        await customerRef.set(
+          {
+            phone: validatedCustomerInfo.phone,
+            updatedAt: admin.firestore.Timestamp.now(),
+          },
+          { merge: true }
+        );
+      }
+    } else {
+      // For pickup orders, still save phone
+      if (!customerDoc.exists || !customerDoc.data()?.phone) {
+        await customerRef.set(
+          {
+            phone: validatedCustomerInfo.phone,
+            updatedAt: admin.firestore.Timestamp.now(),
+          },
+          { merge: true }
+        );
+      }
     }
 
     // Calculate order totals (all in dollars)
@@ -213,9 +263,19 @@ export async function POST(request: NextRequest) {
       (sum, item) => sum + item.price * item.quantity,
       0
     );
-    const deliveryFee = FEES.DELIVERY_FEE / 100; // Convert cents to dollars (399 -> 3.99)
+    
+    // No delivery fee for pickup orders
+    const deliveryFee = isPickup ? 0 : FEES.DELIVERY_FEE / 100; // Convert cents to dollars (399 -> 3.99)
     const taxAmount = (subtotal + deliveryFee) * (FEES.TAX_PERCENT / 100); // Convert 18 to 0.18
     const totalAmount = subtotal + deliveryFee + taxAmount;
+
+    console.log('[Checkout] Order totals:', {
+      subtotal,
+      deliveryFee,
+      taxAmount,
+      totalAmount,
+      fulfillmentType,
+    });
 
     // Generate order ID and tracking PIN
     const orderId = generateOrderId();
@@ -237,17 +297,19 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    // Add delivery fee as line item
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'Delivery Fee',
+    // Add delivery fee as line item only for delivery orders
+    if (!isPickup && deliveryFee > 0) {
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: 'Delivery Fee',
+          },
+          unit_amount: FEES.DELIVERY_FEE, // Already in cents
         },
-        unit_amount: FEES.DELIVERY_FEE, // Already in cents
-      },
-      quantity: 1,
-    });
+        quantity: 1,
+      });
+    }
 
     // Add tax as line item
     lineItems.push({
@@ -319,15 +381,17 @@ export async function POST(request: NextRequest) {
         customerId,
         vendorId,
         vendorName,
+        fulfillmentType,
         customerName: validatedCustomerInfo.name,
         customerEmail: validatedCustomerInfo.email,
         customerPhone: validatedCustomerInfo.phone,
-        deliveryStreet: validatedDeliveryAddress.street,
-        deliveryCity: validatedDeliveryAddress.city,
-        deliveryState: validatedDeliveryAddress.state,
-        deliveryPostalCode: validatedDeliveryAddress.postalCode,
-        deliveryCountry: validatedDeliveryAddress.country,
-        deliveryInstructions: validatedDeliveryAddress.instructions,
+        // Only include delivery address for delivery orders
+        deliveryStreet: isPickup ? '' : validatedDeliveryAddress.street,
+        deliveryCity: isPickup ? '' : validatedDeliveryAddress.city,
+        deliveryState: isPickup ? '' : validatedDeliveryAddress.state,
+        deliveryPostalCode: isPickup ? '' : validatedDeliveryAddress.postalCode,
+        deliveryCountry: isPickup ? '' : validatedDeliveryAddress.country,
+        deliveryInstructions: isPickup ? '' : validatedDeliveryAddress.instructions,
         notes: notes || '',
         subtotal: subtotal.toFixed(2),
         deliveryFee: deliveryFee.toFixed(2),

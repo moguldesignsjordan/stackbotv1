@@ -1,5 +1,7 @@
 // src/lib/types/order.ts
 
+export type FulfillmentType = 'delivery' | 'pickup';
+
 export interface CartItem {
   productId: string;
   vendorId: string;
@@ -29,9 +31,10 @@ export interface DeliveryAddress {
 export interface CheckoutSessionRequest {
   items: CartItem[];
   customerInfo: CustomerInfo;
-  deliveryAddress: DeliveryAddress;
+  deliveryAddress?: DeliveryAddress | null;
+  fulfillmentType?: FulfillmentType;
   notes?: string;
-  saveAddress?: boolean; // Whether to save address to profile
+  saveAddress?: boolean;
 }
 
 export interface Order {
@@ -40,9 +43,10 @@ export interface Order {
   customerId: string;
   vendorId: string;
   vendorName: string;
+  fulfillmentType: FulfillmentType;
   items: CartItem[];
   customerInfo: CustomerInfo;
-  deliveryAddress: DeliveryAddress;
+  deliveryAddress?: DeliveryAddress | null;
   notes?: string;
   subtotal: number;
   deliveryFee: number;
@@ -58,8 +62,10 @@ export interface Order {
   paidAt?: string;
   confirmedAt?: string;
   preparingAt?: string;
+  readyAt?: string;
   outForDeliveryAt?: string;
   deliveredAt?: string;
+  pickedUpAt?: string;
   cancelledAt?: string;
   cancellationReason?: string;
 }
@@ -72,6 +78,7 @@ export type OrderStatus =
   | 'ready'
   | 'out_for_delivery'
   | 'delivered'
+  | 'picked_up'
   | 'cancelled'
   | 'refunded';
 
