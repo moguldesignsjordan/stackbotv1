@@ -1180,7 +1180,7 @@ function Categories() {
   const categories = useMemo(() => [
     { id: "restaurants", title: "Restaurants", icon: Utensils },
     { id: "taxi-service", title: "Taxi Service", icon: Car },
-    { id: "cleaning-service", title: "Cleaning Service", icon: Brush },
+    { id: "cleaning-services", title: "Cleaning Service", icon: Brush },
     { id: "retail-shops", title: "Retail Shops", icon: Shirt },
   ], []);
 
