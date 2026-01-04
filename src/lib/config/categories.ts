@@ -317,3 +317,8 @@ export function getCategoryNameFromSlug(slug: string): VendorCategory | null {
 export function getAllCategorySlugs(): string[] {
   return CATEGORY_META.map(c => c.slug);
 }
+
+// FIX: Added missing export
+export function getCategoryFromLegacyName(name: string) {
+  return CATEGORY_META.find((c) => c.slug === name || c.name === name);
+}
