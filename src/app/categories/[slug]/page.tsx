@@ -209,7 +209,8 @@ export default function CategoryPage() {
   }
 
   // Get the icon component
-  const Icon = getIcon(category.icon);
+// ✅ REPLACE with this:
+  const Icon = category.icon;
   const bgColor = categoryMeta?.bgColor || "bg-purple-100";
   const color = categoryMeta?.color || "text-purple-600";
 
