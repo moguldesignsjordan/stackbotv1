@@ -33,6 +33,9 @@ import ReviewsSection from "./ReviewsSection";
 import HeroVideo from "./HeroVideo";
 import { formatPrice } from "@/lib/utils/currency";
 import { sanitizeSlug, isUrlLike, generateSlug } from "@/lib/utils/slug";
+import BookingSection from "@/components/vendor/BookingSection";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ slug?: string }>;
@@ -597,13 +600,15 @@ export default async function VendorStorefront({ params }: PageProps) {
           </div>
 
           {/* REVIEWS SECTION */}
+          {/* Booking module moved to sidebar, reviews remain here */}
           <ReviewsSection vendorId={vendorId} vendorName={vendor.name} />
         </div>
 
-        {/* RIGHT SIDEBAR - Desktop Only */}
+{/* RIGHT SIDEBAR - Desktop Only */}
         <aside className="hidden lg:block space-y-6">
           {/* Quick Contact Card */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 sticky top-6">
+          {/* ✅ FIX: Removed 'sticky top-6' so it scrolls naturally with the calendar */}
+          <div className="bg-white rounded-2xl shadow-sm p-6">
             <h3 className="font-semibold text-lg mb-4 text-gray-900">Contact Store</h3>
             
             <div className="space-y-3">
@@ -667,6 +672,14 @@ export default async function VendorStorefront({ params }: PageProps) {
               </div>
             )}
           </div>
+          
+
+          {/* ✅ SIDEBAR BOOKING MODULE */}
+          {/* This sits under the Contact Card */}
+          {vendor.booking_url && (
+            <BookingSection calLink={vendor.booking_url} />
+          )}
+
         </aside>
       </section>
 
