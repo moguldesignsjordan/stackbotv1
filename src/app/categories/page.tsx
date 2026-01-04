@@ -281,7 +281,9 @@ export default function CategoriesPage() {
         )}
       </main>
 
-      <Footer />
+      <div className="bg-[#111827]"> {/* or use your brand color bg-[#55529d] */}
+        <Footer />
+      </div>
     </div>
   );
 }
