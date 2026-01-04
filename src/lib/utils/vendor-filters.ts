@@ -46,7 +46,8 @@ export function vendorMatchesCategoryFilter(
     // Normalize vendor category and compare
     const vendorConfig = getCategoryFromLegacyName(vendorCat);
     if (vendorConfig && filterConfig) {
-      return vendorConfig.id === filterConfig.id;
+    // ✅ Fix: Compare names (since id matches name in your config)
+    return vendorConfig.name === filterConfig.name;
     }
 
     // Fallback: case-insensitive partial match
