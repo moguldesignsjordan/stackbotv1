@@ -339,7 +339,7 @@ export default function CategoryPage() {
                 .filter(c => c.slug !== slug)
                 .slice(0, 10)
                 .map(cat => {
-                  const CatIcon = getIcon(cat.icon);
+                const CatIcon = cat.icon;
                   return (
                     <Link
                       key={cat.id}
