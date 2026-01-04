@@ -7,7 +7,8 @@ import {
   getAllCategories, 
   VENDOR_CATEGORIES,
   vendorMatchesCategory,
-  PublicCategory 
+  PublicCategory,
+  CategoryWithId // <--- Added import
 } from "@/lib/config/categories";
 import {
   Search,
@@ -30,7 +31,8 @@ import Link from "next/link";
    TYPES
 ====================================================== */
 
-interface CategoryStats extends PublicCategory {
+// Updated to extend CategoryWithId so 'id' is recognized
+interface CategoryStats extends CategoryWithId {
   vendorCount: number;
   activeVendors: number;
   pendingVendors: number;
