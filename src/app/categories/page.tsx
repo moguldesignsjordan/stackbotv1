@@ -291,7 +291,7 @@ export default function CategoriesPage() {
 ====================================================== */
 
 function FeaturedCategoryCard({ category }: { category: CategoryWithStats }) {
-  const Icon = getIcon(category.icon);
+  const Icon = category.icon;
 
   return (
     <Link href={`/categories/${category.slug}`}>
