@@ -320,7 +320,7 @@ function FeaturedCategoryCard({ category }: { category: CategoryWithStats }) {
 ====================================================== */
 
 function CategoryCard({ category }: { category: CategoryWithStats }) {
-  const Icon = getIcon(category.icon);
+ const Icon = category.icon;
 
   return (
     <Link href={`/categories/${category.slug}`}>
