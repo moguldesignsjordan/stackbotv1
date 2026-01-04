@@ -599,6 +599,14 @@ export default async function VendorStorefront({ params }: PageProps) {
             )}
           </div>
 
+          {/* ✅ MOBILE BOOKING BUTTON (Hidden on Desktop) */}
+          {/* This appears in the main feed on mobile, but disappears on desktop (lg:hidden) */}
+          <div className="lg:hidden">
+            {vendor.booking_url && (
+              <BookingSection calLink={vendor.booking_url} />
+            )}
+          </div>
+
           {/* REVIEWS SECTION */}
           {/* Booking module moved to sidebar, reviews remain here */}
           <ReviewsSection vendorId={vendorId} vendorName={vendor.name} />
