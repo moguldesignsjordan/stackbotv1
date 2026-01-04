@@ -1176,11 +1176,12 @@ function OnboardingCards() {
 function Categories() {
   const { ref, isInView } = useInView();
 
+  // UPDATED: Use proper category IDs that match /categories/[slug]
   const categories = useMemo(() => [
-    { title: "Restaurants", icon: Utensils, count: "150+" },
-    { title: "Taxi Service", icon: Car, count: "80+" },
-    { title: "Cleaning Service", icon: Brush, count: "45+" },
-    { title: "Retail Shops", icon: Shirt, count: "200+" },
+    { id: "restaurants", title: "Restaurants", icon: Utensils },
+    { id: "taxi-service", title: "Taxi Service", icon: Car },
+    { id: "cleaning-service", title: "Cleaning Service", icon: Brush },
+    { id: "retail-shops", title: "Retail Shops", icon: Shirt },
   ], []);
 
   return (
@@ -1196,18 +1197,17 @@ function Categories() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {categories.map((cat, i) => (
             <div
-              key={cat.title}
+              key={cat.id}  // UPDATED: Use cat.id instead of cat.title
               className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
             >
-              <Link href={`/categories/${cat.title.toLowerCase().replace(/ /g, '-')}`}>
+              {/* UPDATED: Use cat.id directly instead of string manipulation */}
+              <Link href={`/categories/${cat.id}`}>
                 <div className="card-hover group p-6 bg-white rounded-2xl border-2 border-gray-100 hover:border-[var(--sb-primary)] cursor-pointer">
                   <div className="flex items-center justify-between mb-4">
                     <div className="h-14 w-14 flex items-center justify-center rounded-2xl bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] group-hover:bg-[var(--sb-primary)] group-hover:text-white transition-all duration-300">
                       <cat.icon className="w-7 h-7" />
                     </div>
-                    <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                      {cat.count}
-                    </span>
+                    {/* REMOVED: count badge (was: <span className="text-xs...">{cat.count}</span>) */}
                   </div>
                   <h3 className="font-semibold text-gray-800 text-lg">{cat.title}</h3>
                 </div>

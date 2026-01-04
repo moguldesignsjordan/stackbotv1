@@ -2,57 +2,66 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { db } from "@/lib/firebase/config";
 import { collection, getDocs, query, where } from "firebase/firestore";
+import { 
+  getAllCategories, 
+  getFeaturedCategories, 
+  vendorMatchesCategory,
+  type CategoryWithId,
+} from "@/lib/config/categories";
 import Footer from "@/components/layout/Footer";
-
 import {
   ArrowLeft,
   Search,
-  Utensils,
-  Car,
-  Brush,
-  Shirt,
-  Home,
-  Smartphone,
-  Bike,
-  ShoppingBag,
-  Scissors,
-  Wrench,
-  Camera,
-  Music,
-  Dumbbell,
-  Plane,
-  Heart,
-  BookOpen,
-  Palette,
-  Coffee,
-  Pizza,
-  Sparkles,
-  Package,
-  Store,
-  ChevronRight,
   Grid3X3,
   TrendingUp,
+  Store,
   Star,
-  MapPin,
+  BadgeCheck,
+  ChevronRight,
+  // Icon components for categories
+  Pizza,
+  ShoppingBasket,
+  Car,
+  Sparkles,
+  Briefcase,
+  Wrench,
+  ShoppingBag,
+  Smartphone,
+  Compass,
+  Package,
+  type LucideIcon,
 } from "lucide-react";
+
+/* ======================================================
+   ICON MAPPING
+   Maps icon string names to actual Lucide components
+====================================================== */
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  Pizza,
+  ShoppingBasket,
+  Car,
+  Sparkles,
+  Briefcase,
+  Wrench,
+  ShoppingBag,
+  Smartphone,
+  Compass,
+  Package,
+};
+
+function getIcon(iconName: string): LucideIcon {
+  return ICON_MAP[iconName] || Package;
+}
 
 /* ======================================================
    TYPES
 ====================================================== */
 
-interface CategoryData {
-  slug: string;
-  name: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-  bgColor: string;
+interface CategoryWithStats extends CategoryWithId {
   vendorCount: number;
-  productCount: number;
-  featured?: boolean;
 }
 
 interface Vendor {
@@ -67,178 +76,12 @@ interface Vendor {
   logoUrl?: string;
   logo_url?: string;
   rating?: number;
+  cover_image_url?: string;
+  address?: string;
+  business_address?: string;
+  description?: string;
+  business_description?: string;
 }
-
-/* ======================================================
-   CATEGORY DEFINITIONS
-====================================================== */
-
-const CATEGORY_CONFIG: Omit<CategoryData, "vendorCount" | "productCount">[] = [
-  {
-    slug: "food-drinks",
-    name: "Food & Drinks",
-    description: "Restaurants, cafes, bars, and food delivery",
-    icon: Utensils,
-    color: "text-orange-600",
-    bgColor: "bg-orange-100",
-    featured: true,
-  },
-  {
-    slug: "restaurants",
-    name: "Restaurants",
-    description: "Local dining and takeout options",
-    icon: Pizza,
-    color: "text-red-600",
-    bgColor: "bg-red-100",
-    featured: true,
-  },
-  {
-    slug: "taxi-service",
-    name: "Taxi Service",
-    description: "Transportation and ride services",
-    icon: Car,
-    color: "text-yellow-600",
-    bgColor: "bg-yellow-100",
-    featured: true,
-  },
-  {
-    slug: "cleaning-service",
-    name: "Cleaning Service",
-    description: "Home and commercial cleaning",
-    icon: Brush,
-    color: "text-cyan-600",
-    bgColor: "bg-cyan-100",
-  },
-  {
-    slug: "retail-shops",
-    name: "Retail Shops",
-    description: "General merchandise and shopping",
-    icon: ShoppingBag,
-    color: "text-pink-600",
-    bgColor: "bg-pink-100",
-    featured: true,
-  },
-  {
-    slug: "fashion",
-    name: "Fashion",
-    description: "Clothing, shoes, and accessories",
-    icon: Shirt,
-    color: "text-purple-600",
-    bgColor: "bg-purple-100",
-  },
-  {
-    slug: "electronics",
-    name: "Electronics",
-    description: "Phones, computers, and gadgets",
-    icon: Smartphone,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100",
-  },
-  {
-    slug: "home-garden",
-    name: "Home & Garden",
-    description: "Furniture, decor, and outdoor",
-    icon: Home,
-    color: "text-green-600",
-    bgColor: "bg-green-100",
-  },
-  {
-    slug: "beauty",
-    name: "Beauty",
-    description: "Salons, spas, and cosmetics",
-    icon: Scissors,
-    color: "text-rose-600",
-    bgColor: "bg-rose-100",
-  },
-  {
-    slug: "services",
-    name: "Services",
-    description: "Professional and home services",
-    icon: Wrench,
-    color: "text-slate-600",
-    bgColor: "bg-slate-100",
-  },
-  {
-    slug: "sports",
-    name: "Sports & Fitness",
-    description: "Gyms, equipment, and activewear",
-    icon: Dumbbell,
-    color: "text-emerald-600",
-    bgColor: "bg-emerald-100",
-  },
-  {
-    slug: "automotive",
-    name: "Automotive",
-    description: "Car parts, repairs, and rentals",
-    icon: Car,
-    color: "text-gray-600",
-    bgColor: "bg-gray-200",
-  },
-  {
-    slug: "health",
-    name: "Health & Wellness",
-    description: "Pharmacies and health products",
-    icon: Heart,
-    color: "text-red-500",
-    bgColor: "bg-red-100",
-  },
-  {
-    slug: "entertainment",
-    name: "Entertainment",
-    description: "Events, music, and recreation",
-    icon: Music,
-    color: "text-violet-600",
-    bgColor: "bg-violet-100",
-  },
-  {
-    slug: "travel",
-    name: "Travel & Tourism",
-    description: "Tours, hotels, and experiences",
-    icon: Plane,
-    color: "text-sky-600",
-    bgColor: "bg-sky-100",
-  },
-  {
-    slug: "education",
-    name: "Education",
-    description: "Tutoring, courses, and supplies",
-    icon: BookOpen,
-    color: "text-indigo-600",
-    bgColor: "bg-indigo-100",
-  },
-  {
-    slug: "art-crafts",
-    name: "Art & Crafts",
-    description: "Handmade goods and supplies",
-    icon: Palette,
-    color: "text-amber-600",
-    bgColor: "bg-amber-100",
-  },
-  {
-    slug: "photography",
-    name: "Photography",
-    description: "Photo services and equipment",
-    icon: Camera,
-    color: "text-neutral-600",
-    bgColor: "bg-neutral-200",
-  },
-  {
-    slug: "delivery",
-    name: "Delivery Services",
-    description: "Courier and package delivery",
-    icon: Bike,
-    color: "text-teal-600",
-    bgColor: "bg-teal-100",
-  },
-  {
-    slug: "other",
-    name: "Other",
-    description: "Miscellaneous services and products",
-    icon: Package,
-    color: "text-gray-500",
-    bgColor: "bg-gray-100",
-  },
-];
 
 /* ======================================================
    MAIN PAGE
@@ -249,30 +92,40 @@ export default function CategoriesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  /* ---------------- FETCH VENDORS ---------------- */
+  // Fetch vendors
   useEffect(() => {
     const fetchVendors = async () => {
       try {
-        // Try approved vendors first
-        const approvedSnap = await getDocs(
-          query(collection(db, "vendors"), where("status", "==", "approved"))
+        // Fetch approved vendors
+        const approvedQuery = query(
+          collection(db, "vendors"),
+          where("status", "==", "approved")
         );
+        const approvedSnap = await getDocs(approvedQuery);
 
-        let vendorsList: Vendor[] = [];
+        let vendorsList: Vendor[] = approvedSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Vendor[];
 
-        if (!approvedSnap.empty) {
-          vendorsList = approvedSnap.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          })) as Vendor[];
-        } else {
-          // Fallback to verified
-          const verifiedSnap = await getDocs(
-            query(collection(db, "vendors"), where("verified", "==", true))
+        // Fallback to verified if few approved
+        if (vendorsList.length < 5) {
+          const verifiedQuery = query(
+            collection(db, "vendors"),
+            where("verified", "==", true)
           );
-          vendorsList = verifiedSnap.docs
-            .map((doc) => ({ id: doc.id, ...doc.data() } as Vendor))
-            .filter((v) => v.status !== "suspended" && v.status !== "deleted");
+          const verifiedSnap = await getDocs(verifiedQuery);
+
+          const legacyVendors = verifiedSnap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as Vendor))
+            .filter(
+              v =>
+                v.status !== "suspended" &&
+                v.status !== "rejected" &&
+                !vendorsList.find(av => av.id === v.id)
+            );
+
+          vendorsList = [...vendorsList, ...legacyVendors];
         }
 
         setVendors(vendorsList);
@@ -286,62 +139,49 @@ export default function CategoriesPage() {
     fetchVendors();
   }, []);
 
-  /* ---------------- COMPUTE CATEGORY STATS ---------------- */
-  const categoriesWithStats = useMemo(() => {
-    return CATEGORY_CONFIG.map((cat) => {
-      // Count vendors matching this category
-      const matchingVendors = vendors.filter((v) => {
-        const vendorCategory = v.category?.toLowerCase() || "";
-        const vendorCategories = v.categories?.map((c) => c.toLowerCase()) || [];
-        const catName = cat.name.toLowerCase();
-        const catSlug = cat.slug.toLowerCase();
-
-        return (
-          vendorCategory.includes(catName) ||
-          vendorCategory.includes(catSlug) ||
-          vendorCategories.some(
-            (vc) => vc.includes(catName) || vc.includes(catSlug) || catName.includes(vc)
-          )
-        );
-      });
-
-      return {
-        ...cat,
-        vendorCount: matchingVendors.length,
-        productCount: matchingVendors.length * 5, // Estimate ~5 products per vendor
-      };
-    });
+  // Compute category stats
+  const categoriesWithStats = useMemo<CategoryWithStats[]>(() => {
+    const allCats = getAllCategories();
+    return allCats.map(cat => ({
+      ...cat,
+      vendorCount: vendors.filter(v => vendorMatchesCategory(v, cat.id)).length,
+    }));
   }, [vendors]);
 
-  /* ---------------- FILTERED CATEGORIES ---------------- */
+  // Filter categories
   const filteredCategories = useMemo(() => {
     if (!searchQuery.trim()) return categoriesWithStats;
 
-    const query = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase();
     return categoriesWithStats.filter(
-      (cat) =>
-        cat.name.toLowerCase().includes(query) ||
-        cat.description.toLowerCase().includes(query)
+      cat =>
+        cat.name.toLowerCase().includes(q) ||
+        cat.description.toLowerCase().includes(q)
     );
   }, [categoriesWithStats, searchQuery]);
 
-  /* ---------------- FEATURED CATEGORIES ---------------- */
+  // Featured categories
   const featuredCategories = useMemo(() => {
-    return categoriesWithStats
-      .filter((cat) => cat.featured || cat.vendorCount > 0)
+    const featured = getFeaturedCategories();
+    return featured
+      .map(cat => ({
+        ...cat,
+        vendorCount: vendors.filter(v => vendorMatchesCategory(v, cat.id)).length,
+      }))
+      .filter(cat => cat.vendorCount > 0)
       .sort((a, b) => b.vendorCount - a.vendorCount)
       .slice(0, 4);
-  }, [categoriesWithStats]);
-
-  /* ======================================================
-     RENDER
-  ====================================================== */
+  }, [vendors]);
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* HERO HEADER */}
-      <header className="bg-gradient-to-br from-[#55529d] via-[#6563a4] to-[#7574ab] text-white">
-        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
+      <header className="bg-gradient-to-br from-[#55529d] via-[#6563a4] to-[#7574ab] text-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-black/5" />
+        <div className="absolute top-10 right-10 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-10 left-10 w-96 h-96 bg-white/5 rounded-full blur-3xl" />
+
+        <div className="relative max-w-7xl mx-auto px-4 py-8 sm:py-12">
           {/* Back Button */}
           <Link
             href="/"
@@ -359,7 +199,7 @@ export default function CategoriesPage() {
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold">Browse Categories</h1>
               <p className="text-white/80 mt-1">
-                Discover {vendors.length}+ vendors across {CATEGORY_CONFIG.length} categories
+                Discover {vendors.length}+ vendors across {categoriesWithStats.length} categories
               </p>
             </div>
           </div>
@@ -371,7 +211,7 @@ export default function CategoriesPage() {
               type="text"
               placeholder="Search categories..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/20 transition-all"
             />
           </div>
@@ -388,8 +228,8 @@ export default function CategoriesPage() {
             </div>
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {featuredCategories.map((cat) => (
-                <FeaturedCategoryCard key={cat.slug} category={cat} />
+              {featuredCategories.map(cat => (
+                <FeaturedCategoryCard key={cat.id} category={cat} />
               ))}
             </div>
           </section>
@@ -402,29 +242,42 @@ export default function CategoriesPage() {
               {searchQuery ? `Results for "${searchQuery}"` : "All Categories"}
             </h2>
             <span className="text-sm text-gray-500">
-              {filteredCategories.length} categories
+              {filteredCategories.length} categor{filteredCategories.length !== 1 ? "ies" : "y"}
             </span>
           </div>
 
           {loading ? (
             <CategoriesLoadingGrid />
           ) : filteredCategories.length === 0 ? (
-            <EmptyState
-              searchQuery={searchQuery}
-              onClear={() => setSearchQuery("")}
-            />
+            <EmptyState searchQuery={searchQuery} onClear={() => setSearchQuery("")} />
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredCategories.map((cat) => (
-                <CategoryCard key={cat.slug} category={cat} />
+              {filteredCategories.map(cat => (
+                <CategoryCard key={cat.id} category={cat} />
               ))}
             </div>
           )}
         </section>
 
-        {/* VENDOR SPOTLIGHT */}
+        {/* VENDOR SPOTLIGHT (sample) */}
         {!searchQuery && vendors.length > 0 && (
-          <VendorSpotlight vendors={vendors.slice(0, 6)} />
+          <section className="mt-16 pt-8 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Featured Vendors</h2>
+              <Link
+                href="/vendors"
+                className="text-[#55529d] font-semibold hover:underline flex items-center gap-1"
+              >
+                View all <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {vendors.slice(0, 6).map(vendor => (
+                <VendorSpotlightCard key={vendor.id} vendor={vendor} />
+              ))}
+            </div>
+          </section>
         )}
       </main>
 
@@ -437,11 +290,11 @@ export default function CategoriesPage() {
    FEATURED CATEGORY CARD
 ====================================================== */
 
-function FeaturedCategoryCard({ category }: { category: CategoryData }) {
-  const Icon = category.icon;
+function FeaturedCategoryCard({ category }: { category: CategoryWithStats }) {
+  const Icon = getIcon(category.icon);
 
   return (
-    <Link href={`/products?category=${encodeURIComponent(category.name)}`}>
+    <Link href={`/categories/${category.slug}`}>
       <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#55529d] to-[#6563a4] p-6 h-44 cursor-pointer hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
         {/* Background Pattern */}
         <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full" />
@@ -457,11 +310,6 @@ function FeaturedCategoryCard({ category }: { category: CategoryData }) {
         <p className="text-white/70 text-sm">
           {category.vendorCount} vendor{category.vendorCount !== 1 ? "s" : ""}
         </p>
-
-        {/* Arrow */}
-        <div className="absolute right-4 bottom-4 w-8 h-8 bg-white/20 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <ChevronRight className="w-4 h-4 text-white" />
-        </div>
       </div>
     </Link>
   );
@@ -471,43 +319,26 @@ function FeaturedCategoryCard({ category }: { category: CategoryData }) {
    CATEGORY CARD
 ====================================================== */
 
-function CategoryCard({ category }: { category: CategoryData }) {
-  const Icon = category.icon;
+function CategoryCard({ category }: { category: CategoryWithStats }) {
+  const Icon = getIcon(category.icon);
 
   return (
-    <Link href={`/products?category=${encodeURIComponent(category.name)}`}>
-      <div className="group bg-white rounded-2xl border border-gray-100 p-5 cursor-pointer hover:shadow-lg hover:border-[#55529d]/30 transition-all duration-300 hover:-translate-y-1">
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div
-            className={`w-14 h-14 ${category.bgColor} ${category.color} rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300`}
-          >
+    <Link href={`/categories/${category.slug}`}>
+      <div className="group p-5 bg-white rounded-2xl border border-gray-200 hover:border-[#55529d] hover:shadow-md transition-all cursor-pointer">
+        <div className="flex items-center justify-between mb-4">
+          <div className={`w-14 h-14 ${category.bgColor} ${category.color} rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
             <Icon className="w-7 h-7" />
           </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-[#55529d] transition-colors">
-              {category.name}
-            </h3>
-            <p className="text-sm text-gray-500 line-clamp-2">
-              {category.description}
-            </p>
-          </div>
+          <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
+            {category.vendorCount}
+          </span>
         </div>
 
-        {/* Stats */}
-        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500">
-            <Store className="w-4 h-4" />
-            <span>{category.vendorCount} vendors</span>
-          </div>
-          {category.vendorCount > 0 && (
-            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-              <Package className="w-4 h-4" />
-              <span>{category.productCount}+ products</span>
-            </div>
-          )}
+        <h3 className="font-bold text-gray-900 text-lg mb-1">{category.name}</h3>
+        <p className="text-sm text-gray-500 line-clamp-2">{category.description}</p>
+
+        <div className="mt-4 flex items-center gap-1 text-[#55529d] font-semibold text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+          Explore <ChevronRight className="w-4 h-4" />
         </div>
       </div>
     </Link>
@@ -515,100 +346,52 @@ function CategoryCard({ category }: { category: CategoryData }) {
 }
 
 /* ======================================================
-   VENDOR SPOTLIGHT
+   VENDOR SPOTLIGHT CARD
 ====================================================== */
 
-function VendorSpotlight({ vendors }: { vendors: Vendor[] }) {
-  return (
-    <section className="mt-16 py-12 -mx-4 px-4 bg-white border-y border-gray-100">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">
-              Featured Vendors
-            </h2>
-            <p className="text-gray-500">Discover top-rated local businesses</p>
-          </div>
-          <Link
-            href="/vendors"
-            className="hidden sm:flex items-center gap-1 text-[#55529d] font-semibold hover:underline"
-          >
-            View all vendors
-            <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {vendors.map((vendor) => (
-            <VendorCard key={vendor.id} vendor={vendor} />
-          ))}
-        </div>
-
-        <Link
-          href="/vendors"
-          className="sm:hidden flex items-center justify-center gap-1 mt-6 text-[#55529d] font-semibold"
-        >
-          View all vendors
-          <ChevronRight className="w-4 h-4" />
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-/* ======================================================
-   VENDOR CARD
-====================================================== */
-
-function VendorCard({ vendor }: { vendor: Vendor }) {
-  const link = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+function VendorSpotlightCard({ vendor }: { vendor: Vendor }) {
   const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
-  const logo = vendor.logoUrl || vendor.logo_url;
-  const category = vendor.category || vendor.categories?.[0];
+  const logoUrl = vendor.logo_url || vendor.logoUrl;
+  const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+  const description = vendor.business_description || vendor.description;
 
   return (
-    <Link href={link}>
-      <div className="group bg-gray-50 rounded-2xl p-4 cursor-pointer hover:bg-gray-100 transition-colors">
-        <div className="flex items-center gap-4">
-          {/* Logo */}
-          <div className="w-16 h-16 rounded-xl bg-white border border-gray-200 overflow-hidden flex-shrink-0">
-            {logo ? (
-              <Image
-                src={logo}
-                alt={displayName}
-                width={64}
-                height={64}
-                className="w-full h-full object-cover"
-              />
+    <Link href={vendorLink}>
+      <div className="group bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:shadow-md hover:border-[#55529d]/20 transition-all cursor-pointer">
+        <div className="flex gap-3">
+          <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+            {logoUrl ? (
+              <img src={logoUrl} alt={displayName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <Store className="w-8 h-8 text-gray-300" />
+              <div className="flex items-center justify-center h-full">
+                <Store className="w-6 h-6 text-gray-300" />
               </div>
             )}
           </div>
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate group-hover:text-[#55529d] transition-colors">
-              {displayName}
-            </h3>
-            {category && (
-              <span className="inline-block mt-1 px-2 py-0.5 bg-[#55529d]/10 text-[#55529d] text-xs font-medium rounded-full">
-                {category}
-              </span>
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-semibold text-gray-900 line-clamp-1 group-hover:text-[#55529d] transition-colors">
+                {displayName}
+              </h3>
+              {vendor.verified && (
+                <BadgeCheck className="w-4 h-4 text-[#55529d] flex-shrink-0" />
+              )}
+            </div>
+
+            {description && (
+              <p className="text-xs text-gray-500 line-clamp-1 mt-1">{description}</p>
             )}
+
             {vendor.rating && (
-              <div className="flex items-center gap-1 mt-1.5">
-                <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-                <span className="text-sm text-gray-600">
+              <div className="flex items-center gap-1 mt-2">
+                <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                <span className="text-xs font-semibold text-gray-700">
                   {vendor.rating.toFixed(1)}
                 </span>
               </div>
             )}
           </div>
-
-          {/* Arrow */}
-          <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-[#55529d] transition-colors" />
         </div>
       </div>
     </Link>
@@ -616,28 +399,20 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
 }
 
 /* ======================================================
-   LOADING STATE
+   LOADING GRID
 ====================================================== */
 
 function CategoriesLoadingGrid() {
   return (
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div
-          key={i}
-          className="bg-white rounded-2xl border border-gray-100 p-5 animate-pulse"
-        >
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 bg-gray-200 rounded-xl" />
-            <div className="flex-1 space-y-2">
-              <div className="h-5 bg-gray-200 rounded w-3/4" />
-              <div className="h-4 bg-gray-200 rounded w-full" />
-            </div>
+      {[...Array(8)].map((_, i) => (
+        <div key={i} className="bg-white rounded-2xl p-5 border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-14 h-14 bg-gray-200 rounded-2xl animate-pulse" />
+            <div className="h-5 w-8 bg-gray-200 rounded-full animate-pulse" />
           </div>
-          <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
-            <div className="h-4 bg-gray-200 rounded w-20" />
-            <div className="h-4 bg-gray-200 rounded w-24" />
-          </div>
+          <div className="h-5 bg-gray-200 rounded-lg w-3/4 mb-2 animate-pulse" />
+          <div className="h-4 bg-gray-200 rounded-lg w-full animate-pulse" />
         </div>
       ))}
     </div>
@@ -648,27 +423,19 @@ function CategoriesLoadingGrid() {
    EMPTY STATE
 ====================================================== */
 
-function EmptyState({
-  searchQuery,
-  onClear,
-}: {
-  searchQuery: string;
-  onClear: () => void;
-}) {
+function EmptyState({ searchQuery, onClear }: { searchQuery: string; onClear: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6">
-        <Search className="w-10 h-10 text-gray-400" />
+    <div className="text-center py-16 px-4">
+      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+        <Search className="w-8 h-8 text-gray-400" />
       </div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-2">
-        No categories found
-      </h2>
-      <p className="text-gray-500 mb-6 max-w-md">
-        No categories match "{searchQuery}". Try a different search term.
-      </p>
+      <h3 className="text-xl font-semibold text-gray-900 mb-2">
+        No categories found for &quot;{searchQuery}&quot;
+      </h3>
+      <p className="text-gray-500 mb-6">Try searching with different keywords</p>
       <button
         onClick={onClear}
-        className="px-6 py-3 bg-[#55529d] text-white rounded-xl font-medium hover:bg-[#45428d] transition-colors"
+        className="inline-flex items-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-full font-semibold hover:bg-[#433f7a] transition-colors"
       >
         Clear Search
       </button>

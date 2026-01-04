@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   Loader2,
+  Store,
 } from 'lucide-react';
 
 interface OrderDetail {
@@ -33,8 +34,16 @@ interface OrderDetail {
   total: number;
   status: string;
   paymentStatus: string;
+  fulfillmentType?: 'delivery' | 'pickup';
   customerInfo: { name: string; email: string; phone: string };
-  deliveryAddress: { street: string; city: string; postalCode: string; country: string; instructions?: string };
+  deliveryAddress?: { 
+    street: string; 
+    city: string; 
+    state?: string;
+    postalCode: string; 
+    country: string; 
+    instructions?: string 
+  } | null;
   trackingPin: string;
   notes?: string;
   createdAt: string;
@@ -42,17 +51,28 @@ interface OrderDetail {
   deliveredAt?: string;
 }
 
-const statusSteps = [
+// Status steps for delivery orders
+const deliveryStatusSteps = [
   { key: 'pending', label: 'Order Placed', icon: Clock },
   { key: 'confirmed', label: 'Confirmed', icon: CheckCircle },
   { key: 'preparing', label: 'Preparing', icon: Package },
+  { key: 'ready_for_pickup', label: 'Ready', icon: Package },
   { key: 'out_for_delivery', label: 'On the Way', icon: Truck },
   { key: 'delivered', label: 'Delivered', icon: CheckCircle },
 ];
 
-const getStatusIndex = (status: string) => {
+// Status steps for pickup orders (no delivery step)
+const pickupStatusSteps = [
+  { key: 'pending', label: 'Order Placed', icon: Clock },
+  { key: 'confirmed', label: 'Confirmed', icon: CheckCircle },
+  { key: 'preparing', label: 'Preparing', icon: Package },
+  { key: 'ready_for_pickup', label: 'Ready for Pickup', icon: Store },
+  { key: 'delivered', label: 'Picked Up', icon: CheckCircle },
+];
+
+const getStatusIndex = (status: string, steps: typeof deliveryStatusSteps) => {
   if (status === 'cancelled') return -1;
-  const index = statusSteps.findIndex((s) => s.key === status);
+  const index = steps.findIndex((s) => s.key === status);
   return index >= 0 ? index : 0;
 };
 
@@ -115,223 +135,297 @@ export default function OrderDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
       </div>
     );
   }
 
   if (!order) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-500">Order not found</p>
+      </div>
+    );
   }
 
-  const currentStatusIndex = getStatusIndex(order.status);
+  // Determine if this is a pickup order
+  const isPickup = order.fulfillmentType === 'pickup' || (!order.deliveryAddress && order.deliveryFee === 0);
+  
+  // Use appropriate status steps
+  const statusSteps = isPickup ? pickupStatusSteps : deliveryStatusSteps;
+  const currentStatusIndex = getStatusIndex(order.status, statusSteps);
   const isCancelled = order.status === 'cancelled';
 
   return (
-    <div className="space-y-6">
-      {/* Back Button */}
-      <Link
-        href="/account"
-        className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Orders
-      </Link>
-
-      {/* Order Header */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">
-              Order {order.orderId}
-            </h1>
-            <p className="text-gray-600">{order.vendorName}</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Placed on {formatDate(order.createdAt)}
-            </p>
-          </div>
-
-          {/* Tracking PIN */}
-          <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-sm text-gray-500 mb-1">Delivery PIN</p>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-2xl font-bold text-[#55529d]">
-                {order.trackingPin}
-              </span>
-              <button
-                onClick={copyTrackingPin}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                {copied ? (
-                  <Check className="w-5 h-5 text-green-600" />
-                ) : (
-                  <Copy className="w-5 h-5 text-gray-400" />
-                )}
-              </button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Header */}
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <Link
+            href="/account"
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Back to Account
+          </Link>
         </div>
       </div>
 
-      {/* Order Status Tracker */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Status</h2>
-
-        {isCancelled ? (
-          <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg">
-            <XCircle className="w-6 h-6 text-red-600" />
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        {/* Order Header */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
             <div>
-              <p className="font-medium text-red-800">Order Cancelled</p>
-              <p className="text-sm text-red-600">This order has been cancelled</p>
+              <h1 className="text-xl font-bold text-gray-900">{order.orderId}</h1>
+              <p className="text-gray-500 text-sm mt-1">{formatDate(order.createdAt)}</p>
+              {/* Fulfillment Type Badge */}
+              <div className="mt-2">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                  isPickup 
+                    ? 'bg-purple-100 text-purple-700' 
+                    : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {isPickup ? (
+                    <>
+                      <Store className="w-3 h-3" />
+                      Pickup Order
+                    </>
+                  ) : (
+                    <>
+                      <Truck className="w-3 h-3" />
+                      Delivery
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">Total</p>
+              <p className="text-2xl font-bold text-[#55529d]">${order.total.toFixed(2)}</p>
             </div>
           </div>
-        ) : (
-          <div className="relative">
-            {/* Progress Line */}
-            <div className="absolute left-6 top-6 bottom-6 w-0.5 bg-gray-200" />
-            <div
-              className="absolute left-6 top-6 w-0.5 bg-[#55529d] transition-all duration-500"
-              style={{
-                height: `${(currentStatusIndex / (statusSteps.length - 1)) * 100}%`,
-                maxHeight: 'calc(100% - 48px)',
-              }}
-            />
 
-            {/* Status Steps */}
-            <div className="space-y-6">
-              {statusSteps.map((step, index) => {
-                const isCompleted = index <= currentStatusIndex;
-                const isCurrent = index === currentStatusIndex;
-                const StepIcon = step.icon;
+          {/* Vendor Info */}
+          <Link 
+            href={`/store/${order.vendorId}`}
+            className="inline-flex items-center gap-2 text-[#55529d] hover:underline"
+          >
+            <Store className="w-4 h-4" />
+            {order.vendorName}
+          </Link>
+        </div>
 
-                return (
-                  <div key={step.key} className="flex items-center gap-4">
-                    <div
-                      className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-                        isCompleted
-                          ? 'bg-[#55529d] text-white'
-                          : 'bg-gray-100 text-gray-400'
-                      } ${isCurrent ? 'ring-4 ring-[#55529d]/20' : ''}`}
-                    >
-                      <StepIcon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p
-                        className={`font-medium ${
-                          isCompleted ? 'text-gray-900' : 'text-gray-400'
+        {/* Status Progress */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Status</h2>
+
+          {isCancelled ? (
+            <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-center gap-3 text-red-700">
+                <XCircle className="w-6 h-6" />
+                <div>
+                  <p className="font-semibold">Order Cancelled</p>
+                  <p className="text-sm text-red-600 mt-1">
+                    This order has been cancelled. If you have questions, please contact support.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Progress Line */}
+              <div className="absolute top-5 left-5 right-5 h-1 bg-gray-200 -z-10">
+                <div
+                  className="h-full bg-[#55529d] transition-all duration-500"
+                  style={{
+                    width: `${(currentStatusIndex / (statusSteps.length - 1)) * 100}%`,
+                  }}
+                />
+              </div>
+
+              {/* Status Steps */}
+              <div className="flex justify-between">
+                {statusSteps.map((step, index) => {
+                  const isCompleted = index <= currentStatusIndex;
+                  const isCurrent = index === currentStatusIndex;
+                  const StepIcon = step.icon;
+
+                  return (
+                    <div key={step.key} className="flex flex-col items-center">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                          isCompleted
+                            ? isCurrent
+                              ? 'bg-[#55529d] text-white'
+                              : 'bg-green-500 text-white'
+                            : 'bg-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <StepIcon className="w-5 h-5" />
+                      </div>
+                      <span
+                        className={`text-xs mt-2 text-center max-w-[70px] ${
+                          isCompleted ? 'text-gray-900 font-medium' : 'text-gray-400'
                         }`}
                       >
                         {step.label}
-                      </p>
-                      {isCurrent && (
-                        <p className="text-sm text-[#55529d]">Current status</p>
-                      )}
+                      </span>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Tracking PIN */}
+        <div className="bg-[#55529d] rounded-xl p-6 text-white">
+          <h2 className="text-lg font-semibold mb-2">
+            {isPickup ? 'Pickup PIN' : 'Delivery PIN'}
+          </h2>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-3xl font-bold tracking-wider">
+              {order.trackingPin}
+            </span>
+            <button
+              onClick={copyTrackingPin}
+              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+              aria-label="Copy PIN"
+            >
+              {copied ? (
+                <Check className="w-5 h-5 text-green-300" />
+              ) : (
+                <Copy className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+          <p className="text-sm text-white/70 mt-2">
+            {isPickup 
+              ? 'Show this PIN when picking up your order'
+              : 'Provide this PIN to your delivery driver'
+            }
+          </p>
+        </div>
+
         {/* Order Items */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h2>
+
           <div className="divide-y divide-gray-100">
             {order.items.map((item, index) => (
               <div key={index} className="py-3 flex justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{item.name}</p>
-                  <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
+                  <p className="text-sm text-gray-500">
+                    {item.quantity} × ${item.price.toFixed(2)}
+                  </p>
                 </div>
-                <p className="font-medium text-gray-900">
-                  ${item.subtotal.toFixed(2)}
-                </p>
+                <p className="font-semibold text-gray-900">${item.subtotal.toFixed(2)}</p>
               </div>
             ))}
           </div>
 
-          {/* Totals */}
           <div className="border-t border-gray-200 mt-4 pt-4 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Subtotal</span>
+            <div className="flex justify-between text-gray-600">
+              <span>Subtotal</span>
               <span>${order.subtotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Delivery Fee</span>
-              <span>${order.deliveryFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Service Fee</span>
-              <span>${order.serviceFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Tax</span>
-              <span>${order.tax.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-bold text-lg pt-2 border-t">
+            {!isPickup && order.deliveryFee > 0 && (
+              <div className="flex justify-between text-gray-600">
+                <span>Delivery Fee</span>
+                <span>${order.deliveryFee.toFixed(2)}</span>
+              </div>
+            )}
+            {order.serviceFee > 0 && (
+              <div className="flex justify-between text-gray-600">
+                <span>Service Fee</span>
+                <span>${order.serviceFee.toFixed(2)}</span>
+              </div>
+            )}
+            {order.tax > 0 && (
+              <div className="flex justify-between text-gray-600">
+                <span>Tax</span>
+                <span>${order.tax.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-lg font-bold text-gray-900 pt-2 border-t">
               <span>Total</span>
-              <span className="text-[#55529d]">${order.total.toFixed(2)}</span>
+              <span>${order.total.toFixed(2)}</span>
             </div>
           </div>
+
+          {order.notes && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-700">Your Notes:</p>
+              <p className="text-sm text-gray-600 mt-1">{order.notes}</p>
+            </div>
+          )}
         </div>
 
-        {/* Delivery Info */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Delivery Information
-          </h2>
-
-          <div className="space-y-4">
-            {/* Address */}
+        {/* Delivery Address OR Pickup Info */}
+        {isPickup ? (
+          <div className="bg-purple-50 rounded-xl shadow-sm p-6 border border-purple-200">
+            <h2 className="text-lg font-semibold text-purple-900 mb-3 flex items-center gap-2">
+              <Store className="w-5 h-5" />
+              Pickup Location
+            </h2>
+            <p className="text-purple-800 font-medium">{order.vendorName}</p>
+            <p className="text-sm text-purple-600 mt-2">
+              Visit the store to pick up your order. Remember to bring your Pickup PIN!
+            </p>
+          </div>
+        ) : order.deliveryAddress ? (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Delivery Address</h2>
             <div className="flex items-start gap-3">
               <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
               <div>
-                <p className="font-medium text-gray-900">Delivery Address</p>
+                <p className="text-gray-900">{order.deliveryAddress.street}</p>
                 <p className="text-gray-600">
-                  {order.deliveryAddress.street}
-                  <br />
-                  {order.deliveryAddress.city}, {order.deliveryAddress.postalCode}
-                  <br />
-                  {order.deliveryAddress.country}
+                  {order.deliveryAddress.city}
+                  {order.deliveryAddress.state && `, ${order.deliveryAddress.state}`}
+                  {order.deliveryAddress.postalCode && ` ${order.deliveryAddress.postalCode}`}
                 </p>
+                <p className="text-gray-600">{order.deliveryAddress.country}</p>
                 {order.deliveryAddress.instructions && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Note: {order.deliveryAddress.instructions}
+                  <p className="text-sm text-gray-500 mt-2 italic">
+                    &quot;{order.deliveryAddress.instructions}&quot;
                   </p>
                 )}
               </div>
             </div>
+          </div>
+        ) : null}
 
-            {/* Contact */}
-            <div className="flex items-start gap-3">
-              <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="font-medium text-gray-900">Contact</p>
-                <p className="text-gray-600">{order.customerInfo.name}</p>
-                <p className="text-gray-600">{order.customerInfo.phone}</p>
-              </div>
+        {/* Contact Info */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h2>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Mail className="w-5 h-5 text-gray-400" />
+              <span className="text-gray-700">{order.customerInfo.email}</span>
             </div>
-
-            <div className="flex items-start gap-3">
-              <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="font-medium text-gray-900">Email</p>
-                <p className="text-gray-600">{order.customerInfo.email}</p>
-              </div>
-            </div>
-
-            {/* Order Notes */}
-            {order.notes && (
-              <div className="pt-4 border-t border-gray-200">
-                <p className="font-medium text-gray-900 mb-1">Order Notes</p>
-                <p className="text-gray-600">{order.notes}</p>
+            {order.customerInfo.phone && (
+              <div className="flex items-center gap-3">
+                <Phone className="w-5 h-5 text-gray-400" />
+                <span className="text-gray-700">{order.customerInfo.phone}</span>
               </div>
             )}
           </div>
+        </div>
+
+        {/* Need Help */}
+        <div className="bg-gray-100 rounded-xl p-6 text-center">
+          <p className="text-gray-600 mb-3">Need help with your order?</p>
+          <Link
+            href={`https://wa.me/?text=Hi, I need help with order ${order.orderId}`}
+            target="_blank"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+          >
+            <Phone className="w-4 h-4" />
+            Contact Support
+          </Link>
         </div>
       </div>
     </div>

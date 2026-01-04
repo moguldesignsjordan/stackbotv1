@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Store, AlertCircle, CheckCircle2, Plus, ShieldBan, Search } from "lucide-react";
 
+import { 
+  vendorMatchesCategoryFilter, 
+  getUniqueCategoriesFromVendors 
+} from "@/lib/utils/vendor-filters";
 interface Vendor {
   id: string;
   name: string;

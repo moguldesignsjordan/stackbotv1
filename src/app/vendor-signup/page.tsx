@@ -36,18 +36,10 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 
-const CATEGORIES = [
-  "Restaurants",
-  "Groceries",
-  "Beauty & Wellness",
-  "Taxi & Transport",
-  "Cleaning Services",
-  "Home Repair & Maintenance",
-  "Retail Shops",
-  "Electronics & Gadgets",
-  "Tours & Activities",
-  "Professional Services",
-];
+// ═══════════════════════════════════════════════════════════════════════════
+// IMPORT FROM SINGLE SOURCE OF TRUTH
+// ═══════════════════════════════════════════════════════════════════════════
+import { VENDOR_CATEGORIES } from "@/lib/config/categories";
 
 const generateSlug = (name: string) => {
   return name
@@ -259,8 +251,6 @@ export default function VendorSignupPage() {
             account_last4: bankInfo.account_number.slice(-4),
             routing_number: bankInfo.routing_number.trim(),
             account_type: bankInfo.account_type,
-            // Note: In production, full account details should be stored securely
-            // via Stripe Connect or encrypted storage
           }
         : null;
 
@@ -485,12 +475,12 @@ export default function VendorSignupPage() {
               />
             </div>
 
-            {/* ============= CATEGORIES ============= */}
+            {/* ============= CATEGORIES (FROM SHARED CONFIG) ============= */}
             <div className="space-y-3">
               <h3 className="font-semibold text-gray-900">Categories *</h3>
               <p className="text-sm text-gray-500">Select all that apply</p>
               <div className="flex flex-wrap gap-2">
-                {CATEGORIES.map((cat) => (
+                {VENDOR_CATEGORIES.map((cat) => (
                   <button
                     key={cat}
                     type="button"

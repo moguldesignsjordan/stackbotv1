@@ -19,6 +19,11 @@ import {
 import { formatPrice } from "@/lib/utils/currency";
 import Footer from "@/components/layout/Footer";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// IMPORT FROM SINGLE SOURCE OF TRUTH
+// ═══════════════════════════════════════════════════════════════════════════
+import { VENDOR_CATEGORIES, vendorMatchesCategory } from "@/lib/config/categories";
+
 import {
   Search,
   Package,
@@ -123,18 +128,11 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "name-za", label: "Name: Z-A" },
 ];
 
-const CATEGORIES = [
-  "All",
-  "Food & Drinks",
-  "Electronics",
-  "Fashion",
-  "Home & Garden",
-  "Beauty",
-  "Services",
-  "Sports",
-  "Automotive",
-  "Other",
-];
+/* ======================================================
+   CATEGORIES FROM SHARED CONFIG
+====================================================== */
+
+const CATEGORIES = ["All", ...VENDOR_CATEGORIES];
 
 /* ======================================================
    MAIN PAGE
@@ -274,19 +272,14 @@ function ProductsPage() {
       );
     }
 
-    // Category filter
+    // Category filter using shared helper (handles legacy names)
     if (selectedCategory !== "All") {
       result = result.filter((p) => {
         const vendor = vendors.get(p.vendorId);
-        const productCategory = p.category?.toLowerCase();
-        const vendorCategory = vendor?.category?.toLowerCase();
-        const vendorCategories = vendor?.categories?.map((c) => c.toLowerCase()) || [];
-        const categoryLower = selectedCategory.toLowerCase();
-
-        return (
-          productCategory === categoryLower ||
-          vendorCategory === categoryLower ||
-          vendorCategories.includes(categoryLower)
+        return vendorMatchesCategory(
+          vendor?.category,
+          vendor?.categories,
+          selectedCategory
         );
       });
     }
@@ -485,8 +478,8 @@ function ProductsPage() {
               )}
             </button>
 
-            {/* Category Pills */}
-            {CATEGORIES.slice(0, 5).map((category) => (
+            {/* Category Pills - Show first 6 */}
+            {CATEGORIES.slice(0, 6).map((category) => (
               <button
                 key={category}
                 onClick={() => handleCategoryChange(category)}
@@ -527,7 +520,7 @@ function ProductsPage() {
             <span className="text-sm text-gray-500">Active filters:</span>
             {activeSearch && (
               <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#55529d]/10 text-[#55529d] rounded-full text-sm">
-                Search: "{activeSearch}"
+                Search: &quot;{activeSearch}&quot;
                 <button
                   onClick={() => {
                     setSearchQuery("");
