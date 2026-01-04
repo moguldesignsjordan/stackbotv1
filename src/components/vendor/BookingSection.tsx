@@ -21,6 +21,11 @@ export default function BookingSection({ calLink }: BookingSectionProps) {
             "cal-brand": "#55529d",
             "cal-text": "#111827",
           },
+          // ✅ FIX: Added 'dark' block to satisfy TypeScript
+          dark: {
+            "cal-brand": "#55529d",
+            "cal-text": "#ffffff",
+          },
         },
         hideEventTypeDetails: false,
         layout: "month_view",
