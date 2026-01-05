@@ -627,9 +627,9 @@ export default function AdminVendorDetailPage() {
   const currentCoverUrl = vendor.cover_video_url || vendor.cover_image_url;
   const isCurrentCoverVideo = !!vendor.cover_video_url;
 
-  // Get order/revenue counts (handle both field naming conventions)
-  const totalOrders = vendor.totalOrders ?? vendor.total_orders ?? 0;
-  const totalRevenue = vendor.totalRevenue ?? vendor.total_revenue ?? 0;
+  // Calculate real-time order/revenue counts from fetched orders
+  const totalOrders = orders.length;
+  const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
 
   return (
     <div className="space-y-8 pb-24">
@@ -1094,7 +1094,7 @@ export default function AdminVendorDetailPage() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Total Revenue</p>
-                  <p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">${totalRevenue.toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Rating</p>

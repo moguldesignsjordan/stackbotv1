@@ -29,6 +29,7 @@ interface OrderItem {
   quantity: number;
   price: number;
   image?: string;
+  images?: string[];
 }
 
 interface CustomerInfo {
@@ -155,7 +156,7 @@ export default function AdminOrderDetailPage() {
     setUpdating(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/orders/${orderId}/status`, {
+      const res = await fetch(`/api/orders/${orderId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -165,14 +166,15 @@ export default function AdminOrderDetailPage() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to update status');
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to update status');
       }
 
       const data = await res.json();
-      setOrder({ ...order, status: newStatus, updatedAt: data.updatedAt });
+      setOrder({ ...order, status: newStatus, updatedAt: new Date().toISOString() });
     } catch (err) {
       console.error('Error updating status:', err);
-      alert('Failed to update order status');
+      alert(err instanceof Error ? err.message : 'Failed to update order status');
     } finally {
       setUpdating(false);
     }
@@ -255,29 +257,33 @@ export default function AdminOrderDetailPage() {
           <div className="bg-white rounded-xl shadow-sm p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h2>
             <div className="space-y-4">
-              {order.items.map((item, index) => (
-                <div key={`${item.id}-${index}`} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                  {item.image ? (
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      className="w-16 h-16 object-cover rounded-lg"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
-                      <Package className="w-6 h-6 text-gray-400" />
+              {order.items.map((item, index) => {
+                const imageUrl = item.images?.[0] || item.image;
+                
+                return (
+                  <div key={`${item.id}-${index}`} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                    {imageUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={item.name}
+                        className="w-16 h-16 object-cover rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
+                        <Package className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <h3 className="font-medium text-gray-900">{item.name}</h3>
+                      <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
                     </div>
-                  )}
-                  <div className="flex-1">
-                    <h3 className="font-medium text-gray-900">{item.name}</h3>
-                    <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                    <div className="text-right">
+                      <p className="font-semibold text-gray-900">${item.price.toFixed(2)}</p>
+                      <p className="text-sm text-gray-500">each</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-900">${item.price.toFixed(2)}</p>
-                    <p className="text-sm text-gray-500">each</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Order Summary */}
