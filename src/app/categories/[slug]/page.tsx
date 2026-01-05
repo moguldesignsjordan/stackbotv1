@@ -356,12 +356,16 @@ export default function CategoryPage() {
             </div>
           </section>
         )}
+
       </main>
 
-      <Footer />
+      <div className="bg-[#111827]">
+        <Footer />
+      </div>
     </div>
   );
 }
+
 
 /* ======================================================
    VENDOR GRID CARD
