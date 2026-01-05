@@ -398,6 +398,7 @@ export default function HomePage() {
 ////////////////////////////////////////////////////////////////////////////////
 
 async function fetchVendors(): Promise<Vendor[]> {
+  // 1. Fetch approved vendors (modern status)
   const approvedSnap = await getDocs(
     query(
       collection(db, "vendors"),
@@ -406,26 +407,40 @@ async function fetchVendors(): Promise<Vendor[]> {
     )
   );
 
-  if (!approvedSnap.empty) {
-    return approvedSnap.docs
+  // Start with the approved list
+  let allVendors = approvedSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Vendor));
+
+  // 2. If we don't have a full list of 8, fetch legacy "verified" vendors to fill the gaps
+  if (allVendors.length < 8) {
+    const legacySnap = await getDocs(
+      query(
+        collection(db, "vendors"),
+        where("verified", "==", true),
+        limit(8)
+      )
+    );
+
+    const legacyVendors = legacySnap.docs
       .map((d) => ({ id: d.id, ...d.data() } as Vendor))
-      .sort(sortByCreatedAt);
+      .filter((v) => {
+        // Filter out suspended or deleted vendors
+        if (v.status === "suspended" || v.status === "deleted") return false;
+        
+        // IMPORTANT: Prevent duplicates.
+        // If a vendor is both "approved" AND "verified", we already have them in 'allVendors'.
+        // This check ensures we don't add them twice.
+        const isDuplicate = allVendors.some(existing => existing.id === v.id);
+        return !isDuplicate;
+      });
+
+    // Combine the lists
+    allVendors = [...allVendors, ...legacyVendors];
   }
 
-  const legacySnap = await getDocs(
-    query(
-      collection(db, "vendors"),
-      where("verified", "==", true),
-      limit(8)
-    )
-  );
-
-  return legacySnap.docs
-    .map((d) => ({ id: d.id, ...d.data() } as Vendor))
-    .filter(
-      (v) => v.status !== "suspended" && v.status !== "deleted"
-    )
-    .sort(sortByCreatedAt);
+  // 3. Sort by newest created and ensure we return max 8 items
+  return allVendors
+    .sort(sortByCreatedAt)
+    .slice(0, 8);
 }
 
 async function fetchProductsFromVendors(
@@ -436,7 +451,8 @@ async function fetchProductsFromVendors(
   const productPromises = vendorsList.slice(0, 6).map(async (vendor) => {
     try {
       // 🚫 HARD STOP — skip suspended vendors
-      if (vendor.status && vendor.status !== "approved") return [];
+      if (vendor.status && vendor.status !== "approved" && vendor.status !== undefined && vendor.verified === false) return [];
+      // Note: kept logic generous here to allow legacy verified vendors
 
       const productsSnap = await getDocs(
         collection(db, "vendors", vendor.id, "products")
