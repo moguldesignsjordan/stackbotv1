@@ -8,14 +8,23 @@ import {
   createUserWithEmailAndPassword,
   getIdTokenResult,
   GoogleAuthProvider,
+  OAuthProvider,
   signInWithPopup,
   sendPasswordResetEmail,
   updateProfile,
+  // sendEmailVerification, // Removed
+  // signOut, // Removed (only used for forcing logout on unverified emails)
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase/config";
 import Image from "next/image";
 import Link from "next/link";
+
+// Strict Email Validation Regex
+const isValidEmail = (email: string) => {
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(email);
+};
 
 export default function LoginPage() {
   return (
@@ -50,25 +59,19 @@ function LoginPageInner() {
     const token = await getIdTokenResult(user, true);
     const role = token.claims.role as string | undefined;
 
-    // Vendor signup flow
     if (intent === "vendor") {
       router.push("/vendor-signup");
       return;
     }
-
-    // Admin redirect
     if (role === "admin") {
       router.push("/admin");
       return;
     }
-
-    // Vendor redirect
     if (role === "vendor") {
       router.push("/vendor");
       return;
     }
 
-    // NEW CUSTOMER → Go to onboarding
     if (isNewUser) {
       const onboardingUrl = redirect
         ? `/onboarding?redirect=${encodeURIComponent(redirect)}`
@@ -77,12 +80,9 @@ function LoginPageInner() {
       return;
     }
 
-    // EXISTING CUSTOMER → Check if completed onboarding
     try {
       const customerDoc = await getDoc(doc(db, "customers", user.uid));
-      
       if (!customerDoc.exists() || !customerDoc.data()?.onboardingCompleted) {
-        // Hasn't completed onboarding yet
         const onboardingUrl = redirect
           ? `/onboarding?redirect=${encodeURIComponent(redirect)}`
           : "/onboarding";
@@ -93,7 +93,6 @@ function LoginPageInner() {
       console.error("Error checking customer profile:", error);
     }
 
-    // Completed onboarding → go to redirect or account
     router.push(redirect || "/account");
   };
 
@@ -103,7 +102,10 @@ function LoginPageInner() {
     setError("");
 
     try {
+      // 1. Sign In
       const cred = await signInWithEmailAndPassword(auth, email, password);
+
+      // 2. Redirect (Removed emailVerified check)
       await handleRoleBasedRedirect(cred.user, false);
     } catch (err: any) {
       console.error("Login error:", err.code, err.message);
@@ -122,6 +124,13 @@ function LoginPageInner() {
     setLoading(true);
     setError("");
 
+    // 1. Strict Email Format Check
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address (e.g., name@example.com).");
+      setLoading(false);
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       setLoading(false);
@@ -135,65 +144,66 @@ function LoginPageInner() {
     }
 
     try {
+      // 2. Create User
       const cred = await createUserWithEmailAndPassword(auth, email, password);
 
-      // Update display name if provided
+      // 3. Update Name
       if (name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
 
-      // isNewUser = true → will go to onboarding
+      // 4. Redirect immediately (No verification email sent)
       await handleRoleBasedRedirect(cred.user, true);
+
     } catch (err: any) {
       console.error("Signup error:", err.code, err.message);
       if (err.code === "auth/email-already-in-use") setError("Email already in use. Try logging in instead.");
       else if (err.code === "auth/invalid-email") setError("Invalid email address.");
       else if (err.code === "auth/weak-password") setError("Password must be at least 6 characters.");
-      else if (err.code === "auth/operation-not-allowed") setError("Email/password signup is not enabled. Please contact support.");
       else setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleAuth = async () => {
+  const handleSocialAuth = async (provider: any) => {
     setLoading(true);
     setError("");
-
     try {
-      const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-
-      // Check if customer profile exists and completed onboarding
       const customerDoc = await getDoc(doc(db, "customers", result.user.uid));
       const isNewUser = !customerDoc.exists();
-
       await handleRoleBasedRedirect(result.user, isNewUser);
     } catch (err: any) {
-      console.error("Google auth error:", err.code, err.message);
+      console.error("Auth error:", err.code, err.message);
       if (err.code === "auth/popup-closed-by-user") setError("Login cancelled.");
       else if (err.code === "auth/popup-blocked") setError("Popup blocked. Please allow popups.");
-      else if (err.code === "auth/cancelled-popup-request") setError("Login cancelled.");
       else setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAppleAuth = () => {
+    const provider = new OAuthProvider('apple.com');
+    provider.addScope('email');
+    provider.addScope('name');
+    handleSocialAuth(provider);
+  };
+
+  const handleGoogleAuth = () => {
+    handleSocialAuth(new GoogleAuthProvider());
   };
 
   const handleForgotPassword = async () => {
     if (!email) return setError("Enter your email first.");
-
     setLoading(true);
     setError("");
-
     try {
       await sendPasswordResetEmail(auth, email);
       alert("Password reset email sent! Check your inbox.");
     } catch (err: any) {
-      console.error("Password reset error:", err.code, err.message);
-      if (err.code === "auth/user-not-found") setError("No account with this email.");
-      else if (err.code === "auth/invalid-email") setError("Invalid email address.");
-      else setError(err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -301,20 +311,34 @@ function LoginPageInner() {
             </div>
           </div>
 
-          <button
-            onClick={handleGoogleAuth}
-            disabled={loading}
-            className="w-full border border-gray-300 py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Image 
-              src="/google-icon.png" 
-              alt="Google" 
-              width={20} 
-              height={20}
-              className="w-5 h-auto"
-            />
-            <span className="font-medium">Continue with Google</span>
-          </button>
+          {/* Social Sign In Buttons */}
+          <div className="space-y-3">
+            <button
+              onClick={handleAppleAuth}
+              disabled={loading}
+              className="w-full bg-black text-white py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.74 1.18 0 2.45-1.02 3.93-.83 1.25.1 2.37.66 3.01 1.62-2.67 1.62-2.22 5.56.34 6.71-.52 1.34-1.22 2.7-2.36 4.73zM12.04 5.16c.55-1.54 1.84-2.6 3.32-2.6.24 1.65-1.54 3.12-3.32 2.6z" />
+              </svg>
+              <span className="font-medium">Continue with Apple</span>
+            </button>
+
+            <button
+              onClick={handleGoogleAuth}
+              disabled={loading}
+              className="w-full border border-gray-300 py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Image 
+                src="/google-icon.png" 
+                alt="Google" 
+                width={20} 
+                height={20}
+                className="w-5 h-auto"
+              />
+              <span className="font-medium">Continue with Google</span>
+            </button>
+          </div>
 
           <div className="text-center text-sm">
             {isLogin ? (
@@ -368,6 +392,7 @@ function LoginPageInner() {
           width={200}
           height={200}
           className="object-contain drop-shadow-lg mb-8 w-auto h-auto"
+          priority
         />
         <h2 className="text-white text-2xl font-bold text-center mb-3">
           Shop Local, Delivered Fast
