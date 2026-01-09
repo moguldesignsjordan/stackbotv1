@@ -8,7 +8,7 @@ import Footer from "@/components/layout/Footer";
 import { useAuth } from "@/hooks/useAuth";
 import { signOut, getIdTokenResult } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
-import { LogOut, User, ChevronDown } from "lucide-react";
+import { LogOut, User, ChevronDown, ShoppingCart } from "lucide-react";
 import { db } from "@/lib/firebase/config";
 import {
   collection,
@@ -19,7 +19,9 @@ import {
 } from "firebase/firestore";
 
 import type { Product } from "@/lib/types";
-import { formatPrice } from "@/lib/utils/currency";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useCart } from "@/contexts/CartContext";
+import { LanguageToggle } from "@/components/ui/LanguageToggle";
 
 import {
   ArrowRight,
@@ -119,6 +121,7 @@ export default function HomePage() {
   const [featured, setFeatured] = useState<ProductWithVendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const { t } = useLanguage();
 
   // Memoized search handler
   const handleSearch = useCallback((e: React.FormEvent) => {
@@ -332,6 +335,16 @@ export default function HomePage() {
             transition-duration: 0.01ms !important;
           }
         }
+
+        /* Safe area support for iPhone notch */
+        @supports (padding-top: env(safe-area-inset-top)) {
+          .safe-top {
+            padding-top: env(safe-area-inset-top);
+          }
+          .safe-top-nav {
+            padding-top: max(env(safe-area-inset-top), 12px);
+          }
+        }
       `}</style>
 
       <Navbar />
@@ -340,8 +353,8 @@ export default function HomePage() {
       
       {/* Featured Vendors Section */}
       <SectionWrapper 
-        title="Featured Vendors" 
-        subtitle="Discover top-rated local businesses"
+        title={t('section.featuredVendors')}
+        subtitle={t('section.featuredVendorsSubtitle')}
         link="/vendors"
         icon={<BadgeCheck className="w-5 h-5" />}
       >
@@ -351,8 +364,8 @@ export default function HomePage() {
           <Grid>{vendors.map((v, i) => <VendorCard key={v.id} vendor={v} index={i} />)}</Grid>
         ) : (
           <EmptyState 
-            message="No vendors available yet" 
-            description="Check back soon for amazing local businesses"
+            message={t('vendors.noVendors')}
+            description={t('vendors.noVendors')}
           />
         )}
       </SectionWrapper>
@@ -362,8 +375,8 @@ export default function HomePage() {
       <OnboardingCards />
 
       <SectionWrapper 
-        title="Featured Products" 
-        subtitle="Handpicked items just for you"
+        title={t('section.featuredProducts')}
+        subtitle={t('section.featuredProductsSubtitle')}
         link="/products"
         icon={<Sparkles className="w-5 h-5" />}
         bgColor="bg-white"
@@ -374,8 +387,8 @@ export default function HomePage() {
           <Grid>{featured.map((p, i) => <ProductCard key={p.id} product={p} index={i} />)}</Grid>
         ) : (
           <EmptyState 
-            message="No products available yet" 
-            description="Products from our vendors will appear here"
+            message={t('products.noProducts')}
+            description={t('products.noProducts')}
           />
         )}
       </SectionWrapper>
@@ -505,7 +518,7 @@ function sortByCreatedAt(a: Vendor, b: Vendor) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// NAVBAR (Auth-Aware)
+// NAVBAR (Auth-Aware with Cart + Language Toggle)
 ////////////////////////////////////////////////////////////////////////////////
 
 function Navbar() {
@@ -514,6 +527,8 @@ function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const { user, loading } = useAuth();
+  const { itemCount } = useCart();
+  const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
   useEffect(() => {
@@ -566,9 +581,9 @@ function Navbar() {
   };
 
   const getDashboardLabel = () => {
-    if (userRole === "admin") return "Admin Dashboard";
-    if (userRole === "vendor") return "Vendor Dashboard";
-    return "My Account";
+    if (userRole === "admin") return t('nav.adminDashboard');
+    if (userRole === "vendor") return t('nav.vendorDashboard');
+    return t('account.title');
   };
 
   const getInitials = () => {
@@ -586,8 +601,8 @@ function Navbar() {
   return (
     <>
       <nav
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled ? "glass shadow-lg py-3" : "bg-transparent py-5"
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 safe-top-nav ${
+          scrolled ? "glass shadow-lg py-2" : "bg-transparent py-3 sm:py-4"
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
@@ -595,18 +610,18 @@ function Navbar() {
             <Image
               src="/stackbot-logo-purp.png"
               alt="StackBot"
-              width={140}
-              height={40}
+              width={120}
+              height={36}
               priority
-              className="object-contain transition-transform duration-300 group-hover:scale-105"
+              className="object-contain transition-transform duration-300 group-hover:scale-105 w-[100px] sm:w-[120px]"
             />
           </Link>
 
           {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-6">
             {[
-              { href: "/vendors", label: "Vendors" },
-              { href: "/vendor-signup", label: "Become a Vendor" },
+              { href: "/vendors", label: t('nav.vendors') },
+              { href: "/vendor-signup", label: t('vendors.becomeVendor') },
             ].map((link) => (
               <Link
                 key={link.href}
@@ -618,6 +633,23 @@ function Navbar() {
               </Link>
             ))}
 
+            {/* Language Toggle */}
+            <LanguageToggle variant="pill" />
+
+            {/* Cart Button */}
+            <Link
+              href="/cart"
+              className="relative p-2 rounded-full hover:bg-gray-100 transition-colors"
+              aria-label={t('nav.cart')}
+            >
+              <ShoppingCart className="w-5 h-5 text-gray-700" />
+              {itemCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--sb-accent)] text-white text-xs font-bold rounded-full flex items-center justify-center animate-badge-pulse">
+                  {itemCount > 99 ? '99+' : itemCount}
+                </span>
+              )}
+            </Link>
+
             {/* Auth-aware button/menu */}
             {loading ? (
               <div className="w-20 h-10 rounded-full bg-gray-200 animate-pulse" />
@@ -625,7 +657,7 @@ function Navbar() {
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 bg-[var(--sb-primary)]/10 hover:bg-[var(--sb-primary)]/20 px-4 py-2 rounded-full transition-all duration-300"
+                  className="flex items-center gap-2 bg-[var(--sb-primary)]/10 hover:bg-[var(--sb-primary)]/20 px-3 py-2 rounded-full transition-all duration-300"
                 >
                   <div className="w-8 h-8 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-sm font-semibold">
                     {getInitials()}
@@ -663,12 +695,20 @@ function Navbar() {
                           {getDashboardLabel()}
                         </span>
                       </Link>
+                      <Link
+                        href="/account/orders"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        <span className="text-sm font-medium">{t('orders.title')}</span>
+                      </Link>
                       <button
                         onClick={handleLogout}
                         className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 transition-colors w-full"
                       >
                         <LogOut className="w-4 h-4" />
-                        <span className="text-sm font-medium">Logout</span>
+                        <span className="text-sm font-medium">{t('nav.logout')}</span>
                       </button>
                     </div>
                   </>
@@ -677,31 +717,57 @@ function Navbar() {
             ) : (
               <Link
                 href="/login"
-                className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-all duration-300 shadow-md hover:shadow-xl"
+                className="btn-hover bg-[var(--sb-primary)] text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-all duration-300 shadow-md hover:shadow-xl"
               >
-                Login
+                {t('nav.login')}
               </Link>
             )}
           </div>
 
-          {/* Mobile Menu Button */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            aria-label="Toggle menu"
-          >
-            {mobileOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <Menu className="w-6 h-6" />
-            )}
-          </button>
+          {/* Mobile Right Section */}
+          <div className="flex md:hidden items-center gap-2">
+            {/* Language Toggle (compact for mobile) */}
+            <button
+              onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-xs font-semibold text-gray-600"
+              aria-label="Toggle language"
+            >
+              {language === 'en' ? '🇺🇸' : '🇩🇴'}
+            </button>
+
+            {/* Cart Button */}
+            <Link
+              href="/cart"
+              className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label={t('nav.cart')}
+            >
+              <ShoppingCart className="w-5 h-5 text-gray-700" />
+              {itemCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[var(--sb-accent)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {itemCount > 99 ? '99+' : itemCount}
+                </span>
+              )}
+            </Link>
+
+            {/* Menu Button */}
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Toggle menu"
+            >
+              {mobileOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
       {/* Mobile Menu */}
       <div
-        className={`fixed inset-0 z-60 md:hidden transition-all duration-300 ${
+        className={`fixed inset-0 z-[60] md:hidden transition-all duration-300 ${
           mobileOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none"
@@ -712,11 +778,22 @@ function Navbar() {
           onClick={() => setMobileOpen(false)}
         />
         <div
-          className={`absolute right-0 top-0 bottom-0 w-80 bg-white shadow-2xl transition-transform duration-300 ${
+          className={`absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-white shadow-2xl transition-transform duration-300 safe-top ${
             mobileOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >
-          <div className="p-6 pt-20 space-y-4">
+          {/* Close button at top */}
+          <div className="flex justify-end p-4 pt-6">
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <div className="px-6 pb-6 space-y-4">
             {/* User info when logged in */}
             {user && (
               <div className="pb-4 mb-4 border-b border-gray-100">
@@ -736,26 +813,80 @@ function Navbar() {
               </div>
             )}
 
+            {/* Language Selector - Mobile - ENHANCED */}
+            <div className="pb-5 mb-4 border-b border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                {language === 'en' ? '🌐 Language & Currency' : '🌐 Idioma y Moneda'}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setLanguage('en')}
+                  className={`relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border-2 transition-all duration-200 ${
+                    language === 'en'
+                      ? 'border-[var(--sb-primary)] bg-[var(--sb-primary)]/10 shadow-md'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {language === 'en' && (
+                    <div className="absolute top-2 right-2 w-2 h-2 bg-[var(--sb-primary)] rounded-full" />
+                  )}
+                  <span className="text-3xl mb-1">🇺🇸</span>
+                  <span className={`text-sm font-bold ${language === 'en' ? 'text-[var(--sb-primary)]' : 'text-gray-700'}`}>
+                    English
+                  </span>
+                  <span className={`text-xs mt-0.5 ${language === 'en' ? 'text-[var(--sb-primary)]/70' : 'text-gray-400'}`}>
+                    USD ($)
+                  </span>
+                </button>
+                <button
+                  onClick={() => setLanguage('es')}
+                  className={`relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border-2 transition-all duration-200 ${
+                    language === 'es'
+                      ? 'border-[var(--sb-primary)] bg-[var(--sb-primary)]/10 shadow-md'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {language === 'es' && (
+                    <div className="absolute top-2 right-2 w-2 h-2 bg-[var(--sb-primary)] rounded-full" />
+                  )}
+                  <span className="text-3xl mb-1">🇩🇴</span>
+                  <span className={`text-sm font-bold ${language === 'es' ? 'text-[var(--sb-primary)]' : 'text-gray-700'}`}>
+                    Español
+                  </span>
+                  <span className={`text-xs mt-0.5 ${language === 'es' ? 'text-[var(--sb-primary)]/70' : 'text-gray-400'}`}>
+                    DOP (RD$)
+                  </span>
+                </button>
+              </div>
+            </div>
+
             <Link
               href="/products"
               onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
             >
-              Browse Products
+              {t('nav.products')}
             </Link>
             <Link
               href="/vendors"
               onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
             >
-              Browse Vendors
+              {t('nav.vendors')}
+            </Link>
+            <Link
+              href="/categories"
+              onClick={() => setMobileOpen(false)}
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
+            >
+              {t('nav.categories')}
             </Link>
             <Link
               href="/vendor-signup"
               onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors"
+              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
             >
-              Become a Vendor
+              {t('vendors.becomeVendor')}
             </Link>
 
             <div className="pt-4 space-y-3">
@@ -768,22 +899,38 @@ function Navbar() {
                   >
                     {getDashboardLabel()}
                   </Link>
+                  <Link
+                    href="/account/orders"
+                    onClick={() => setMobileOpen(false)}
+                    className="block w-full text-center border-2 border-gray-200 text-gray-700 px-6 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+                  >
+                    {t('orders.title')}
+                  </Link>
                   <button
                     onClick={handleLogout}
                     className="flex items-center justify-center gap-2 w-full text-center border-2 border-red-200 text-red-600 px-6 py-3 rounded-full font-semibold hover:bg-red-50 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
-                    Logout
+                    {t('nav.logout')}
                   </button>
                 </>
               ) : (
-                <Link
-                  href="/login"
-                  onClick={() => setMobileOpen(false)}
-                  className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
-                >
-                  Login
-                </Link>
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
+                  >
+                    {t('nav.login')}
+                  </Link>
+                  <Link
+                    href="/signup"
+                    onClick={() => setMobileOpen(false)}
+                    className="block w-full text-center border-2 border-gray-200 text-gray-700 px-6 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+                  >
+                    {t('nav.signUp')}
+                  </Link>
+                </>
               )}
             </div>
           </div>
@@ -807,6 +954,7 @@ function Hero({
   handleSearch: (e: React.FormEvent) => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const { t } = useLanguage();
 
   useEffect(() => {
     setMounted(true);
@@ -834,18 +982,18 @@ function Hero({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
               </span>
-              <span className="text-white/90 text-sm font-medium">Now serving the Caribbean</span>
+              <span className="text-white/90 text-sm font-medium">{t('hero.nowServing')}</span>
             </div>
 
             <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-white leading-[1.1] tracking-tight">
-              The All-in-One
+              {t('hero.allInOne')}
               <span className="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-white via-orange-200 to-orange-400">
-                Marketplace
+                {t('hero.marketplace')}
               </span>
             </h1>
 
             <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-lg leading-relaxed">
-              Order food, shop local businesses, book services, and connect with trusted vendors powered by AI-driven delivery.
+              {t('hero.heroDescription')}
             </p>
 
             {/* Search Bar */}
@@ -858,14 +1006,14 @@ function Hero({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search vendors, products..."
+                    placeholder={t('hero.searchPlaceholder')}
                     className="flex-1 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-base"
                   />
                   <button 
                     type="submit"
                     className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-[var(--sb-primary-dark)] transition-all duration-300 flex-shrink-0"
                   >
-                    <span className="hidden sm:inline">Search</span>
+                    <span className="hidden sm:inline">{t('common.search')}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -875,11 +1023,11 @@ function Hero({
             {/* Stats */}
             <div className={`mt-12 flex flex-wrap gap-8 sm:gap-12 transition-all duration-700 delay-300 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}>
               {[
-                { value: "500+", label: "Vendor Partners", icon: Store },
-                { value: "99%", label: "On-Time Delivery", icon: Clock },
-                { value: "24/7", label: "Support", icon: Shield },
+                { value: "500+", labelKey: 'hero.vendorPartners', icon: Store },
+                { value: "99%", labelKey: 'hero.onTimeDelivery', icon: Clock },
+                { value: "24/7", labelKey: 'hero.support', icon: Shield },
               ].map((stat) => (
-                <div key={stat.label} className="group flex items-center gap-3">
+                <div key={stat.labelKey} className="group flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
                     <stat.icon className="w-5 h-5 text-white/80" />
                   </div>
@@ -887,7 +1035,7 @@ function Hero({
                     <div className="text-2xl sm:text-3xl font-bold text-white group-hover:text-orange-300 transition-colors duration-300">
                       {stat.value}
                     </div>
-                    <p className="text-white/60 text-xs">{stat.label}</p>
+                    <p className="text-white/60 text-xs">{t(stat.labelKey as any)}</p>
                   </div>
                 </div>
               ))}
@@ -913,8 +1061,8 @@ function Hero({
                     <Zap className="w-5 h-5 text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">Fast Delivery</p>
-                    <p className="text-xs text-gray-500">Under 30 minutes</p>
+                    <p className="text-sm font-semibold text-gray-900">{t('hero.fastDelivery')}</p>
+                    <p className="text-xs text-gray-500">{t('hero.underMinutes')}</p>
                   </div>
                 </div>
               </div>
@@ -926,8 +1074,8 @@ function Hero({
                     <TrendingUp className="w-5 h-5 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">500+ Vendors</p>
-                    <p className="text-xs text-gray-500">And growing</p>
+                    <p className="text-sm font-semibold text-gray-900">500+ {t('nav.vendors')}</p>
+                    <p className="text-xs text-gray-500">{t('hero.andGrowing')}</p>
                   </div>
                 </div>
               </div>
@@ -952,16 +1100,17 @@ function Hero({
 
 function MarketplaceGrid() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   const items = useMemo(() => [
-    { label: "Food Delivery", icon: Utensils, color: "from-orange-400 to-red-500" },
-    { label: "Retail & Shops", icon: Shirt, color: "from-blue-400 to-indigo-500" },
-    { label: "Taxi & Transport", icon: Car, color: "from-yellow-400 to-orange-500" },
-    { label: "Beauty & Wellness", icon: Brush, color: "from-pink-400 to-rose-500" },
-    { label: "Home Services", icon: Store, color: "from-teal-400 to-cyan-500" },
-    { label: "Rentals & Real Estate", icon: Home, color: "from-green-400 to-emerald-500" },
-    { label: "Tours & Tourism", icon: Map, color: "from-purple-400 to-violet-500" },
-    { label: "Peer-to-Peer", icon: Users, color: "from-sky-400 to-blue-500" },
+    { labelKey: 'marketplace.foodDelivery', icon: Utensils, color: "from-orange-400 to-red-500" },
+    { labelKey: 'marketplace.retailShops', icon: Shirt, color: "from-blue-400 to-indigo-500" },
+    { labelKey: 'marketplace.taxiTransport', icon: Car, color: "from-yellow-400 to-orange-500" },
+    { labelKey: 'marketplace.beautyWellness', icon: Brush, color: "from-pink-400 to-rose-500" },
+    { labelKey: 'marketplace.homeServices', icon: Store, color: "from-teal-400 to-cyan-500" },
+    { labelKey: 'marketplace.rentals', icon: Home, color: "from-green-400 to-emerald-500" },
+    { labelKey: 'marketplace.tours', icon: Map, color: "from-purple-400 to-violet-500" },
+    { labelKey: 'marketplace.peerToPeer', icon: Users, color: "from-sky-400 to-blue-500" },
   ], []);
 
   return (
@@ -972,20 +1121,20 @@ function MarketplaceGrid() {
         <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
           <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] rounded-full text-sm font-semibold mb-4">
             <Sparkles className="w-4 h-4" />
-            Everything You Need
+            {t('marketplace.badge')}
           </span>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            One App, Endless Possibilities
+            {t('marketplace.title')}
           </h2>
           <p className="mt-4 text-gray-600 text-lg max-w-2xl mx-auto">
-            From daily essentials to special occasions, StackBot connects you to the best local businesses.
+            {t('marketplace.subtitle')}
           </p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
           {items.map((item, i) => (
             <div
-              key={item.label}
+              key={item.labelKey}
               className={`animate-on-scroll stagger-${(i % 8) + 1} ${isInView ? "in-view" : ""}`}
             >
               <div className="card-hover group relative p-6 sm:p-8 bg-gray-50 rounded-3xl cursor-pointer overflow-hidden border border-gray-100">
@@ -995,7 +1144,7 @@ function MarketplaceGrid() {
                     <item.icon className="w-7 h-7" />
                   </div>
                   <h3 className="font-semibold text-gray-800 group-hover:text-white transition-colors duration-300 text-sm sm:text-base">
-                    {item.label}
+                    {t(item.labelKey as any)}
                   </h3>
                 </div>
               </div>
@@ -1013,24 +1162,25 @@ function MarketplaceGrid() {
 
 function WhyStackBot() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   const features = useMemo(() => [
     {
       icon: Zap,
-      title: "Lightning Fast",
-      description: "AI-optimized routes ensure your order arrives in record time",
+      titleKey: 'why.fast',
+      descKey: 'why.fastDesc',
       color: "from-yellow-400 to-orange-500",
     },
     {
       icon: Shield,
-      title: "Secure & Trusted",
-      description: "End-to-end encryption and verified vendors for peace of mind",
+      titleKey: 'why.secure',
+      descKey: 'why.secureDesc',
       color: "from-green-400 to-emerald-500",
     },
     {
       icon: Globe,
-      title: "Caribbean-Wide",
-      description: "Connecting communities across the Caribbean islands",
+      titleKey: 'why.caribbean',
+      descKey: 'why.caribbeanDesc',
       color: "from-blue-400 to-indigo-500",
     },
   ], []);
@@ -1041,17 +1191,17 @@ function WhyStackBot() {
         <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
           <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-accent)]/10 text-[var(--sb-accent)] rounded-full text-sm font-semibold mb-4">
             <BadgeCheck className="w-4 h-4" />
-            Why Choose Us
+            {t('why.badge')}
           </span>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            Built For the Caribbean
+            {t('why.title')}
           </h2>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 lg:gap-12">
           {features.map((feature, i) => (
             <div
-              key={feature.title}
+              key={feature.titleKey}
               className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
             >
               <div className="card-hover group p-8 bg-white rounded-3xl border border-gray-100 shadow-sm h-full">
@@ -1059,10 +1209,10 @@ function WhyStackBot() {
                   <feature.icon className="w-8 h-8" />
                 </div>
                 <h3 className="font-display text-xl font-bold text-gray-900 mb-3">
-                  {feature.title}
+                  {t(feature.titleKey as any)}
                 </h3>
                 <p className="text-gray-600 leading-relaxed">
-                  {feature.description}
+                  {t(feature.descKey as any)}
                 </p>
               </div>
             </div>
@@ -1079,6 +1229,13 @@ function WhyStackBot() {
 
 function TravelerSection() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
+
+  const bullets = [
+    t('traveler.bullet1'),
+    t('traveler.bullet2'),
+    t('traveler.bullet3'),
+  ];
 
   return (
     <section ref={ref} className="py-24 sm:py-32 px-4 sm:px-6 lg:px-8 bg-white relative overflow-hidden">
@@ -1089,20 +1246,16 @@ function TravelerSection() {
           <div className={`animate-on-scroll ${isInView ? "in-view" : ""}`}>
             <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-accent)]/10 text-[var(--sb-accent)] rounded-full text-sm font-semibold mb-4">
               <Map className="w-4 h-4" />
-              For Travelers
+              {t('traveler.badge')}
             </span>
             <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-              Your Caribbean Adventure Starts Here
+              {t('traveler.title')}
             </h2>
             <p className="text-gray-600 text-lg leading-relaxed mb-8">
-              Discover authentic local experiences, book tours, find the best restaurants, and navigate with ease. StackBot is your essential travel companion across the islands.
+              {t('traveler.description')}
             </p>
             <ul className="space-y-4">
-              {[
-                "Curated local experiences and hidden gems",
-                "Real-time translations and local guides",
-                "Secure bookings and verified reviews",
-              ].map((item) => (
+              {bullets.map((item) => (
                 <li key={item} className="flex items-start gap-3">
                   <div className="mt-1 w-5 h-5 rounded-full bg-[var(--sb-success)]/20 flex items-center justify-center flex-shrink-0">
                     <svg className="w-3 h-3 text-[var(--sb-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1140,11 +1293,12 @@ function TravelerSection() {
 
 function OnboardingCards() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   const steps = useMemo(() => [
-    { number: "1", title: "Create Account", description: "Quick signup with email or social", icon: Users },
-    { number: "2", title: "Browse & Order", description: "Explore vendors and place orders", icon: Search },
-    { number: "3", title: "Track Delivery", description: "Real-time tracking to your door", icon: MapPin },
+    { number: "1", titleKey: 'onboarding.step1', descKey: 'onboarding.step1Desc', icon: Users },
+    { number: "2", titleKey: 'onboarding.step2', descKey: 'onboarding.step2Desc', icon: Search },
+    { number: "3", titleKey: 'onboarding.step3', descKey: 'onboarding.step3Desc', icon: MapPin },
   ], []);
 
   return (
@@ -1152,7 +1306,7 @@ function OnboardingCards() {
       <div className="max-w-7xl mx-auto">
         <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            Get Started in 3 Simple Steps
+            {t('onboarding.title')}
           </h2>
         </div>
 
@@ -1171,10 +1325,10 @@ function OnboardingCards() {
                   {step.number}
                 </div>
                 <h3 className="font-display text-xl font-bold text-gray-900 mb-3">
-                  {step.title}
+                  {t(step.titleKey as any)}
                 </h3>
                 <p className="text-gray-600">
-                  {step.description}
+                  {t(step.descKey as any)}
                 </p>
               </div>
             </div>
@@ -1191,41 +1345,40 @@ function OnboardingCards() {
 
 function Categories() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   // UPDATED: Use proper category IDs that match /categories/[slug]
   const categories = useMemo(() => [
-    { id: "restaurants", title: "Restaurants", icon: Utensils },
-    { id: "taxi-service", title: "Taxi Service", icon: Car },
-    { id: "cleaning-services", title: "Cleaning Service", icon: Brush },
-    { id: "retail-shops", title: "Retail Shops", icon: Shirt },
+    { id: "restaurants", titleKey: "categories.restaurants", icon: Utensils },
+    { id: "taxi-service", titleKey: "categories.taxiTransport", icon: Car },
+    { id: "cleaning-services", titleKey: "categories.cleaningServices", icon: Brush },
+    { id: "retail-shops", titleKey: "categories.retailShops", icon: Shirt },
   ], []);
 
   return (
     <section ref={ref} className="py-20 px-4 sm:px-6 lg:px-8 bg-white">
       <div className="max-w-7xl mx-auto">
         <div className={`flex items-center justify-between mb-10 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <h2 className="font-display text-2xl sm:text-3xl font-bold text-gray-900">Categories</h2>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-gray-900">{t('nav.categories')}</h2>
           <Link href="/categories" className="text-[var(--sb-primary)] font-semibold hover:underline flex items-center gap-1">
-            View all <ChevronRight className="w-4 h-4" />
+            {t('common.viewAll')} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {categories.map((cat, i) => (
             <div
-              key={cat.id}  // UPDATED: Use cat.id instead of cat.title
+              key={cat.id}
               className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
             >
-              {/* UPDATED: Use cat.id directly instead of string manipulation */}
               <Link href={`/categories/${cat.id}`}>
                 <div className="card-hover group p-6 bg-white rounded-2xl border-2 border-gray-100 hover:border-[var(--sb-primary)] cursor-pointer">
                   <div className="flex items-center justify-between mb-4">
                     <div className="h-14 w-14 flex items-center justify-center rounded-2xl bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] group-hover:bg-[var(--sb-primary)] group-hover:text-white transition-all duration-300">
                       <cat.icon className="w-7 h-7" />
                     </div>
-                    {/* REMOVED: count badge (was: <span className="text-xs...">{cat.count}</span>) */}
                   </div>
-                  <h3 className="font-semibold text-gray-800 text-lg">{cat.title}</h3>
+                  <h3 className="font-semibold text-gray-800 text-lg">{t(cat.titleKey as any)}</h3>
                 </div>
               </Link>
             </div>
@@ -1256,6 +1409,7 @@ function SectionWrapper({
   children: React.ReactNode;
 }) {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   return (
     <section ref={ref} className={`py-20 px-4 sm:px-6 lg:px-8 ${bgColor}`}>
@@ -1269,7 +1423,7 @@ function SectionWrapper({
             {subtitle && <p className="text-gray-500">{subtitle}</p>}
           </div>
           <Link href={link} className="text-[var(--sb-primary)] font-semibold hover:underline flex items-center gap-1 group">
-            View All 
+            {t('common.viewAll')}
             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
@@ -1294,6 +1448,7 @@ function Grid({ children }: { children: React.ReactNode }) {
 function VendorCard({ vendor, index }: { vendor: Vendor; index: number }) {
   const { ref, isInView } = useInView();
   const [imageLoaded, setImageLoaded] = useState(false);
+  const { t } = useLanguage();
   
   const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
   const description = vendor.business_description || vendor.description;
@@ -1320,7 +1475,7 @@ const address = typeof addressRaw === 'string'
             <div className="absolute top-3 left-3 z-10">
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/90 backdrop-blur-sm rounded-full text-xs font-semibold text-[var(--sb-primary)] shadow-sm">
                 <Sparkles className="w-3 h-3" />
-                Featured
+                {t('products.featured')}
               </span>
             </div>
             
@@ -1388,7 +1543,7 @@ const address = typeof addressRaw === 'string'
                   )}
                 </div>
               ) : (
-                <span className="text-xs text-gray-400">New</span>
+                <span className="text-xs text-gray-400">{t('common.new')}</span>
               )}
             </div>
 
@@ -1413,6 +1568,7 @@ const address = typeof addressRaw === 'string'
 function ProductCard({ product, index }: { product: ProductWithVendor; index: number }) {
   const { ref, isInView } = useInView();
   const [imageLoaded, setImageLoaded] = useState(false);
+  const { formatCurrency, t } = useLanguage();
   
   const vendorSlug = product.vendorSlug || product.vendor_slug || product.vendorId || product.vendor_id;
   const productLink = vendorSlug 
@@ -1430,7 +1586,7 @@ function ProductCard({ product, index }: { product: ProductWithVendor; index: nu
             <div className="absolute top-3 left-3 z-10">
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--sb-accent)] rounded-full text-xs font-semibold text-white shadow-sm">
                 <TrendingUp className="w-3 h-3" />
-                Popular
+                {t('common.popular')}
               </span>
             </div>
             
@@ -1466,10 +1622,10 @@ function ProductCard({ product, index }: { product: ProductWithVendor; index: nu
             <p className="text-sm text-gray-500 mt-1">{product.vendor_name || "Vendor"}</p>
             <div className="mt-auto pt-3 flex items-center justify-between">
               <p className="font-bold text-[var(--sb-primary)] text-lg">
-                {formatPrice(typeof product.price === 'number' ? product.price : 0)}
+                {formatCurrency(typeof product.price === 'number' ? product.price : 0)}
               </p>
               <span className="text-xs text-gray-400 group-hover:text-[var(--sb-primary)] transition-colors flex items-center gap-1">
-                View <ArrowRight className="w-3 h-3" />
+                {t('common.view')} <ArrowRight className="w-3 h-3" />
               </span>
             </div>
           </div>
@@ -1525,6 +1681,7 @@ function EmptyState({ message, description }: { message: string; description?: s
 
 function VendorCTA() {
   const { ref, isInView } = useInView();
+  const { t } = useLanguage();
 
   return (
     <section ref={ref} className="relative py-24 sm:py-32 overflow-hidden">
@@ -1538,27 +1695,27 @@ function VendorCTA() {
       <div className={`relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-on-scroll ${isInView ? "in-view" : ""}`}>
         <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-semibold text-white mb-6 border border-white/20">
           <Store className="w-4 h-4" />
-          For Business Owners
+          {t('vendorCta.badge')}
         </span>
         <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-white">
-          Grow Your Business With StackBot
+          {t('vendorCta.title')}
         </h2>
         <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-2xl mx-auto">
-          Join hundreds of local restaurants, shops, and service providers earning more with StackBot's marketplace and logistics tools.
+          {t('vendorCta.subtitle')}
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             href="/vendor-signup"
             className="btn-hover inline-flex items-center justify-center gap-2 bg-white text-[var(--sb-primary)] px-8 py-4 rounded-full font-bold text-lg shadow-2xl hover:shadow-xl hover:bg-gray-50 transition-all duration-300"
           >
-            Become a Vendor
+            {t('vendorCta.cta')}
             <ArrowRight className="w-5 h-5" />
           </Link>
           <Link
             href="/about"
             className="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm text-white px-8 py-4 rounded-full font-bold text-lg border border-white/20 hover:bg-white/20 transition-all duration-300"
           >
-            Learn More
+            {t('vendorCta.learnMore')}
           </Link>
         </div>
       </div>

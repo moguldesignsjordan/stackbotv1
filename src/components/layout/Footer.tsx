@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useMemo } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   MapPin,
   Phone,
@@ -20,37 +21,38 @@ import {
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
+  const { t, language } = useLanguage();
 
   const quickLinks = useMemo(
     () => ({
-      "Get to Know Us": [
-        { label: "About", href: "/about" },
-        { label: "Careers", href: "/careers" },
-        { label: "Blog", href: "/blog" },
-        { label: "Newsroom", href: "/newsroom" },
+      [t('footer.getToKnowUs')]: [
+        { labelKey: 'footer.about', href: "/about" },
+        { labelKey: 'footer.careers', href: "/careers" },
+        { labelKey: 'footer.blog', href: "/blog" },
+        { labelKey: 'footer.newsroom', href: "/newsroom" },
       ],
-      "Let Us Help You": [
-        { label: "Account", href: "/account" },
-        { label: "Order History", href: "/orders" },
-        { label: "Support", href: "/support" },
-        { label: "Track Order", href: "/track" },
+      [t('footer.letUsHelpYou')]: [
+        { labelKey: 'footer.account', href: "/account" },
+        { labelKey: 'footer.orderHistory', href: "/orders" },
+        { labelKey: 'footer.support', href: "/support" },
+        { labelKey: 'footer.trackOrder', href: "/track" },
       ],
-      "Do Business With Us": [
-        { label: "Become a Driver", href: "/driver-signup" },
-        { label: "Become a Vendor", href: "/vendor-signup" },
-        { label: "Become an Affiliate", href: "/affiliate-signup" },
-        { label: "Partner With Us", href: "/partners" },
+      [t('footer.doBusinessWithUs')]: [
+        { labelKey: 'footer.becomeDriver', href: "/driver-signup" },
+        { labelKey: 'footer.becomeVendor', href: "/vendor-signup" },
+        { labelKey: 'footer.becomeAffiliate', href: "/affiliate-signup" },
+        { labelKey: 'footer.partnerWithUs', href: "/partners" },
       ],
     }),
-    []
+    [t, language]
   );
 
   const policyLinks = useMemo(
     () => [
-      { label: "Returns & Refunds", href: "/policies/returns", icon: RotateCcw },
-      { label: "Cancellations", href: "/policies/cancellations", icon: XCircle },
-      { label: "Security & Privacy", href: "/policies/security", icon: Shield },
-      { label: "Terms of Service", href: "/policies/terms", icon: FileText },
+      { labelKey: 'footer.returnsRefunds', href: "/policies/returns", icon: RotateCcw },
+      { labelKey: 'footer.cancellations', href: "/policies/cancellations", icon: XCircle },
+      { labelKey: 'footer.securityPrivacy', href: "/policies/security", icon: Shield },
+      { labelKey: 'footer.terms', href: "/policies/terms", icon: FileText },
     ],
     []
   );
@@ -111,7 +113,7 @@ export default function Footer() {
             {/* Download App Buttons */}
             <div className="mt-6 space-y-2">
               <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
-                Coming Soon
+                {t('footer.comingSoon')}
               </p>
               <div className="flex gap-2">
                 <button
@@ -140,12 +142,12 @@ export default function Footer() {
                   </h4>
                   <ul className="space-y-2">
                     {items.map((item) => (
-                      <li key={item.label}>
+                      <li key={item.labelKey}>
                         <Link
                           href={item.href}
                           className="text-gray-400 hover:text-white transition-colors text-sm"
                         >
-                          {item.label}
+                          {t(item.labelKey as any)}
                         </Link>
                       </li>
                     ))}
@@ -158,23 +160,21 @@ export default function Footer() {
           {/* Column 3: Warehouse & Pickup Info */}
           <div className="lg:col-span-1">
             <h4 className="font-semibold mb-4 text-white/90 text-sm uppercase tracking-wide">
-              Warehouse & Pickup
+              {t('footer.warehousePickup')}
             </h4>
 
             {/* Address */}
             <div className="bg-white/5 rounded-xl p-4 mb-4">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[var(--sb-primary)]/20 flex items-center justify-center flex-shrink-0">
-                  <Warehouse className="w-4 h-4 text-[var(--sb-primary)]" />
-                </div>
+                <Warehouse className="w-4 h-4 text-[var(--sb-primary-light)] mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="font-medium text-white mb-1">StackBot Global Warehouse</p>
-                  <p className="text-gray-400 leading-relaxed">
-                    Calle Principal No. 1,
+                  <p className="font-medium text-white mb-1">{t('footer.warehouseAddress')}</p>
+                  <p className="text-gray-400">
+                    Calle Principal #25
                     <br />
-                    Esquina Calle El Administrador
+                    Villa Montellano
                     <br />
-                    Villa Montellano, Puerto Plata
+                    Puerto Plata, 57000
                     <br />
                     República Dominicana
                   </p>
@@ -185,12 +185,10 @@ export default function Footer() {
             {/* Business Hours */}
             <div className="bg-white/5 rounded-xl p-4 mb-4">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                  <Clock className="w-4 h-4 text-green-400" />
-                </div>
+                <Clock className="w-4 h-4 text-[var(--sb-primary-light)] mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="font-medium text-white mb-1">Business Hours</p>
-                  <p className="text-gray-400">Monday – Saturday</p>
+                  <p className="font-medium text-white mb-1">{t('footer.businessHours')}</p>
+                  <p className="text-gray-400">{t('footer.mondaySaturday')}</p>
                   <p className="text-white font-medium">9:00 AM – 6:00 PM AST</p>
                 </div>
               </div>
@@ -201,10 +199,9 @@ export default function Footer() {
               <div className="flex items-start gap-3">
                 <MapPin className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="font-medium text-amber-300 mb-1">Customer Pickup</p>
+                  <p className="font-medium text-amber-300 mb-1">{t('footer.customerPickup')}</p>
                   <p className="text-gray-400 text-xs leading-relaxed">
-                    Public warehouse pickup available during business hours. Valid ID and
-                    order number required.
+                    {t('footer.pickupNotice')}
                   </p>
                 </div>
               </div>
@@ -214,20 +211,20 @@ export default function Footer() {
           {/* Column 4: Policies & Legal */}
           <div className="lg:col-span-1">
             <h4 className="font-semibold mb-4 text-white/90 text-sm uppercase tracking-wide">
-              Policies & Legal
+              {t('footer.policiesLegal')}
             </h4>
 
             <ul className="space-y-2">
               {policyLinks.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <li key={item.label}>
+                  <li key={item.labelKey}>
                     <Link
                       href={item.href}
                       className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm py-1.5"
                     >
                       <Icon className="w-4 h-4 text-gray-500" />
-                      {item.label}
+                      {t(item.labelKey as any)}
                     </Link>
                   </li>
                 );
@@ -237,12 +234,10 @@ export default function Footer() {
             {/* Business Scope Summary */}
             <div className="mt-6 p-4 bg-white/5 rounded-xl">
               <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">
-                Our Services
+                {t('footer.ourServices')}
               </p>
               <p className="text-xs text-gray-400 leading-relaxed">
-                AI-powered logistics, warehousing, delivery coordination, e-commerce
-                marketplace, mobile platforms, import/export, and technology-enabled
-                business solutions.
+                {t('footer.servicesDescription')}
               </p>
             </div>
 
@@ -252,13 +247,13 @@ export default function Footer() {
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <span className="inline-flex items-center gap-1 bg-white/5 px-2 py-1 rounded">
                   <span className="font-medium">RD$</span>
-                  <span>Dominican Peso</span>
+                  <span>{t('footer.dominicanPeso')}</span>
                 </span>
               </div>
 
               {/* Payment Methods */}
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500">We accept:</span>
+                <span className="text-xs text-gray-500">{t('footer.weAccept')}:</span>
                 <div className="flex items-center gap-2">
                   {/* Visa */}
                   <div className="bg-white rounded px-2 py-1">
@@ -298,7 +293,7 @@ export default function Footer() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             {/* Copyright */}
             <p className="text-gray-500 text-sm text-center sm:text-left">
-              © {currentYear} StackBot Global, S.R.L. All rights reserved.
+              © {currentYear} StackBot Global, S.R.L. {t('footer.allRightsReserved')}.
             </p>
 
             {/* Social Links */}
