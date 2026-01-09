@@ -734,7 +734,6 @@ export const translations = {
 
     // Traveler Section
     'traveler.badge': 'Para Viajeros',
-    'traveler.title': 'Explora Como un Local',
     'traveler.subtitle': 'Ya sea que visites por negocios o placer, StackBot te conecta con experiencias locales auténticas, servicios confiables y joyas ocultas.',
     'traveler.localGuides': 'Guías Locales',
     'traveler.localGuidesDesc': 'Descubre experiencias auténticas curadas por locales',
