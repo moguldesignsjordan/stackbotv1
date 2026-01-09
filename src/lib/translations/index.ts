@@ -364,7 +364,6 @@ export const translations = {
     'onboarding.step3Desc': 'Real-time tracking to your door',
 
     // Traveler
-    'traveler.title': 'Your Caribbean Adventure Starts Here',
     'traveler.description': 'Discover authentic local experiences, book tours, find the best restaurants, and navigate with ease. StackBot is your essential travel companion across the islands.',
     'traveler.bullet1': 'Curated local experiences and hidden gems',
     'traveler.bullet2': 'Real-time translations and local guides',
