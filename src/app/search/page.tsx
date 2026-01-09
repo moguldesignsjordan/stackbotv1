@@ -7,7 +7,13 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { db } from "@/lib/firebase/config";
-import { collection, getDocs } from "firebase/firestore";
+import { 
+  collection, 
+  getDocs, 
+  query, 
+  where, 
+  collectionGroup 
+} from "firebase/firestore";
 import {
   Search,
   Store,
@@ -17,6 +23,7 @@ import {
   MapPin,
   CheckCircle2,
   Sparkles,
+  Loader2
 } from "lucide-react";
 
 /* ======================================================
@@ -33,6 +40,7 @@ type Vendor = {
   category?: string;
   categories?: string[];
   logoUrl?: string;
+  logo_url?: string; // Handle both cases
   cover_image_url?: string;
   rating?: number;
   featured?: boolean;
@@ -52,8 +60,9 @@ type Product = {
   price?: number;
   images?: string[];
   active?: boolean;
-  vendorId: string;
-  vendorSlug: string;
+  vendorId?: string;
+  vendorSlug?: string;
+  vendor_slug?: string; // Handle both cases
   vendor_name?: string;
 };
 
@@ -96,12 +105,15 @@ function SearchLoadingState() {
 }
 
 /* ======================================================
-   SEARCH LOGIC
+   SEARCH LOGIC (OPTIMIZED)
 ====================================================== */
 
 function SearchPageInner() {
   const searchParams = useSearchParams();
-  const searchQuery = searchParams.get("q") || "";
+  const rawQuery = searchParams.get("q") || "";
+  
+  // Normalize query for better matching
+  const searchQuery = rawQuery.trim().toLowerCase();
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -109,7 +121,7 @@ function SearchPageInner() {
 
   useEffect(() => {
     const runSearch = async () => {
-      if (!searchQuery.trim()) {
+      if (!searchQuery) {
         setVendors([]);
         setProducts([]);
         setLoading(false);
@@ -119,66 +131,63 @@ function SearchPageInner() {
       setLoading(true);
 
       try {
-        /* ---------------- Vendors ---------------- */
+        // 1. Search Vendors (Client-side filtering for flexibility on small datasets)
+        // Note: For large datasets, use Algolia or multiple Firestore 'where' queries
+        const vendorsPromise = getDocs(collection(db, "vendors"));
 
-        const vendorsSnap = await getDocs(collection(db, "vendors"));
+        // 2. Search Products (Global search across all vendors)
+        // We fetch products that might match, then filter strictly in JS
+        const productsQuery = query(
+          collectionGroup(db, "products"),
+          // Simple optimization: only get items that are likely matches 
+          // Note: This 'starts with' query requires case-sensitive match in Firestore usually
+          where("active", "!=", false) 
+        );
+        const productsPromise = getDocs(productsQuery);
 
-        const matchedVendors: Vendor[] = vendorsSnap.docs
-          .map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Vendor, "id">),
-          }))
+        const [vendorsSnap, productsSnap] = await Promise.all([
+          vendorsPromise,
+          productsPromise
+        ]);
+
+        /* ---------------- Process Vendors ---------------- */
+        const matchedVendors = vendorsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Vendor))
           .filter((v) => {
-            const q = searchQuery.toLowerCase();
-            return (
-              (v.name || v.business_name || "").toLowerCase().includes(q) ||
-              (v.description || v.business_description || "")
-                .toLowerCase()
-                .includes(q) ||
-              (v.category || v.categories?.[0] || "")
-                .toLowerCase()
-                .includes(q)
-            );
+             // Search in name, description, and categories
+             const name = (v.name || v.business_name || "").toLowerCase();
+             const desc = (v.description || v.business_description || "").toLowerCase();
+             const cat = (v.category || v.categories?.join(" ") || "").toLowerCase();
+             
+             return name.includes(searchQuery) || desc.includes(searchQuery) || cat.includes(searchQuery);
           });
 
         setVendors(matchedVendors);
 
-        /* ---------------- Products ---------------- */
-
-        const collectedProducts: Product[] = [];
-
-        for (const vendor of matchedVendors.slice(0, 5)) {
-          const productsSnap = await getDocs(
-            collection(db, "vendors", vendor.id, "products")
-          );
-
-          productsSnap.docs.forEach((d) => {
-            const data = d.data() as any;
-
-            if (data.active === false) return;
-
-            collectedProducts.push({
+        /* ---------------- Process Products ---------------- */
+        const matchedProducts = productsSnap.docs
+          .map((d) => {
+            const data = d.data();
+            return {
               id: d.id,
               ...data,
-              vendorId: vendor.id,
-              vendorSlug: vendor.slug || vendor.id,
-              vendor_name: vendor.name || vendor.business_name,
-            });
+              // Fallback for vendor info if missing on product doc
+              vendorId: data.vendorId || d.ref.parent.parent?.id, 
+            } as Product;
+          })
+          .filter((p) => {
+            const name = (p.name || "").toLowerCase();
+            const desc = (p.description || "").toLowerCase();
+            return name.includes(searchQuery) || desc.includes(searchQuery);
           });
-        }
 
-        setProducts(
-          collectedProducts.filter((p) =>
-            (p.name || p.description || "")
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase())
-          )
-        );
+        setProducts(matchedProducts);
+
       } catch (err) {
         console.error("Search error:", err);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     runSearch();
@@ -187,23 +196,24 @@ function SearchPageInner() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
+      <div className="bg-white border-b sticky top-0 z-30 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/" className="p-2 hover:bg-gray-100 rounded-xl">
-            <ArrowLeft className="w-5 h-5" />
+          <Link href="/" className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
           </Link>
 
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <div className="flex-1 relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-purple-500 transition-colors" />
             <input
-              defaultValue={searchQuery}
-              placeholder="Search vendors, products..."
-              className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500/20 outline-none"
+              defaultValue={rawQuery}
+              placeholder="Search for food, services, or vendors..."
+              className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500/20 outline-none transition-all"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  window.location.href = `/search?q=${encodeURIComponent(
-                    (e.target as HTMLInputElement).value
-                  )}`;
+                  const val = (e.target as HTMLInputElement).value;
+                  if (val.trim()) {
+                     window.location.href = `/search?q=${encodeURIComponent(val.trim())}`;
+                  }
                 }
               }}
             />
@@ -212,13 +222,16 @@ function SearchPageInner() {
       </div>
 
       {/* Results */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8 min-h-[60vh]">
         {!searchQuery ? (
           <EmptySearch />
         ) : loading ? (
-          <SearchLoadingState />
+          <div className="flex flex-col items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 text-purple-600 animate-spin mb-4" />
+            <p className="text-gray-500 font-medium">Searching marketplace...</p>
+          </div>
         ) : (
-          <Results vendors={vendors} products={products} query={searchQuery} />
+          <Results vendors={vendors} products={products} query={rawQuery} />
         )}
       </div>
     </div>
@@ -231,10 +244,10 @@ function SearchPageInner() {
 
 function EmptySearch() {
   return (
-    <div className="text-center py-20">
-      <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-      <h2 className="text-xl font-semibold text-gray-700">
-        Search for vendors and products
+    <div className="text-center py-20 opacity-50">
+      <Search className="w-16 h-16 mx-auto mb-4" />
+      <h2 className="text-xl font-semibold">
+        Type to search...
       </h2>
     </div>
   );
@@ -251,23 +264,32 @@ function Results({
 }) {
   if (!vendors.length && !products.length) {
     return (
-      <div className="text-center py-20">
-        <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-gray-700">
-          No results for "{query}"
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+          <Search className="w-10 h-10 text-gray-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          No matches found
         </h2>
+        <p className="text-gray-500 max-w-md">
+          We couldn't find any vendors or products matching "{query}". Try checking your spelling or using a different keyword.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12 animate-in fade-in duration-500">
+      {/* VENDORS SECTION */}
       {vendors.length > 0 && (
         <section>
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-2">
             <Store className="w-5 h-5 text-purple-600" />
-            Vendors
-          </h2>
+            <h2 className="text-xl font-bold text-gray-900">Vendors</h2>
+            <span className="ml-auto text-xs font-semibold bg-gray-100 px-2 py-1 rounded-full text-gray-600">
+              {vendors.length}
+            </span>
+          </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {vendors.map((v) => (
               <VendorCard key={v.id} vendor={v} />
@@ -276,13 +298,17 @@ function Results({
         </section>
       )}
 
+      {/* PRODUCTS SECTION */}
       {products.length > 0 && (
         <section>
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-2">
             <Package className="w-5 h-5 text-purple-600" />
-            Products
-          </h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <h2 className="text-xl font-bold text-gray-900">Products & Services</h2>
+            <span className="ml-auto text-xs font-semibold bg-gray-100 px-2 py-1 rounded-full text-gray-600">
+              {products.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
             {products.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
@@ -294,7 +320,7 @@ function Results({
 }
 
 /* ======================================================
-   VENDOR CARD (Matching Homepage Design)
+   VENDOR CARD
 ====================================================== */
 
 function VendorCard({ vendor }: { vendor: Vendor }) {
@@ -303,97 +329,85 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   const description = vendor.business_description || vendor.description;
   const category = vendor.category || vendor.categories?.[0];
   
-  // Build location string
-  const locationParts = [
-    vendor.address,
-    vendor.city,
-    vendor.state,
-    vendor.zip,
-  ].filter(Boolean);
-  const locationString = vendor.location || locationParts.join(", ");
+  // Clean location string
+  const locationParts = [vendor.address, vendor.city].filter(Boolean);
+  const locationString = vendor.location || (locationParts.length > 0 ? locationParts.join(", ") : null);
 
-  // Use cover image as background, or logo, or fallback to gradient
-  const hasBackgroundImage = vendor.cover_image_url || vendor.logoUrl;
+  const hasImage = vendor.cover_image_url || vendor.logoUrl || vendor.logo_url;
 
   return (
-    <Link href={link} className="block group">
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300 hover:-translate-y-1">
-        {/* Image/Logo Section */}
-        <div className="relative aspect-[4/3] bg-gradient-to-br from-purple-600 to-purple-700 flex items-center justify-center overflow-hidden">
-          {/* Background Image (cover or logo) */}
-          {hasBackgroundImage && (
+    <Link href={link} className="block group h-full">
+      <div className="bg-white h-full rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-purple-500/5 transition-all duration-300 hover:-translate-y-1 flex flex-col">
+        {/* Image Section */}
+        <div className="relative aspect-[16/9] bg-gray-100 overflow-hidden">
+          {hasImage ? (
             <Image
-              src={vendor.cover_image_url || vendor.logoUrl || ""}
+              src={hasImage}
               alt={displayName}
               fill
-              className="object-cover"
+              className="object-cover transition-transform duration-500 group-hover:scale-105"
             />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-purple-50">
+              <Store className="w-12 h-12 text-purple-200" />
+            </div>
           )}
 
           {/* Featured Badge */}
           {vendor.featured && (
             <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-sm font-medium text-purple-700 shadow-sm">
-                <Sparkles className="w-4 h-4" />
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/95 backdrop-blur-sm rounded-full text-[10px] font-bold uppercase tracking-wider text-purple-700 shadow-sm">
+                <Sparkles className="w-3 h-3" />
                 Featured
               </span>
-            </div>
-          )}
-
-          {/* Centered Logo (only show if no background image, or as overlay) */}
-          {!hasBackgroundImage && (
-            <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center">
-              <Store className="w-12 h-12 text-white/60" />
             </div>
           )}
         </div>
 
         {/* Content Section */}
-        <div className="p-4 space-y-3">
-          {/* Name & Verified Badge */}
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-gray-900 text-lg leading-tight group-hover:text-purple-700 transition-colors">
+        <div className="p-5 flex-1 flex flex-col">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <h3 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-purple-700 transition-colors line-clamp-1">
               {displayName}
             </h3>
             {vendor.verified && (
-              <CheckCircle2 className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-blue-500 flex-shrink-0" />
             )}
           </div>
 
-          {/* Description */}
-          {description && (
-            <p className="text-gray-600 text-sm line-clamp-2">{description}</p>
-          )}
-
-          {/* Category & New Badge Row */}
-          <div className="flex items-center justify-between gap-2">
-            {category && (
-              <span className="inline-flex px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">
+          {category && (
+            <div className="mb-3">
+              <span className="inline-block px-2.5 py-0.5 bg-gray-100 text-gray-600 text-xs font-semibold rounded-md">
                 {category}
               </span>
+            </div>
+          )}
+
+          {description && (
+            <p className="text-gray-500 text-sm line-clamp-2 mb-4 flex-1">
+              {description}
+            </p>
+          )}
+
+          <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
+            {vendor.rating ? (
+               <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg">
+                <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                <span className="text-xs font-bold text-yellow-700">
+                  {vendor.rating.toFixed(1)}
+                </span>
+              </div>
+            ) : (
+              <span className="text-xs text-gray-400 font-medium">New</span>
             )}
-            {vendor.isNew && (
-              <span className="text-sm text-gray-400 font-medium">New</span>
+
+            {locationString && (
+              <div className="flex items-center gap-1 text-gray-400 text-xs">
+                <MapPin className="w-3.5 h-3.5" />
+                <span className="max-w-[100px] truncate">{locationString}</span>
+              </div>
             )}
           </div>
-
-          {/* Location */}
-          {locationString && (
-            <div className="flex items-center gap-1.5 text-gray-500 text-sm">
-              <MapPin className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{locationString}</span>
-            </div>
-          )}
-
-          {/* Rating (if exists) */}
-          {vendor.rating && vendor.rating > 0 && (
-            <div className="flex items-center gap-1 text-sm">
-              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span className="font-medium text-gray-700">
-                {vendor.rating.toFixed(1)}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </Link>
@@ -405,32 +419,49 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
 ====================================================== */
 
 function ProductCard({ product }: { product: Product }) {
-  const link = `/store/${product.vendorSlug}/product/${product.id}`;
+  // Safe link generation
+  const vendorSlug = product.vendorSlug || product.vendor_slug || product.vendorId;
+  const link = vendorSlug 
+    ? `/store/${vendorSlug}/product/${product.id}` 
+    : '#';
+
+  const price = typeof product.price === 'number' ? product.price : parseFloat(product.price || '0');
 
   return (
-    <Link href={link}>
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-        <div className="relative aspect-square bg-gray-100">
+    <Link href={link} className="block group h-full">
+      <div className="bg-white h-full rounded-2xl border border-gray-100 overflow-hidden hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300 hover:-translate-y-1 flex flex-col">
+        <div className="relative aspect-square bg-gray-50 overflow-hidden">
           {product.images?.[0] ? (
             <Image
               src={product.images[0]}
               alt={product.name || "Product"}
               fill
-              className="object-cover"
+              className="object-cover transition-transform duration-500 group-hover:scale-110"
             />
           ) : (
             <div className="flex items-center justify-center h-full">
               <Package className="w-10 h-10 text-gray-300" />
             </div>
           )}
+          
+          {/* Add Cart Button Overlay could go here */}
         </div>
-        <div className="p-3">
-          <h3 className="font-medium text-sm text-gray-900 line-clamp-2">
+        
+        <div className="p-4 flex-1 flex flex-col">
+          <div className="mb-1 text-xs text-gray-400 font-medium truncate">
+            {product.vendor_name || "Available Now"}
+          </div>
+          <h3 className="font-semibold text-gray-900 line-clamp-2 mb-2 group-hover:text-purple-700 transition-colors">
             {product.name}
           </h3>
-          <p className="text-purple-600 font-bold mt-1">
-            ${Number(product.price || 0).toFixed(2)}
-          </p>
+          <div className="mt-auto flex items-center justify-between">
+            <p className="text-lg font-bold text-gray-900">
+              ${price.toFixed(2)}
+            </p>
+            <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-purple-100 group-hover:text-purple-600 transition-colors">
+              <ArrowLeft className="w-4 h-4 rotate-180" />
+            </div>
+          </div>
         </div>
       </div>
     </Link>
