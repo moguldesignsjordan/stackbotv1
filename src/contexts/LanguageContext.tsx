@@ -79,7 +79,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const t = useCallback(
     (key: TranslationKey, replacements?: Record<string, string | number>): string => {
       const dict = translations[language];
-      let text = dict[key] || translations.en[key] || key;
+      
+      // FIX APPLIED HERE: Explicitly typed as string to allow .replace()
+      let text: string = dict[key] || translations.en[key] || key;
 
       // Replace placeholders like {count}, {name}, etc.
       if (replacements) {
