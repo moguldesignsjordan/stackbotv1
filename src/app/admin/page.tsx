@@ -83,7 +83,6 @@ export default function AdminDashboard() {
           }))
         );
 
-        // Fixed: Use createdAt instead of timestamp
         const roSnap = await getDocs(
           query(
             collection(db, "orders"),
@@ -110,15 +109,17 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-5 md:space-y-8 animate-fade-in pb-24 lg:pb-0">
-      {/* Header Section - Mobile Optimized */}
+      {/* Header Section */}
       <header className="space-y-4">
         <div>
           <p className="text-xs font-semibold text-sb-muted tracking-widest uppercase">
             Overview
           </p>
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 tracking-tight mt-1">
-            Dashboard
-          </h1>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-1">
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 tracking-tight">
+              Dashboard
+            </h1>
+          </div>
         </div>
 
         {/* Pending Alert Banner - Full width tap target */}
@@ -170,14 +171,6 @@ export default function AdminDashboard() {
           value={`$${stats.revenue.toLocaleString()}`}
           color="violet"
         />
-      </div>
-
-      {/* Quick Actions - Horizontal scroll on mobile */}
-      <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:hidden scrollbar-hide snap-x snap-mandatory">
-        <QuickAction href="/admin/vendors" icon={<Store className="h-5 w-5" />} label="Vendors" />
-        <QuickAction href="/admin/orders" icon={<Package className="h-5 w-5" />} label="Orders" />
-        <QuickAction href="/admin/customers" icon={<Users className="h-5 w-5" />} label="Customers" />
-        <QuickAction href="/admin/analytics" icon={<TrendingUp className="h-5 w-5" />} label="Analytics" />
       </div>
 
       {/* Pending Vendors - Horizontal scroll cards on mobile */}
@@ -361,26 +354,6 @@ function StatCard({ icon, label, value, highlight, color }: StatCardProps) {
       {/* Decorative element */}
       <div className={`absolute -right-6 -bottom-6 w-20 h-20 rounded-full ${colors.light} opacity-50`} />
     </div>
-  );
-}
-
-function QuickAction({
-  href,
-  icon,
-  label,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex-shrink-0 flex flex-col items-center justify-center gap-2 p-4 bg-white border border-gray-100 rounded-2xl min-w-[80px] active:scale-95 active:bg-gray-50 transition-all snap-start"
-    >
-      <div className="text-sb-primary">{icon}</div>
-      <span className="text-xs font-medium text-gray-700">{label}</span>
-    </Link>
   );
 }
 
