@@ -52,10 +52,11 @@ export default function RevenuePage() {
         )
       );
 
+      // FIX: Added 'as any[]' to prevent TypeScript errors
       const orderData = ordersSnap.docs.map(d => ({
         id: d.id,
         ...d.data()
-      }));
+      })) as any[];
 
       setOrders(orderData);
 
