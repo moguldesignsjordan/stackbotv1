@@ -28,6 +28,8 @@ import {
   Store,
   Loader2,
   ShoppingBag,
+  ArrowUpDown,
+  Check,
 } from "lucide-react";
 
 /* ======================================================
@@ -46,7 +48,7 @@ function ProductsPageLoading() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 pt-16 pb-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 bg-gray-200 rounded-xl animate-pulse" />
             <div className="flex-1">
@@ -57,7 +59,7 @@ function ProductsPageLoading() {
           <div className="h-12 bg-gray-200 rounded-xl animate-pulse" />
         </div>
       </header>
-      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <ProductSkeleton key={i} />
@@ -97,15 +99,27 @@ interface Product {
   created_at?: any;
 }
 
-type SortOption = "newest" | "price-low" | "price-high" | "name-az" | "name-za";
+type SortOption = 
+  | "newest" 
+  | "oldest" 
+  | "price-low" 
+  | "price-high" 
+  | "name-az" 
+  | "name-za"
+  | "vendor-az"
+  | "vendor-za";
+
 type ViewMode = "grid" | "list";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: "newest", label: "Newest First" },
+  { value: "newest", label: "Newest Arrivals" },
+  { value: "oldest", label: "Oldest Items" },
   { value: "price-low", label: "Price: Low to High" },
   { value: "price-high", label: "Price: High to Low" },
   { value: "name-az", label: "Name: A-Z" },
   { value: "name-za", label: "Name: Z-A" },
+  { value: "vendor-az", label: "Store: A-Z" },
+  { value: "vendor-za", label: "Store: Z-A" },
 ];
 
 const CATEGORIES = ["All", ...VENDOR_CATEGORIES];
@@ -130,26 +144,22 @@ function ProductsPage() {
   const [sortBy, setSortBy] = useState<SortOption>((searchParams.get("sort") as SortOption) || "newest");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [showFilters, setShowFilters] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false); // New state for quick sort menu
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000]);
 
-  /* ---------------- FETCH VENDORS (FIXED) ---------------- */
+  /* ---------------- FETCH VENDORS ---------------- */
   const fetchVendors = useCallback(async () => {
     const vendorMap = new Map<string, Vendor>();
 
     try {
-      // Run queries in parallel for speed
       const [approvedSnap, verifiedSnap] = await Promise.all([
         getDocs(query(collection(db, "vendors"), where("status", "==", "approved"))),
         getDocs(query(collection(db, "vendors"), where("verified", "==", true))),
       ]);
 
-      // Helper to process docs
       const processDoc = (doc: any) => {
         const data = doc.data();
-        // Prevent adding suspended/deleted vendors
         if (data.status === "suspended" || data.status === "rejected") return;
-        
-        // Add if not already present (approved takes precedence usually, but map handles duplicates by key)
         if (!vendorMap.has(doc.id)) {
           vendorMap.set(doc.id, { id: doc.id, ...data } as Vendor);
         }
@@ -157,7 +167,6 @@ function ProductsPage() {
 
       approvedSnap.docs.forEach(processDoc);
       verifiedSnap.docs.forEach(processDoc);
-      
     } catch (err) {
       console.error("Error fetching vendors:", err);
     }
@@ -172,7 +181,6 @@ function ProductsPage() {
       const allProducts: Product[] = [];
       const vendorIds = Array.from(vendorMap.keys());
 
-      // Fetch products from each vendor in parallel
       const productPromises = vendorIds.map(async (vendorId) => {
         const vendor = vendorMap.get(vendorId);
         if (!vendor) return [];
@@ -185,7 +193,6 @@ function ProductsPage() {
           return productsSnap.docs
             .map((d) => {
               const data = d.data();
-              // Only exclude if explicitly inactive
               if (data.active === false) return null;
 
               return {
@@ -245,7 +252,6 @@ function ProductsPage() {
     if (selectedCategory !== "All") {
       result = result.filter((p) => {
         const vendor = vendors.get(p.vendorId);
-        // Check vendor categories first, then product category if available
         return vendorMatchesCategory(
           vendor?.category,
           vendor?.categories,
@@ -260,6 +266,8 @@ function ProductsPage() {
     );
 
     // Sort
+    const getTime = (p: Product) => p.created_at?.toMillis?.() || p.created_at?.seconds * 1000 || 0;
+
     switch (sortBy) {
       case "price-low":
         result.sort((a, b) => (a.price || 0) - (b.price || 0));
@@ -273,13 +281,18 @@ function ProductsPage() {
       case "name-za":
         result.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
         break;
+      case "vendor-az":
+        result.sort((a, b) => (a.vendor_name || "").localeCompare(b.vendor_name || ""));
+        break;
+      case "vendor-za":
+        result.sort((a, b) => (b.vendor_name || "").localeCompare(a.vendor_name || ""));
+        break;
+      case "oldest":
+        result.sort((a, b) => getTime(a) - getTime(b));
+        break;
       case "newest":
       default:
-        result.sort((a, b) => {
-          const aTime = a.created_at?.toMillis?.() || a.created_at?.seconds * 1000 || 0;
-          const bTime = b.created_at?.toMillis?.() || b.created_at?.seconds * 1000 || 0;
-          return bTime - aTime;
-        });
+        result.sort((a, b) => getTime(b) - getTime(a));
         break;
     }
 
@@ -309,6 +322,11 @@ function ProductsPage() {
     setShowFilters(false);
   };
 
+  const handleSortChange = (newSort: SortOption) => {
+    setSortBy(newSort);
+    setShowSortMenu(false);
+  };
+
   const clearFilters = () => {
     setSearchQuery("");
     setActiveSearch("");
@@ -321,9 +339,17 @@ function ProductsPage() {
   const hasActiveFilters = !!activeSearch || selectedCategory !== "All" || sortBy !== "newest";
 
   return (
-    // Flex-col + min-h-screen ensures footer pushes to bottom
     <div className="min-h-screen flex flex-col bg-gray-50 pb-safe">
       <style jsx global>{`
+        :root {
+          --sb-primary: #55529d;
+          --sb-primary-light: #7c78c9;
+          --sb-primary-dark: #433f7a;
+          --sb-accent: #f97316;
+          --sb-accent-light: #fb923c;
+          --sb-dark: #1a1a2e;
+          --sb-success: #10b981;
+        }
         @keyframes slide-up {
           from { transform: translateY(100%); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
@@ -335,7 +361,8 @@ function ProductsPage() {
 
       {/* STICKY HEADER */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm transition-all duration-200">
-        <div className="max-w-7xl mx-auto px-4 py-3 lg:py-4">
+        {/* ADDED: pt-16 (64px) here creates space above 'All Products' */}
+        <div className="max-w-7xl mx-auto px-4 pt-16 pb-4">
           <div className="flex items-center gap-3 lg:gap-4 mb-3">
             <Link
               href="/"
@@ -377,7 +404,6 @@ function ProductsPage() {
           {/* Search Bar */}
           <form onSubmit={handleSearch} className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-            {/* text-base prevents iOS zoom */}
             <input
               type="text"
               placeholder="Search products..."
@@ -400,11 +426,13 @@ function ProductsPage() {
             )}
           </form>
 
-          {/* Filters Row */}
-          <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide">
+          {/* Filters & Sort Row */}
+          <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide relative">
+            
+            {/* Filter Button */}
             <button
               onClick={() => setShowFilters(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border flex-shrink-0 ${
                 hasActiveFilters
                   ? "bg-purple-50 text-purple-700 border-purple-100"
                   : "bg-white text-gray-700 border-gray-200"
@@ -419,11 +447,52 @@ function ProductsPage() {
               )}
             </button>
 
+            {/* NEW: Quick Sort Dropdown */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => setShowSortMenu(!showSortMenu)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border ${
+                  sortBy !== "newest"
+                    ? "bg-purple-50 text-purple-700 border-purple-100"
+                    : "bg-white text-gray-700 border-gray-200"
+                }`}
+              >
+                <ArrowUpDown className="w-4 h-4" />
+                Sort: {SORT_OPTIONS.find(o => o.value === sortBy)?.label.split(':')[0]}
+              </button>
+
+              {/* Sort Menu Dropdown */}
+              {showSortMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowSortMenu(false)} />
+                  <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-20 py-2 overflow-hidden animate-slide-up origin-top-left">
+                    {SORT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => handleSortChange(option.value)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors text-left"
+                      >
+                        <span className={sortBy === option.value ? "text-purple-600 font-medium" : "text-gray-700"}>
+                          {option.label}
+                        </span>
+                        {sortBy === option.value && (
+                          <Check className="w-4 h-4 text-purple-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="w-px h-6 bg-gray-200 mx-1 flex-shrink-0" />
+
+            {/* Categories */}
             {CATEGORIES.slice(0, 5).map((category) => (
               <button
                 key={category}
                 onClick={() => handleCategoryChange(category)}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border ${
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors border flex-shrink-0 ${
                   selectedCategory === category
                     ? "bg-purple-600 text-white border-purple-600"
                     : "bg-white text-gray-700 border-gray-200 hover:border-purple-200"
@@ -436,8 +505,8 @@ function ProductsPage() {
         </div>
       </header>
 
-      {/* CONTENT AREA (Flex-1 fills remaining space) */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
+      {/* CONTENT AREA */}
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
         
         {/* Active Filter Chips */}
         {hasActiveFilters && (
@@ -514,7 +583,7 @@ function ProductsPage() {
           sortBy={sortBy}
           priceRange={priceRange}
           onCategoryChange={handleCategoryChange}
-          onSortChange={(val) => setSortBy(val)}
+          onSortChange={handleSortChange}
           onPriceChange={setPriceRange}
           onClose={() => setShowFilters(false)}
           onClear={clearFilters}
