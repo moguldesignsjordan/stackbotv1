@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { db } from "@/lib/firebase/config";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import {
   Store,
   ArrowLeft,
@@ -15,6 +15,7 @@ import {
   Search,
   SlidersHorizontal,
   X,
+  Filter,
 } from "lucide-react";
 
 /* ======================================================
@@ -54,7 +55,10 @@ type SortOption = "newest" | "alphabetical" | "rating";
 ====================================================== */
 
 function extractAddressString(
-  value: string | { location_address?: string; lat?: number; lng?: number } | undefined
+  value:
+    | string
+    | { location_address?: string; lat?: number; lng?: number }
+    | undefined
 ): string {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -76,12 +80,12 @@ export default function VendorsPage() {
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [showFilters, setShowFilters] = useState(false);
 
-  /* ---------------- Fetch All Approved Vendors ---------------- */
+  /* ---------------- Fetch All Vendors (Fixed Logic) ---------------- */
   useEffect(() => {
     const fetchVendors = async () => {
       setLoading(true);
       try {
-        // Try status-based query first (modern vendors)
+        // 1. Fetch vendors with status="approved"
         const approvedQuery = query(
           collection(db, "vendors"),
           where("status", "==", "approved")
@@ -93,28 +97,26 @@ export default function VendorsPage() {
           ...(d.data() as Omit<Vendor, "id">),
         }));
 
-        // Also fetch legacy verified vendors if status-based returned few results
-        if (allVendors.length < 5) {
-          const legacyQuery = query(
-            collection(db, "vendors"),
-            where("verified", "==", true)
+        // 2. ALWAYS fetch legacy verified vendors to ensure full list
+        const legacyQuery = query(
+          collection(db, "vendors"),
+          where("verified", "==", true)
+        );
+        const legacySnap = await getDocs(legacyQuery);
+
+        const legacyVendors = legacySnap.docs
+          .map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<Vendor, "id">),
+          }))
+          .filter(
+            (v) =>
+              v.status !== "suspended" &&
+              v.status !== "rejected" &&
+              !allVendors.find((av) => av.id === v.id)
           );
-          const legacySnap = await getDocs(legacyQuery);
 
-          const legacyVendors = legacySnap.docs
-            .map((d) => ({
-              id: d.id,
-              ...(d.data() as Omit<Vendor, "id">),
-            }))
-            .filter(
-              (v) =>
-                v.status !== "suspended" &&
-                v.status !== "rejected" &&
-                !allVendors.find((av) => av.id === v.id)
-            );
-
-          allVendors = [...allVendors, ...legacyVendors];
-        }
+        allVendors = [...allVendors, ...legacyVendors];
 
         setVendors(allVendors);
       } catch (err) {
@@ -147,7 +149,9 @@ export default function VendorsPage() {
       result = result.filter(
         (v) =>
           (v.name || v.business_name || "").toLowerCase().includes(q) ||
-          (v.description || v.business_description || "").toLowerCase().includes(q) ||
+          (v.description || v.business_description || "")
+            .toLowerCase()
+            .includes(q) ||
           (v.category || v.categories?.[0] || "").toLowerCase().includes(q)
       );
     }
@@ -189,137 +193,161 @@ export default function VendorsPage() {
     return result;
   }, [vendors, searchTerm, selectedCategory, sortBy]);
 
+  const activeFiltersCount =
+    (selectedCategory !== "all" ? 1 : 0) + (searchTerm ? 1 : 0);
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-gray-50 pb-safe">
+      {/* Sticky Header */}
+      <div className="bg-white border-b sticky top-0 z-30 shadow-sm transition-all duration-200">
+        <div className="max-w-6xl mx-auto px-4 py-3 lg:py-4">
+          <div className="flex items-center gap-3 lg:gap-4">
             <Link
               href="/"
-              className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              className="p-2 -ml-2 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-5 h-5 text-gray-700" />
             </Link>
 
-            <div className="flex-1">
-              <h1 className="text-xl font-bold text-gray-900">All Vendors</h1>
-              <p className="text-sm text-gray-500">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg lg:text-xl font-bold text-gray-900 truncate">
+                All Vendors
+              </h1>
+              <p className="text-xs lg:text-sm text-gray-500 truncate">
                 {loading
                   ? "Loading..."
-                  : `${filteredVendors.length} vendor${
+                  : `${filteredVendors.length} store${
                       filteredVendors.length !== 1 ? "s" : ""
-                    }`}
+                    } available`}
               </p>
             </div>
 
             {/* Mobile Filter Toggle */}
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors relative"
+              className={`lg:hidden p-2.5 rounded-xl transition-all active:scale-95 relative ${
+                showFilters || activeFiltersCount > 0
+                  ? "bg-purple-50 text-purple-600"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
             >
-              <SlidersHorizontal className="w-5 h-5" />
-              {(selectedCategory !== "all" || searchTerm) && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-purple-600 rounded-full" />
+              {showFilters ? (
+                <X className="w-5 h-5" />
+              ) : (
+                <SlidersHorizontal className="w-5 h-5" />
+              )}
+              {!showFilters && activeFiltersCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white">
+                  {activeFiltersCount}
+                </span>
               )}
             </button>
           </div>
 
-          {/* Search Bar */}
-          <div className="mt-4 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search vendors..."
-              className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500/20 outline-none transition-all"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm("")}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded-full"
+          {/* Search Bar & Desktop Filters Row */}
+          <div className="mt-3 flex flex-col lg:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search stores & services..."
+                className="w-full pl-11 pr-10 py-3 bg-gray-100/80 border-transparent focus:bg-white border focus:border-purple-500/50 rounded-xl text-base outline-none transition-all placeholder:text-gray-500"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 bg-gray-200/50 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Desktop Filters (Hidden on Mobile) */}
+            <div className="hidden lg:flex items-center gap-3">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-4 py-3 bg-gray-100 hover:bg-gray-200/70 border-r-[12px] border-transparent rounded-xl text-sm font-medium focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer transition-colors"
               >
-                <X className="w-4 h-4 text-gray-400" />
-              </button>
-            )}
+                <option value="all">All Categories</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="px-4 py-3 bg-gray-100 hover:bg-gray-200/70 border-r-[12px] border-transparent rounded-xl text-sm font-medium focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer transition-colors"
+              >
+                <option value="newest">Newest</option>
+                <option value="alphabetical">Name (A-Z)</option>
+                <option value="rating">Top Rated</option>
+              </select>
+
+              {(selectedCategory !== "all" || searchTerm) && (
+                <button
+                  onClick={() => {
+                    setSelectedCategory("all");
+                    setSearchTerm("");
+                  }}
+                  className="px-4 py-3 text-sm font-semibold text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors whitespace-nowrap"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Desktop Filters */}
-          <div className="hidden lg:flex items-center gap-4 mt-4">
-            {/* Category Filter */}
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-4 py-2 bg-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
-            >
-              <option value="all">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-
-            {/* Sort */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
-              className="px-4 py-2 bg-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
-            >
-              <option value="newest">Newest First</option>
-              <option value="alphabetical">A-Z</option>
-              <option value="rating">Top Rated</option>
-            </select>
-
-            {/* Clear Filters */}
-            {(selectedCategory !== "all" || searchTerm) && (
-              <button
-                onClick={() => {
-                  setSelectedCategory("all");
-                  setSearchTerm("");
-                }}
-                className="px-4 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-xl transition-colors"
-              >
-                Clear Filters
-              </button>
-            )}
-          </div>
-
-          {/* Mobile Filters Panel */}
-          {showFilters && (
-            <div className="lg:hidden mt-4 p-4 bg-gray-50 rounded-xl space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+          {/* Mobile Filters Drawer (Collapsible) */}
+          <div
+            className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+              showFilters ? "max-h-[300px] opacity-100 mt-4" : "max-h-0 opacity-0"
+            }`}
+          >
+            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4 shadow-inner">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">
                   Category
                 </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
-                >
-                  <option value="all">All Categories</option>
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full pl-4 pr-10 py-3 bg-white border border-gray-200 rounded-xl text-base focus:ring-2 focus:ring-purple-500/20 outline-none appearance-none"
+                  >
+                    <option value="all">All Categories</option>
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <Filter className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">
                   Sort By
                 </label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
-                >
-                  <option value="newest">Newest First</option>
-                  <option value="alphabetical">A-Z</option>
-                  <option value="rating">Top Rated</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="w-full pl-4 pr-10 py-3 bg-white border border-gray-200 rounded-xl text-base focus:ring-2 focus:ring-purple-500/20 outline-none appearance-none"
+                  >
+                    <option value="newest">Newest Added</option>
+                    <option value="alphabetical">Alphabetical (A-Z)</option>
+                    <option value="rating">Highest Rated</option>
+                  </select>
+                  <SlidersHorizontal className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
               </div>
 
               {(selectedCategory !== "all" || searchTerm) && (
@@ -329,30 +357,30 @@ export default function VendorsPage() {
                     setSearchTerm("");
                     setShowFilters(false);
                   }}
-                  className="w-full px-4 py-2 text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors"
+                  className="w-full py-3 text-sm font-semibold text-purple-600 bg-white border border-purple-100 hover:bg-purple-50 rounded-xl transition-colors active:scale-[0.98]"
                 >
                   Clear All Filters
                 </button>
               )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      {/* Content Grid */}
+      <div className="max-w-6xl mx-auto px-4 py-6">
         {loading ? (
           <LoadingGrid />
         ) : filteredVendors.length === 0 ? (
           <EmptyState
-            hasFilters={selectedCategory !== "all" || !!searchTerm}
+            hasFilters={activeFiltersCount > 0}
             onClearFilters={() => {
               setSelectedCategory("all");
               setSearchTerm("");
             }}
           />
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {filteredVendors.map((vendor) => (
               <VendorCard key={vendor.id} vendor={vendor} />
             ))}
@@ -369,17 +397,19 @@ export default function VendorsPage() {
 
 function LoadingGrid() {
   return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
       {[...Array(6)].map((_, i) => (
         <div
           key={i}
-          className="bg-white rounded-2xl overflow-hidden animate-pulse"
+          className="bg-white rounded-2xl border border-gray-100 overflow-hidden"
         >
-          <div className="aspect-[4/3] bg-gray-200" />
+          <div className="aspect-[4/3] bg-gray-200 animate-pulse" />
           <div className="p-4 space-y-3">
-            <div className="h-5 bg-gray-200 rounded w-3/4" />
-            <div className="h-4 bg-gray-200 rounded w-1/2" />
-            <div className="h-8 bg-gray-200 rounded-full w-24" />
+            <div className="h-5 bg-gray-200 rounded w-3/4 animate-pulse" />
+            <div className="h-4 bg-gray-200 rounded w-1/2 animate-pulse" />
+            <div className="flex gap-2 pt-2">
+              <div className="h-6 bg-gray-200 rounded-full w-20 animate-pulse" />
+            </div>
           </div>
         </div>
       ))}
@@ -399,22 +429,24 @@ function EmptyState({
   onClearFilters: () => void;
 }) {
   return (
-    <div className="text-center py-20">
-      <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-      <h2 className="text-xl font-semibold text-gray-700 mb-2">
-        {hasFilters ? "No vendors match your filters" : "No vendors available"}
+    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+        <Store className="w-10 h-10 text-gray-400" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">
+        {hasFilters ? "No matches found" : "No vendors available"}
       </h2>
-      <p className="text-gray-500 mb-6">
+      <p className="text-gray-500 max-w-sm mb-8">
         {hasFilters
-          ? "Try adjusting your search or filters"
-          : "Check back soon for new vendors"}
+          ? "We couldn't find any vendors matching your search. Try adjusting your filters."
+          : "Check back soon! New vendors are being added."}
       </p>
       {hasFilters && (
         <button
           onClick={onClearFilters}
-          className="px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition-colors"
+          className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 active:bg-purple-800 transition-all active:scale-95 shadow-lg shadow-purple-500/20"
         >
-          Clear Filters
+          Clear Search
         </button>
       )}
     </div>
@@ -422,7 +454,7 @@ function EmptyState({
 }
 
 /* ======================================================
-   VENDOR CARD (Fixed address/location handling)
+   VENDOR CARD
 ====================================================== */
 
 function VendorCard({ vendor }: { vendor: Vendor }) {
@@ -433,99 +465,100 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   const logoUrl = vendor.logoUrl || vendor.logo_url;
   const coverUrl = vendor.cover_image_url || vendor.banner_url;
 
-  // FIXED: Safely extract address strings (handle object or string)
   const addressStr = extractAddressString(vendor.address);
   const locationStr = extractAddressString(vendor.location);
-  
-  // Build location string from available parts
-  const locationParts = [addressStr, vendor.city, vendor.state, vendor.zip].filter(Boolean);
+  const locationParts = [
+    addressStr,
+    vendor.city,
+    vendor.state,
+    vendor.zip,
+  ].filter(Boolean);
   const locationString = locationStr || locationParts.join(", ");
 
   const hasBackgroundImage = coverUrl || logoUrl;
 
   return (
-    <Link href={link} className="block group">
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300 hover:-translate-y-1">
+    <Link
+      href={link}
+      className="block group active:scale-[0.99] transition-transform duration-200"
+    >
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300">
         {/* Image/Logo Section */}
-        <div className="relative aspect-[4/3] bg-gradient-to-br from-purple-600 to-purple-700 flex items-center justify-center overflow-hidden">
-          {/* Background Image */}
-          {hasBackgroundImage && (
+        <div className="relative aspect-[4/3] bg-gradient-to-br from-purple-50 to-purple-100 flex items-center justify-center overflow-hidden">
+          {hasBackgroundImage ? (
             <Image
               src={coverUrl || logoUrl || ""}
               alt={displayName}
               fill
-              className="object-cover"
+              className="object-cover transition-transform duration-500 group-hover:scale-105"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             />
+          ) : (
+            <div className="text-purple-200">
+              <Store className="w-16 h-16" />
+            </div>
           )}
 
-          {/* Featured Badge */}
-          {vendor.featured && (
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-sm font-medium text-purple-700 shadow-sm">
-                <Sparkles className="w-4 h-4" />
+          {/* Badges Container */}
+          <div className="absolute top-3 left-3 flex flex-col gap-2 z-10">
+            {vendor.featured && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/95 backdrop-blur-md rounded-lg text-xs font-bold text-purple-700 shadow-sm border border-purple-100">
+                <Sparkles className="w-3.5 h-3.5" />
                 Featured
               </span>
-            </div>
-          )}
-
-          {/* New Badge */}
-          {vendor.isNew && !vendor.featured && (
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white rounded-full text-sm font-medium shadow-sm">
+            )}
+            {vendor.isNew && !vendor.featured && (
+              <span className="inline-flex items-center px-2.5 py-1 bg-green-500/95 backdrop-blur-md rounded-lg text-xs font-bold text-white shadow-sm">
                 New
               </span>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Placeholder when no image */}
-          {!hasBackgroundImage && (
-            <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center">
-              <Store className="w-12 h-12 text-white/60" />
+          {/* Rating Badge (Overlaid on Image) */}
+          {vendor.rating && vendor.rating > 0 && (
+            <div className="absolute bottom-3 right-3 z-10">
+              <div className="flex items-center gap-1 px-2 py-1 bg-white/95 backdrop-blur-md rounded-lg text-xs font-bold text-gray-800 shadow-sm">
+                <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                <span>{vendor.rating.toFixed(1)}</span>
+              </div>
             </div>
           )}
         </div>
 
         {/* Content Section */}
-        <div className="p-4 space-y-3">
-          {/* Name & Verified Badge */}
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-gray-900 text-lg leading-tight group-hover:text-purple-700 transition-colors">
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-purple-600 transition-colors line-clamp-1">
               {displayName}
             </h3>
             {vendor.verified && (
-              <CheckCircle2 className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-blue-500 flex-shrink-0" />
             )}
           </div>
 
-          {/* Description */}
           {description && (
-            <p className="text-gray-600 text-sm line-clamp-2">{description}</p>
+            <p className="text-gray-500 text-sm line-clamp-2 mb-3 h-10">
+              {description}
+            </p>
           )}
 
-          {/* Category */}
-          {category && (
-            <span className="inline-flex px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full">
-              {category}
-            </span>
-          )}
-
-          {/* Location */}
-          {locationString && (
-            <div className="flex items-center gap-1.5 text-gray-500 text-sm">
-              <MapPin className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{locationString}</span>
+          <div className="flex items-center justify-between pt-1 border-t border-gray-50 mt-auto">
+            <div className="flex flex-col gap-1">
+              {category && (
+                <span className="text-xs font-medium text-purple-600">
+                  {category}
+                </span>
+              )}
+              {locationString && (
+                <div className="flex items-center gap-1 text-gray-400 text-xs">
+                  <MapPin className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate max-w-[150px]">
+                    {locationString}
+                  </span>
+                </div>
+              )}
             </div>
-          )}
-
-          {/* Rating */}
-          {vendor.rating && vendor.rating > 0 && (
-            <div className="flex items-center gap-1 text-sm">
-              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span className="font-medium text-gray-700">
-                {vendor.rating.toFixed(1)}
-              </span>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </Link>
