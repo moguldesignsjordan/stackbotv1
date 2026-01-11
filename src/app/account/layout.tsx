@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
+import { NotificationBell } from '@/components/notifications'; // ADD THIS IMPORT
 import { 
   Package, 
   MapPin, 
@@ -100,32 +101,22 @@ export default function AccountLayout({
   // Reusable Avatar component
   const Avatar = ({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) => {
     const sizeClasses = {
-      sm: 'w-9 h-9 text-sm',
-      md: 'w-12 h-12 text-lg',
-      lg: 'w-16 h-16 text-xl',
-    };
-    const imgSizes = {
-      sm: 36,
-      md: 48,
-      lg: 64,
+      sm: 'w-8 h-8 text-sm',
+      md: 'w-10 h-10 text-base',
+      lg: 'w-12 h-12 text-lg',
     };
 
-    return (
-      <div className={`${sizeClasses[size]} rounded-full overflow-hidden bg-[#55529d]/10 flex items-center justify-center`}>
-        {profilePhoto ? (
-          <Image
-            src={profilePhoto}
-            alt="Profile"
-            width={imgSizes[size]}
-            height={imgSizes[size]}
-            className="w-full h-full object-cover"
-            unoptimized
-          />
-        ) : (
-          <span className={`font-bold text-[#55529d]`}>
-            {getInitials(displayName, user?.email || '')}
-          </span>
-        )}
+    return profilePhoto ? (
+      <Image
+        src={profilePhoto}
+        alt={displayName || 'User'}
+        width={size === 'sm' ? 32 : size === 'md' ? 40 : 48}
+        height={size === 'sm' ? 32 : size === 'md' ? 40 : 48}
+        className={`${sizeClasses[size]} rounded-full object-cover border-2 border-gray-100`}
+      />
+    ) : (
+      <div className={`${sizeClasses[size]} rounded-full bg-[#55529d] text-white font-semibold flex items-center justify-center border-2 border-gray-100`}>
+        {getInitials(displayName, user?.email || '')}
       </div>
     );
   };
@@ -148,67 +139,48 @@ export default function AccountLayout({
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
+            {/* Left: Logo/Back */}
             <div className="flex items-center gap-4">
-              <Link href="/" className="text-[#55529d] hover:text-[#444287] transition-colors">
-                <Home className="w-6 h-6" />
+              <Link href="/" className="flex items-center gap-2">
+                <Image
+                  src="/stackbot-logo-purp.png"
+                  alt="StackBot"
+                  width={120}
+                  height={32}
+                  priority
+                />
               </Link>
-              <div className="hidden sm:block h-6 w-px bg-gray-200" />
-              <h1 className="text-xl font-bold text-gray-900">My Account</h1>
             </div>
 
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-
-            {/* Desktop user info */}
-            <div className="hidden lg:flex items-center gap-4">
-              <Link 
-                href="/account/settings"
-                className="flex items-center gap-3 hover:bg-gray-50 rounded-lg px-3 py-2 -mr-3 transition-colors"
-              >
-                <Avatar size="sm" />
-                <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">
-                    {displayName || 'Customer'}
-                  </p>
-                  <p className="text-xs text-gray-500">{user.email}</p>
-                </div>
-              </Link>
-
-              <div className="h-8 w-px bg-gray-200" />
+            {/* Right: Notification Bell + Mobile Menu - ADD NOTIFICATION BELL HERE */}
+            <div className="flex items-center gap-3">
+              {/* Notification Bell */}
+              <NotificationBell />
               
+              {/* Mobile Menu Button */}
               <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-gray-600 hover:text-red-600 transition-colors px-3 py-2"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="lg:hidden p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <LogOut className="w-4 h-4" />
-                <span className="text-sm">Logout</span>
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
+
+              {/* Desktop Profile */}
+              <div className="hidden lg:flex items-center gap-3">
+                <Avatar size="md" />
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">{displayName || 'Customer'}</p>
+                  <p className="text-gray-500 text-xs">{user.email}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Mobile menu */}
+        {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-gray-200 bg-white">
-            {/* Mobile profile header */}
-            <div className="px-4 py-4 border-b border-gray-100 bg-gray-50">
-              <div className="flex items-center gap-3">
-                <Avatar size="md" />
-                <div>
-                  <p className="font-medium text-gray-900">
-                    {displayName || 'Customer'}
-                  </p>
-                  <p className="text-sm text-gray-500">{user.email}</p>
-                </div>
-              </div>
-            </div>
-
-            <nav className="px-2 py-2">
+            <nav className="px-4 py-2 space-y-1">
               {navItems.map((item) => {
                 const isActive = isActiveRoute(item.href, item.exact);
                 return (

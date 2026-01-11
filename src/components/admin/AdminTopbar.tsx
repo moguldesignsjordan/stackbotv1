@@ -299,7 +299,7 @@ export default function AdminTopbar() {
                     <div className="px-4 py-3 border-b border-gray-50">
                       <p className="font-medium text-gray-900">Admin User</p>
                       <p className="text-sm text-gray-500 truncate">
-                        admin@stackbot.com
+                        support@stackbotglobal.com
                       </p>
                     </div>
 

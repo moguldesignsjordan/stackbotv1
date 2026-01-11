@@ -189,5 +189,94 @@ async function handleCheckoutComplete(
 
   await batch.commit();
 
-  console.log(`Order ${metadata.orderId} created successfully (${fulfillmentType})`);
+  console.log(`✅ Order ${metadata.orderId} created successfully (${fulfillmentType})`);
+
+  // ============================================================================
+  // CREATE NOTIFICATIONS
+  // ============================================================================
+  
+  const totalAmount = parseFloat(metadata.total || '0');
+  const itemCount = items.length;
+
+  try {
+    // 1. Notify VENDOR of new order
+    const vendorNotification = {
+      userId: metadata.vendorId,
+      type: 'order_placed',
+      title: 'New Order Received! 🎉',
+      message: `${customerInfo.name} placed an order for $${totalAmount.toFixed(2)} (${itemCount} item${itemCount !== 1 ? 's' : ''})`,
+      read: false,
+      priority: 'high',
+      data: {
+        orderId: metadata.orderId,
+        vendorId: metadata.vendorId,
+        customerId: metadata.customerId,
+        customerName: customerInfo.name,
+        amount: totalAmount,
+        itemCount,
+        url: `/vendor/orders/${metadata.orderId}`,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await db.collection('notifications').add(vendorNotification);
+    console.log(`✅ Vendor notification created for order ${metadata.orderId}`);
+
+    // 2. Notify CUSTOMER of order confirmation
+    const customerNotification = {
+      userId: metadata.customerId,
+      type: 'order_placed',
+      title: 'Order Placed Successfully! ✓',
+      message: `Your order from ${metadata.vendorName} for $${totalAmount.toFixed(2)} has been placed`,
+      read: false,
+      priority: 'normal',
+      data: {
+        orderId: metadata.orderId,
+        vendorId: metadata.vendorId,
+        vendorName: metadata.vendorName,
+        amount: totalAmount,
+        url: `/account/orders/${metadata.orderId}`,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await db.collection('notifications').add(customerNotification);
+    console.log(`✅ Customer notification created for order ${metadata.orderId}`);
+
+    // 3. Notify ADMINS of new order (optional - for monitoring)
+    // Get all admin users
+    const adminsSnapshot = await admin.auth().listUsers();
+    const adminUsers = adminsSnapshot.users.filter(async (user) => {
+      const claims = user.customClaims;
+      return claims?.role === 'admin';
+    });
+
+    // For simplicity, we'll create admin notifications if needed
+    // You can enable this by uncommenting:
+    /*
+    for (const adminUser of adminUsers) {
+      const adminNotification = {
+        userId: adminUser.uid,
+        type: 'order_placed',
+        title: 'New Platform Order',
+        message: `Order ${metadata.orderId} placed: $${totalAmount.toFixed(2)} at ${metadata.vendorName}`,
+        read: false,
+        priority: 'normal',
+        data: {
+          orderId: metadata.orderId,
+          vendorId: metadata.vendorId,
+          vendorName: metadata.vendorName,
+          amount: totalAmount,
+          url: `/admin/orders/${metadata.orderId}`,
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      await db.collection('notifications').add(adminNotification);
+    }
+    */
+
+  } catch (notifError) {
+    // Don't fail the order if notifications fail
+    console.error('❌ Error creating notifications:', notifError);
+  }
 }

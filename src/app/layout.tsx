@@ -4,6 +4,8 @@ import "./globals.css";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/components/ui/Toast";
+import { NotificationProvider } from "@/contexts/NotificationContext";
+
 
 export const metadata: Metadata = {
   title: "StackBot",
@@ -29,7 +31,9 @@ export default function RootLayout({
         <LanguageProvider>
           <ToastProvider>
             <CartProvider>
-              {children}
+              <NotificationProvider>
+                {children}
+              </NotificationProvider>
             </CartProvider>
           </ToastProvider>
         </LanguageProvider>

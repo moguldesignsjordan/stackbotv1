@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
+import { NotificationPanel } from '@/components/notifications';
 import { 
   Package, 
   Clock, 
@@ -12,7 +13,8 @@ import {
   XCircle,
   ChevronRight,
   Loader2,
-  ShoppingBag
+  ShoppingBag,
+  Bell
 } from 'lucide-react';
 
 interface Order {
@@ -82,6 +84,7 @@ export default function AccountOrdersPage() {
 
   return (
     <div className="space-y-6">
+      {/* Page Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">My Orders</h2>
         
@@ -101,74 +104,90 @@ export default function AccountOrdersPage() {
         </select>
       </div>
 
-      {orders.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-          <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No orders yet</h3>
-          <p className="text-gray-600 mb-6">Start shopping to see your orders here</p>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#444287] transition-colors"
-          >
-            Browse Stores
-          </Link>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {orders.map((order) => {
-            const status = statusConfig[order.status] || statusConfig.pending;
-            const StatusIcon = status.icon;
-
-            return (
+      {/* Main Content Grid */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Orders List - Takes 2 columns on large screens */}
+        <div className="lg:col-span-2 space-y-4">
+          {orders.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+              <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No orders yet</h3>
+              <p className="text-gray-600 mb-6">Start shopping to see your orders here</p>
               <Link
-                key={order.id}
-                href={`/account/orders/${order.id}`}
-                className="block bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                href="/"
+                className="inline-flex items-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#444287] transition-colors"
               >
-                <div className="p-4 sm:p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      {/* Order ID and Status */}
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <span className="font-mono font-semibold text-[#55529d]">
-                          {order.orderId}
-                        </span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
-                          <StatusIcon className="w-3 h-3" />
-                          {status.label}
-                        </span>
-                      </div>
-
-                      {/* Vendor */}
-                      <p className="font-medium text-gray-900 mb-1">
-                        {order.vendorName}
-                      </p>
-
-                      {/* Items summary */}
-                      <p className="text-sm text-gray-600">
-                        {order.items.map((item) => `${item.quantity}x ${item.name}`).join(', ')}
-                      </p>
-
-                      {/* Date */}
-                      <p className="text-xs text-gray-500 mt-2">
-                        {formatDate(order.createdAt)}
-                      </p>
-                    </div>
-
-                    {/* Total and Arrow */}
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-gray-900">
-                        ${order.total.toFixed(2)}
-                      </span>
-                      <ChevronRight className="w-5 h-5 text-gray-400" />
-                    </div>
-                  </div>
-                </div>
+                Browse Stores
               </Link>
-            );
-          })}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {orders.map((order) => {
+                const status = statusConfig[order.status] || statusConfig.pending;
+                const StatusIcon = status.icon;
+
+                return (
+                  <Link
+                    key={order.id}
+                    href={`/account/orders/${order.id}`}
+                    className="block bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div className="p-4 sm:p-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          {/* Order ID and Status */}
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <span className="font-mono font-semibold text-[#55529d]">
+                              {order.orderId}
+                            </span>
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
+                              <StatusIcon className="w-3 h-3" />
+                              {status.label}
+                            </span>
+                          </div>
+
+                          {/* Vendor */}
+                          <p className="font-medium text-gray-900 mb-1">
+                            {order.vendorName}
+                          </p>
+
+                          {/* Items summary */}
+                          <p className="text-sm text-gray-600">
+                            {order.items.map((item) => `${item.quantity}x ${item.name}`).join(', ')}
+                          </p>
+
+                          {/* Date */}
+                          <p className="text-xs text-gray-500 mt-2">
+                            {formatDate(order.createdAt)}
+                          </p>
+                        </div>
+
+                        {/* Total and Arrow */}
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-gray-900">
+                            ${order.total.toFixed(2)}
+                          </span>
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Notifications Panel - Sidebar on large screens */}
+        <div className="lg:col-span-1">
+          <NotificationPanel
+            title="Order Updates"
+            maxItems={6}
+            filterTypes={['order_', 'payment_']}
+            viewAllLink="/notifications"
+          />
+        </div>
+      </div>
     </div>
   );
 }

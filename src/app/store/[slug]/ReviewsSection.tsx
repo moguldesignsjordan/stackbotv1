@@ -13,7 +13,12 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { Star, Send, User, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { Star, Send, User, ChevronDown, ChevronUp, AlertCircle, Beaker } from "lucide-react";
+///ReviewsSection.tsx] Import the client notification helper
+import { 
+  notifyVendorNewReviewClient, 
+  createNotificationClient 
+} from "@/lib/notifications/createNotificationClient";
 
 interface Review {
   id: string;
@@ -36,6 +41,9 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Debug State
+  const [showDebug, setShowDebug] = useState(false);
   
   // Form state
   const [rating, setRating] = useState(0);
@@ -130,6 +138,19 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
         reviewData
       );
 
+      // Trigger Notification
+      try {
+        await notifyVendorNewReviewClient({
+          vendorId,
+          reviewerName: reviewData.userName,
+          rating: reviewData.rating,
+          comment: reviewData.comment,
+        });
+        console.log("✅ Review notification sent");
+      } catch (notifErr) {
+        console.error("❌ Failed to send review notification:", notifErr);
+      }
+
       // Add to local state
       setReviews((prev) => [{ id: docRef.id, ...reviewData }, ...prev]);
       setRating(0);
@@ -141,6 +162,72 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
       setError("Failed to submit review. Please try again.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  ///ReviewsSection.tsx] DEBUG: Test Order Flow Notifications
+  const handleTestNotification = async (type: string) => {
+    const user = auth.currentUser;
+    if (!user) {
+      alert("Please login first");
+      return;
+    }
+
+    try {
+      if (type === 'new_order') {
+        // Simulate sending "New Order" to VENDOR
+        await createNotificationClient({
+          userId: vendorId, // Send to Vendor
+          type: 'order_placed',
+          title: 'New Order Received',
+          message: 'TEST: Customer placed an order for $45.00 (3 items)',
+          priority: 'high',
+          data: {
+            orderId: 'test-order-123',
+            vendorId: vendorId,
+            customerId: user.uid,
+            url: `/vendor/orders/test-order-123`,
+          }
+        });
+        alert(`✅ Sent "New Order" to Vendor (${vendorId})`);
+      } 
+      else if (type === 'order_confirmed') {
+        // Simulate sending "Order Confirmed" to CUSTOMER (You)
+        await createNotificationClient({
+          userId: user.uid, // Send to You
+          type: 'order_confirmed',
+          title: 'Order Confirmed',
+          message: `TEST: Your order from ${vendorName} has been confirmed`,
+          priority: 'normal',
+          data: {
+            orderId: 'test-order-123',
+            vendorName: vendorName,
+            status: 'confirmed',
+            url: `/account/orders/test-order-123`,
+          }
+        });
+        alert("✅ Sent " + type + " to You (Customer)");
+      }
+      else if (type === 'order_delivered') {
+        // Simulate sending "Order Delivered" to CUSTOMER (You)
+        await createNotificationClient({
+          userId: user.uid,
+          type: 'order_delivered',
+          title: 'Order Delivered',
+          message: `TEST: Your order from ${vendorName} has been delivered`,
+          priority: 'normal',
+          data: {
+            orderId: 'test-order-123',
+            vendorName: vendorName,
+            status: 'delivered',
+            url: `/account/orders/test-order-123`,
+          }
+        });
+        alert("✅ Sent " + type + " to You (Customer)");
+      }
+    } catch (err) {
+      console.error("Test failed:", err);
+      alert("❌ Test failed. Check console.");
     }
   };
 
@@ -387,6 +474,54 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
           )}
         </div>
       )}
+
+      {/*/ReviewsSection.tsx] NOTIFICATION DEBUGGER (Dev Only) */}
+      <div className="mt-12 pt-8 border-t border-gray-200">
+        <button 
+          onClick={() => setShowDebug(!showDebug)}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900"
+        >
+          <Beaker className="w-4 h-4" />
+          {showDebug ? 'Hide' : 'Show'} Notification Debugger
+        </button>
+
+        {showDebug && (
+          <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-6">
+            <h4 className="font-semibold text-gray-900 mb-2">Simulate Order Flow</h4>
+            <p className="text-sm text-gray-500 mb-4">
+              Click these to test if notifications are working without paying real money.
+            </p>
+            
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => handleTestNotification('new_order')}
+                className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors"
+              >
+                1. Simulate "New Order" (To Vendor)
+              </button>
+              
+              <button
+                onClick={() => handleTestNotification('order_confirmed')}
+                className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
+              >
+                2. Simulate "Confirmed" (To Customer)
+              </button>
+              
+              <button
+                onClick={() => handleTestNotification('order_delivered')}
+                className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-200 transition-colors"
+              >
+                3. Simulate "Delivered" (To Customer)
+              </button>
+            </div>
+            
+            <p className="text-xs text-gray-400 mt-3">
+              * Note: "New Order" sends to <b>{vendorName}</b> (ID: {vendorId}). <br/>
+              * "Confirmed/Delivered" sends to <b>You</b> (Current User).
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

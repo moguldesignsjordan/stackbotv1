@@ -1,6 +1,7 @@
 /**
  * STACKBOT — Firebase Cloud Functions
  * Updated with location/coordinates support for orders
+ * + Live Notifications System
  */
 
 const functions = require("firebase-functions");
@@ -83,6 +84,42 @@ const ADMIN_EMAILS = [
   "Stackbotglobalgl@gmail.com"
   // Add more admin emails as needed
 ];
+
+/* ============================================================
+    🔔 NOTIFICATION HELPER
+============================================================ */
+
+/**
+ * Create a notification in Firestore
+ */
+async function createNotification({
+  userId,
+  type,
+  title,
+  message,
+  priority = "normal",
+  data = {},
+  expiresAt = null,
+}) {
+  const notificationData = {
+    userId,
+    type,
+    title,
+    message,
+    priority,
+    data,
+    read: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (expiresAt) {
+    notificationData.expiresAt = admin.firestore.Timestamp.fromDate(
+      new Date(expiresAt)
+    );
+  }
+
+  return admin.firestore().collection("notifications").add(notificationData);
+}
 
 /* ============================================================
     🚀 BOOTSTRAP ADMIN (ONE-TIME SETUP via HTTP)
@@ -312,6 +349,24 @@ exports.approveVendor = functions.https.onRequest((req, res) => {
         updated_at: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      // 🔔 Send notification to vendor
+      try {
+        await createNotification({
+          userId: vendorId,
+          type: "vendor_approved",
+          title: "Application Approved! 🎉",
+          message: "Congratulations! Your vendor application has been approved. You can now start adding products and receiving orders.",
+          priority: "high",
+          data: {
+            url: "/vendor",
+          },
+        });
+        console.log("Approval notification sent to vendor:", vendorId);
+      } catch (notifError) {
+        console.error("Failed to send approval notification:", notifError);
+        // Don't fail the approval if notification fails
+      }
+
       console.log("Vendor approved successfully:", vendorId);
 
       return res.json({
@@ -372,6 +427,45 @@ exports.createVendor = functions.https.onCall(async (data, context) => {
   }
 
   await admin.firestore().collection("vendors").doc(userId).set(vendorData);
+
+  // 🔔 Notify admins about new vendor application
+  try {
+    const adminsSnap = await admin.firestore().collection("admins").get();
+    const adminIds = adminsSnap.docs.map((doc) => doc.id);
+
+    // Also notify admins from ADMIN_EMAILS list
+    for (const adminEmail of ADMIN_EMAILS) {
+      try {
+        const userRecord = await admin.auth().getUserByEmail(adminEmail);
+        if (userRecord && !adminIds.includes(userRecord.uid)) {
+          adminIds.push(userRecord.uid);
+        }
+      } catch (e) {
+        // User not found, skip
+      }
+    }
+
+    const notificationPromises = adminIds.map((adminId) =>
+      createNotification({
+        userId: adminId,
+        type: "vendor_application",
+        title: "New Vendor Application",
+        message: `${vendorData.name || "Someone"} (${vendorData.email}) has applied to become a vendor.`,
+        priority: "normal",
+        data: {
+          vendorId: userId,
+          vendorEmail: vendorData.email,
+          url: `/admin/vendors/${userId}`,
+        },
+      })
+    );
+
+    await Promise.allSettled(notificationPromises);
+    console.log("Admin notifications sent for vendor application:", userId);
+  } catch (notifError) {
+    console.error("Failed to send admin notifications:", notifError);
+    // Don't fail the application if notifications fail
+  }
 
   return { 
     success: true,
@@ -775,4 +869,317 @@ exports.deleteCustomerLocation = functions.https.onCall(async (data, context) =>
     success: true,
     message: "Location deleted successfully.",
   };
+});
+
+/* ============================================================
+    🔔 NOTIFICATION TRIGGERS (Firestore)
+============================================================ */
+
+/**
+ * Trigger notification when a new order is created
+ */
+exports.onOrderCreated = functions.firestore
+  .document("orders/{orderId}")
+  .onCreate(async (snap, context) => {
+    const order = snap.data();
+    const orderId = context.params.orderId;
+
+    console.log("New order created:", orderId);
+
+    const notifications = [];
+
+    // Notify customer - order placed
+    if (order.customerId) {
+      notifications.push(
+        createNotification({
+          userId: order.customerId,
+          type: "order_placed",
+          title: "Order Placed!",
+          message: `Your order #${orderId.slice(0, 8).toUpperCase()} has been placed${
+            order.vendorName ? ` with ${order.vendorName}` : ""
+          }.`,
+          priority: "normal",
+          data: {
+            orderId,
+            vendorId: order.vendorId,
+            url: "/account",
+          },
+        })
+      );
+    }
+
+    // Notify vendor - new order
+    if (order.vendorId) {
+      const customerName = order.customerInfo?.name || "A customer";
+      const total = order.total ? `$${order.total.toFixed(2)}` : "";
+
+      notifications.push(
+        createNotification({
+          userId: order.vendorId,
+          type: "order_placed",
+          title: "New Order! 🎉",
+          message: `${customerName} placed order #${orderId
+            .slice(0, 8)
+            .toUpperCase()}${total ? ` - ${total}` : ""}.`,
+          priority: "high",
+          data: {
+            orderId,
+            customerId: order.customerId,
+            url: "/vendor/orders",
+          },
+        })
+      );
+    }
+
+    await Promise.allSettled(notifications);
+    console.log("Order notifications sent for:", orderId);
+  });
+
+/**
+ * Trigger notification when order status changes
+ */
+exports.onOrderStatusChange = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // Only trigger if status changed
+    if (before.status === after.status) {
+      return null;
+    }
+
+    console.log(
+      "Order status changed:",
+      orderId,
+      before.status,
+      "->",
+      after.status
+    );
+
+    const statusConfig = {
+      confirmed: {
+        type: "order_confirmed",
+        title: "Order Confirmed",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} has been confirmed.`,
+      },
+      preparing: {
+        type: "order_preparing",
+        title: "Order Being Prepared",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} is now being prepared.`,
+      },
+      ready: {
+        type: "order_ready",
+        title: "Order Ready!",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} is ready for ${
+          after.fulfillmentType === "pickup" ? "pickup" : "delivery"
+        }!`,
+        priority: "high",
+      },
+      out_for_delivery: {
+        type: "order_ready",
+        title: "Out for Delivery",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} is on its way!`,
+        priority: "high",
+      },
+      delivered: {
+        type: "order_delivered",
+        title: "Order Delivered",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} has been delivered. Enjoy!`,
+      },
+      completed: {
+        type: "order_delivered",
+        title: "Order Completed",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} is complete. Thank you!`,
+      },
+      cancelled: {
+        type: "order_cancelled",
+        title: "Order Cancelled",
+        message: `Your order #${orderId
+          .slice(0, 8)
+          .toUpperCase()} has been cancelled.`,
+        priority: "high",
+      },
+    };
+
+    const config = statusConfig[after.status];
+    if (!config || !after.customerId) {
+      return null;
+    }
+
+    await createNotification({
+      userId: after.customerId,
+      type: config.type,
+      title: config.title,
+      message: config.message,
+      priority: config.priority || "normal",
+      data: {
+        orderId,
+        vendorId: after.vendorId,
+        status: after.status,
+        url: "/account",
+      },
+    });
+
+    console.log("Status change notification sent for:", orderId);
+    return null;
+  });
+
+/**
+ * Trigger notification when vendor status changes (approval/rejection)
+ */
+exports.onVendorStatusChange = functions.firestore
+  .document("vendors/{vendorId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const vendorId = context.params.vendorId;
+
+    // Check if verified status changed
+    if (before.verified === after.verified) {
+      return null;
+    }
+
+    console.log(
+      "Vendor verification status changed:",
+      vendorId,
+      before.verified,
+      "->",
+      after.verified
+    );
+
+    // Vendor was rejected (verified set to false from true)
+    if (before.verified === true && after.verified === false) {
+      await createNotification({
+        userId: vendorId,
+        type: "vendor_rejected",
+        title: "Account Status Updated",
+        message:
+          "Your vendor account status has been updated. Please contact support for more information.",
+        priority: "high",
+        data: {
+          url: "/vendor/settings",
+        },
+      });
+      console.log("Vendor status change notification sent:", vendorId);
+    }
+
+    return null;
+  });
+
+/* ============================================================
+    🧹 CLEANUP OLD NOTIFICATIONS (Scheduled)
+============================================================ */
+
+/**
+ * Scheduled function to clean up old notifications (runs daily)
+ */
+exports.cleanupOldNotifications = functions.pubsub
+  .schedule("every 24 hours")
+  .onRun(async (context) => {
+    const db = admin.firestore();
+    
+    // Delete notifications older than 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const oldNotifications = await db
+      .collection("notifications")
+      .where("createdAt", "<", admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+      .limit(500)
+      .get();
+
+    if (oldNotifications.empty) {
+      console.log("No old notifications to clean up");
+      return null;
+    }
+
+    const batch = db.batch();
+    oldNotifications.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    console.log(`Cleaned up ${oldNotifications.size} old notifications`);
+    return null;
+  });
+
+/* ============================================================
+    🔔 SEND NOTIFICATION (HTTP - Admin/System use)
+============================================================ */
+exports.sendNotification = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      if (req.method === "OPTIONS") {
+        return res.status(204).send("");
+      }
+
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      // Verify admin token
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : null;
+
+      if (!idToken) {
+        return res.status(401).json({ error: "Missing Authorization token" });
+      }
+
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch {
+        return res.status(401).json({ error: "Invalid token" });
+      }
+
+      // Only admins can send notifications to other users
+      const isAdmin = decoded.role === "admin" || ADMIN_EMAILS.includes(decoded.email);
+
+      const { userId, type, title, message, priority, data } = req.body;
+
+      // Non-admins can only send to themselves
+      if (!isAdmin && userId !== decoded.uid) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      if (!userId || !type || !title || !message) {
+        return res.status(400).json({
+          error: "Missing required fields: userId, type, title, message",
+        });
+      }
+
+      const docRef = await createNotification({
+        userId,
+        type,
+        title,
+        message,
+        priority: priority || "normal",
+        data: data || {},
+      });
+
+      return res.json({
+        success: true,
+        notificationId: docRef.id,
+      });
+    } catch (err) {
+      console.error("sendNotification error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
 });
