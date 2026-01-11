@@ -1,7 +1,9 @@
-// Fix: Import 'db' instead of 'adminDb' because that is what your admin.ts exports
-import { db as adminDb } from '@/lib/firebase/admin';
+import admin from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type { NotificationType, NotificationPriority } from '@/lib/types/notifications';
+
+// Get the firestore instance from the admin app
+const adminDb = admin.firestore();
 
 interface CreateNotificationParams {
   userId: string;
@@ -46,7 +48,6 @@ export async function createNotification({
     await adminDb.collection('notifications').add(notificationData);
     
     // Also add to user's private notification subcollection for easier querying
-    // (This redundancy helps with security rules and query performance)
     if (type.startsWith('vendor_')) {
         await adminDb.collection('vendors').doc(userId).collection('notifications').add(notificationData);
     } else {
