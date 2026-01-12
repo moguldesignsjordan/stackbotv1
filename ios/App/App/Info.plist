@@ -60,5 +60,17 @@
     <string>StackBot needs permission to save images to your photo gallery.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>StackBot needs your location to show nearby vendors and verify delivery addresses.</string>
+
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.443911086980-f8l4q8c9gdieheinda2hvcim33mqbqn1</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
