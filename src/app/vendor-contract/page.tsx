@@ -21,8 +21,7 @@ import {
   User,
   Phone,
   MapPin,
-  Hash,
-  Globe
+  Hash
 } from "lucide-react";
 
 // ----------------------------------------------------------------------
@@ -53,7 +52,7 @@ const TRANSLATIONS = {
     error_terms: "You must agree to the terms.",
     // Contract Sections
     c_header: "STACKBOT GLOBAL S.R.L.",
-    c_subheader: "VENDOR AGREEMENT",
+    c_subheader: "",
     c_date: "Effective Date: Today | Company RNC: 133-55242-6",
     c_1_title: "1) Parties",
     c_1_text: "This Vendor Agreement (\"Agreement\") is between StackBot Global, S.R.L. (\"StackBot\") and the business/vendor identified in Section 14 (\"Vendor\").",
@@ -112,7 +111,7 @@ const TRANSLATIONS = {
     error_email: "Se requiere un correo electrónico válido.",
     error_sig: "Por favor firme el acuerdo usando el cuadro de firma.",
     error_terms: "Debe aceptar los términos.",
-    // Contract Sections - Translated based on 
+    // Contract Sections
     c_header: "STACKBOT GLOBAL S.R.L.",
     c_subheader: "ACUERDO DE VENDEDOR (FASE 1 - FORMULARIO CORTO)",
     c_date: "Fecha Efectiva: Hoy | RNC de la Empresa: 133-55242-6",
@@ -157,8 +156,8 @@ type Language = "en" | "es";
 
 export default function PublicAgreementPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [lang, setLang] = useState<Language>("es"); // Default to Spanish as user location is DR
-  const t = TRANSLATIONS[lang]; // Shortcut for translation object
+  const [lang, setLang] = useState<Language>("es");
+  const t = TRANSLATIONS[lang];
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [signatureData, setSignatureData] = useState<Blob | null>(null);
@@ -176,7 +175,6 @@ export default function PublicAgreementPage() {
     agreed: false,
   });
 
-  // --- Canvas Logic ---
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -268,7 +266,6 @@ export default function PublicAgreementPage() {
       setSuccess(true);
     } catch (err: any) {
       console.error("Agreement sign error:", err);
-      // Fallback message if error object doesn't have a clean message
       setError(err.message || "Error submitting form. Check connection.");
     } finally {
       setLoading(false);
@@ -285,7 +282,13 @@ export default function PublicAgreementPage() {
           <h1 className="text-2xl font-bold text-gray-900">{t.success_title}</h1>
           <p className="text-gray-600">{t.success_msg} <strong>{identity.printedName}</strong>.</p>
           <div className="pt-6">
-            <Button onClick={() => window.location.reload()} variant="outline" className="w-full">{t.btn_another}</Button>
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="secondary" 
+              className="w-full border border-gray-300"
+            >
+              {t.btn_another}
+            </Button>
           </div>
         </div>
       </div>
@@ -295,23 +298,11 @@ export default function PublicAgreementPage() {
   return (
     <div className="min-h-screen bg-sb-bg py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        
-        {/* LANGUAGE TOGGLE */}
         <div className="flex justify-end mb-4">
           <div className="bg-white p-1 rounded-lg border border-gray-200 flex items-center shadow-sm">
-            <button
-              onClick={() => setLang("en")}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${lang === "en" ? "bg-gray-100 text-sb-primary" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              English
-            </button>
+            <button onClick={() => setLang("en")} className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${lang === "en" ? "bg-gray-100 text-sb-primary" : "text-gray-500 hover:text-gray-700"}`}>English</button>
             <div className="w-px h-4 bg-gray-300 mx-1"></div>
-            <button
-              onClick={() => setLang("es")}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${lang === "es" ? "bg-gray-100 text-sb-primary" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              Español
-            </button>
+            <button onClick={() => setLang("es")} className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${lang === "es" ? "bg-gray-100 text-sb-primary" : "text-gray-500 hover:text-gray-700"}`}>Español</button>
           </div>
         </div>
 
@@ -328,67 +319,40 @@ export default function PublicAgreementPage() {
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4 flex-shrink-0" />{error}</div>}
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            
-            {/* INPUT FIELDS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                  <label className="text-sm font-medium text-gray-700">{t.lbl_business} *</label>
-                 <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input className="pl-9" placeholder="" value={identity.businessName} onChange={(e) => handleChange("businessName", e.target.value)} required />
-                 </div>
+                 <div className="relative"><Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input className="pl-9" placeholder="" value={identity.businessName} onChange={(e) => handleChange("businessName", e.target.value)} required /></div>
               </div>
               <div className="space-y-1">
                  <label className="text-sm font-medium text-gray-700">{t.lbl_rnc}</label>
-                 <div className="relative">
-                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input className="pl-9" placeholder="101-XXXXX-X" value={identity.rnc} onChange={(e) => handleChange("rnc", e.target.value)} />
-                 </div>
+                 <div className="relative"><Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input className="pl-9" placeholder="101-XXXXX-X" value={identity.rnc} onChange={(e) => handleChange("rnc", e.target.value)} /></div>
               </div>
               <div className="space-y-1">
                  <label className="text-sm font-medium text-gray-700">{t.lbl_email} *</label>
-                 <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input type="email" className="pl-9" placeholder="owner@example.com" value={identity.email} onChange={(e) => handleChange("email", e.target.value)} required />
-                 </div>
+                 <div className="relative"><Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input type="email" className="pl-9" placeholder="owner@example.com" value={identity.email} onChange={(e) => handleChange("email", e.target.value)} required /></div>
               </div>
               <div className="space-y-1">
                  <label className="text-sm font-medium text-gray-700">{t.lbl_phone} *</label>
-                 <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input type="tel" className="pl-9" placeholder="(809) 555-0123" value={identity.phone} onChange={(e) => handleChange("phone", e.target.value)} required />
-                 </div>
+                 <div className="relative"><Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input type="tel" className="pl-9" placeholder="(809) 555-0123" value={identity.phone} onChange={(e) => handleChange("phone", e.target.value)} required /></div>
+         
               </div>
-        
-      
             </div>
 
-            {/* FULL CONTRACT TEXT BLOCK */}
             <div className="border border-gray-300 rounded-xl bg-gray-50 h-96 overflow-y-auto p-6 text-sm text-gray-700 space-y-4 shadow-inner">
                 <div className="text-center font-bold text-gray-900 mb-4 border-b border-gray-300 pb-4">
                   <h2 className="text-xl">{t.c_header}</h2>
                   <h3 className="text-lg">{t.c_subheader}</h3>
                   <p className="text-xs text-gray-500 font-normal mt-1">{t.c_date}</p>
                 </div>
-
                 <div><h4 className="font-bold text-gray-900">{t.c_1_title}</h4><p>{t.c_1_text}</p></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_2_title}</h4><p>{t.c_2_text}</p></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_3_title}</h4><p>{t.c_3_text}</p></div>
-                <div>
-                  <h4 className="font-bold text-gray-900">{t.c_4_title}</h4>
-                  <ul className="list-disc pl-5 space-y-1"><li>{t.c_4_list_1}</li><li>{t.c_4_list_2}</li></ul>
-                </div>
+                <div><h4 className="font-bold text-gray-900">{t.c_4_title}</h4><ul className="list-disc pl-5 space-y-1"><li>{t.c_4_list_1}</li><li>{t.c_4_list_2}</li></ul></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_5_title}</h4><p>{t.c_5_text}</p></div>
-                <div>
-                  <h4 className="font-bold text-gray-900">{t.c_6_title}</h4>
-                  <ul className="list-disc pl-5 space-y-1"><li>{t.c_6_list_1}</li><li>{t.c_6_list_2}</li><li>{t.c_6_list_3}</li><li>{t.c_6_list_4}</li></ul>
-                </div>
+                <div><h4 className="font-bold text-gray-900">{t.c_6_title}</h4><ul className="list-disc pl-5 space-y-1"><li>{t.c_6_list_1}</li><li>{t.c_6_list_2}</li><li>{t.c_6_list_3}</li><li>{t.c_6_list_4}</li></ul></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_7_title}</h4><p>{t.c_7_text}</p></div>
-                <div>
-                  <h4 className="font-bold text-gray-900">{t.c_8_title}</h4>
-                  <p>{t.c_8_intro}</p>
-                  <ul className="list-disc pl-5 space-y-1 mt-1"><li>{t.c_8_list_1}</li><li>{t.c_8_list_2}</li><li>{t.c_8_list_3}</li><li>{t.c_8_list_4}</li></ul>
-                </div>
+                <div><h4 className="font-bold text-gray-900">{t.c_8_title}</h4><p>{t.c_8_intro}</p><ul className="list-disc pl-5 space-y-1 mt-1"><li>{t.c_8_list_1}</li><li>{t.c_8_list_2}</li><li>{t.c_8_list_3}</li><li>{t.c_8_list_4}</li></ul></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_9_title}</h4><p>{t.c_9_text}</p></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_10_title}</h4><p>{t.c_10_text}</p></div>
                 <div><h4 className="font-bold text-gray-900">{t.c_11_title}</h4><p>{t.c_11_text}</p></div>
@@ -398,34 +362,24 @@ export default function PublicAgreementPage() {
 
             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2"><PenTool className="h-5 w-5 text-sb-primary" />{lang === "en" ? "Signature" : "Firma"}</h3>
-              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.lbl_signer} *</label>
-                <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input className="pl-9" value={identity.printedName} onChange={(e) => handleChange("printedName", e.target.value)} placeholder="" required />
-                </div>
+                <div className="relative"><User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input className="pl-9" value={identity.printedName} onChange={(e) => handleChange("printedName", e.target.value)} placeholder="" required /></div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.lbl_draw} *</label>
                 <div className="border-2 border-dashed border-gray-300 rounded-xl bg-white touch-none overflow-hidden relative">
                   <canvas ref={canvasRef} width={500} height={200} className="w-full h-48 cursor-crosshair touch-none block" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
-                  <button type="button" onClick={clearSignature} className="absolute top-2 right-2 p-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-gray-600 transition text-xs" title={t.lbl_clear}>
-                    <Eraser className="h-4 w-4" />
-                  </button>
+                  <button type="button" onClick={clearSignature} className="absolute top-2 right-2 p-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-gray-600 transition text-xs" title={t.lbl_clear}><Eraser className="h-4 w-4" /></button>
                 </div>
               </div>
-
               <label className="flex items-start gap-3 p-4 bg-white border rounded-xl cursor-pointer hover:border-sb-primary transition">
                 <input type="checkbox" checked={identity.agreed} onChange={(e) => handleChange("agreed", e.target.checked)} className="w-5 h-5 mt-0.5 border-gray-300 rounded text-sb-primary focus:ring-sb-primary" />
                 <span className="text-sm text-gray-700 leading-tight">{t.lbl_agree}</span>
               </label>
             </div>
 
-            <Button type="submit" disabled={loading || !identity.agreed || !signatureData} className="w-full py-4 text-lg">
-                {loading ? t.btn_submitting : t.btn_submit}
-            </Button>
+            <Button type="submit" disabled={loading || !identity.agreed || !signatureData} className="w-full py-4 text-lg">{loading ? t.btn_submitting : t.btn_submit}</Button>
           </form>
         </div>
       </div>
