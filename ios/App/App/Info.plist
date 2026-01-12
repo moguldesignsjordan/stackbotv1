@@ -48,9 +48,17 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>
-	<string>UIStatusBarStyle = UIStatusBarStyleDarkContent
-</string>
+	<string>UIStatusBarStyle = UIStatusBarStyleDarkContent</string>
 	<key>CFBundleGetInfoString</key>
 	<string></string>
+
+    <key>NSCameraUsageDescription</key>
+    <string>StackBot needs access to your camera to take photos of products and profile pictures.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>StackBot needs access to your photo library to select product images and profile pictures.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>StackBot needs permission to save images to your photo gallery.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>StackBot needs your location to show nearby vendors and verify delivery addresses.</string>
 </dict>
 </plist>
