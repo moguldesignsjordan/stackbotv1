@@ -285,17 +285,16 @@ export default async function VendorStorefront({ params }: PageProps) {
         {/* Gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
         
-        {/* Back button */}
+        {/* Back button - Lowered to 64px and Circular */}
         <Link
           href="/"
-          className="absolute top-4 left-4 z-10 inline-flex items-center gap-2 bg-white/15 backdrop-blur-md text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-white/25 transition"
+          className="absolute top-[64px] left-4 z-10 inline-flex items-center justify-center bg-white/15 backdrop-blur-md text-white w-10 h-10 rounded-full hover:bg-white/25 transition border border-white/20"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span className="hidden sm:inline">Back</span>
+          <ArrowLeft className="w-5 h-5" />
         </Link>
 
-        {/* Store Actions */}
-        <div className="absolute top-4 right-4 z-10">
+        {/* Store Actions - Lowered to 64px */}
+        <div className="absolute top-[64px] right-4 z-10">
           <StorefrontActions 
             storeName={vendor.name} 
             storeSlug={storeSlug}
@@ -405,23 +404,31 @@ export default async function VendorStorefront({ params }: PageProps) {
         <div className="space-y-8">
           {/* CONTACT INFO */}
           <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
-            {/* Location */}
+            {/* Location - Clickable Google Maps Link */}
             {vendor.address && (
-              <div className="flex gap-3 items-start">
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(vendor.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex gap-3 items-start group hover:opacity-70 transition-opacity"
+              >
                 <MapPin className="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <span className="text-gray-700">{vendor.address}</span>
-              </div>
+                <span className="text-gray-700 group-hover:underline">{vendor.address}</span>
+              </a>
             )}
             
-            {/* Phone (display only, WhatsApp is primary action) */}
+            {/* Phone - Clickable Dialer Link */}
             {vendor.phone && (
-              <div className="flex gap-3 items-center">
+              <a
+                href={`tel:${vendor.phone}`}
+                className="flex gap-3 items-center group hover:opacity-70 transition-opacity"
+              >
                 <Phone className="h-5 w-5 text-gray-400" />
-                <span className="text-gray-700">{vendor.phone}</span>
-              </div>
+                <span className="text-gray-700 group-hover:underline">{vendor.phone}</span>
+              </a>
             )}
             
-            {/* Email */}
+            {/* Email - Clickable Mailto Link */}
             {vendor.email && (
               <div className="flex gap-3 items-center">
                 <Mail className="h-5 w-5 text-gray-400" />
@@ -431,7 +438,7 @@ export default async function VendorStorefront({ params }: PageProps) {
               </div>
             )}
             
-            {/* Website */}
+            {/* Website - Clickable External Link */}
             {vendor.website && (
               <div className="flex gap-3 items-center">
                 <Globe className="h-5 w-5 text-gray-400" />
