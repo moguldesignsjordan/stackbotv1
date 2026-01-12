@@ -335,7 +335,10 @@ export default function PublicAgreementPage() {
               <div className="space-y-1">
                  <label className="text-sm font-medium text-gray-700">{t.lbl_phone} *</label>
                  <div className="relative"><Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input type="tel" className="pl-9" placeholder="(809) 555-0123" value={identity.phone} onChange={(e) => handleChange("phone", e.target.value)} required /></div>
-         
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                 <label className="text-sm font-medium text-gray-700">{t.lbl_address} *</label>
+                 <div className="relative"><MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input className="pl-9" placeholder="" value={identity.address} onChange={(e) => handleChange("address", e.target.value)} required /></div>
               </div>
             </div>
 
