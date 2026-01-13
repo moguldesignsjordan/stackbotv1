@@ -12,7 +12,6 @@ import {
   signInWithCredential,
   sendPasswordResetEmail,
   updateProfile,
-  onAuthStateChanged,
   User,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -45,7 +44,6 @@ const getAuthErrorMessage = (errorCode: string): string => {
     "auth/popup-closed-by-user": "Sign-in was cancelled.",
     "auth/cancelled-popup-request": "Sign-in was cancelled.",
     "auth/operation-not-allowed": "This sign-in method is not enabled.",
-    "auth/missing-or-invalid-nonce": "Authentication error. Please try again.",
   };
   return errorMessages[errorCode] || "An error occurred. Please try again.";
 };
@@ -86,7 +84,6 @@ function LoginPageInner() {
   const [success, setSuccess] = useState("");
   const [isNative, setIsNative] = useState(false);
 
-  // Detect native platform on mount
   useEffect(() => {
     setIsNative(Capacitor.isNativePlatform());
   }, []);
@@ -95,13 +92,11 @@ function LoginPageInner() {
     if (intent === "vendor") setMode("signup");
   }, [intent]);
 
-  // Clear messages when changing modes
   useEffect(() => {
     setError("");
     setSuccess("");
   }, [mode]);
 
-  // Shared redirect logic after authentication
   const handleRoleBasedRedirect = async (user: User, isNewUser = false) => {
     try {
       const token = await getIdTokenResult(user, true);
@@ -150,7 +145,6 @@ function LoginPageInner() {
     }
   };
 
-  // Email/Password Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -176,7 +170,6 @@ function LoginPageInner() {
     }
   };
 
-  // Email/Password Signup
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -216,7 +209,6 @@ function LoginPageInner() {
     }
   };
 
-  // Password Reset
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -244,25 +236,7 @@ function LoginPageInner() {
     }
   };
 
-  // Helper: Wait for Firebase Auth state to sync after native sign-in
-  const waitForAuthState = (): Promise<User> => {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        unsubscribe();
-        reject(new Error("Authentication timeout"));
-      }, 10000); // 10 second timeout
-
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
-        if (user) {
-          clearTimeout(timeout);
-          unsubscribe();
-          resolve(user);
-        }
-      });
-    });
-  };
-
-  // Google Sign-In (Native + Web)
+  // Google Sign-In
   const handleGoogleAuth = async () => {
     setSocialLoading("google");
     setError("");
@@ -272,16 +246,24 @@ function LoginPageInner() {
       let isNewUser = false;
       
       if (isNative) {
-        // Native: Plugin handles Firebase auth automatically with skipNativeAuth: false
+        console.log("Starting native Google Sign-In...");
         const result = await FirebaseAuthentication.signInWithGoogle();
+        console.log("Google Sign-In Result:", JSON.stringify(result, null, 2));
         
-        // The plugin signs into Firebase natively, wait for auth state to sync
-        user = await waitForAuthState();
+        if (!result.credential?.idToken) {
+          throw new Error("No credential received from Google Sign-In");
+        }
         
-        // Check if new user based on plugin result
+        console.log("Creating Google credential...");
+        const credential = GoogleAuthProvider.credential(result.credential.idToken);
+        
+        console.log("Signing in with Firebase...");
+        const authResult = await signInWithCredential(auth, credential);
+        console.log("Firebase sign-in successful, user:", authResult.user.uid);
+        
+        user = authResult.user;
         isNewUser = result.additionalUserInfo?.isNewUser ?? false;
       } else {
-        // Web: Use popup
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
         provider.addScope('profile');
@@ -295,9 +277,10 @@ function LoginPageInner() {
       
       await handleRoleBasedRedirect(user, isNewUser);
     } catch (err: any) {
-      console.error("Google Auth Error:", err);
+      console.error("Google Auth Error - Full:", err);
+      console.error("Google Auth Error - Code:", err.code);
+      console.error("Google Auth Error - Message:", err.message);
       
-      // Don't show error for user cancellation
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
           err.code === "auth/popup-closed-by-user") {
@@ -311,7 +294,7 @@ function LoginPageInner() {
     }
   };
 
-  // Apple Sign-In (Native + Web)
+  // Apple Sign-In
   const handleAppleAuth = async () => {
     setSocialLoading("apple");
     setError("");
@@ -321,19 +304,47 @@ function LoginPageInner() {
       let isNewUser = false;
       
       if (isNative) {
-        // Native: Plugin handles Firebase auth automatically with skipNativeAuth: false
-        // DO NOT call signInWithCredential - the plugin does this internally
+        console.log("Starting native Apple Sign-In...");
         const result = await FirebaseAuthentication.signInWithApple();
-        
         console.log("Apple Sign-In Result:", JSON.stringify(result, null, 2));
         
-        // The plugin signs into Firebase natively, wait for auth state to sync
-        user = await waitForAuthState();
+        if (!result.credential?.idToken) {
+          throw new Error("No credential received from Apple Sign-In");
+        }
         
-        // Check if new user based on plugin result
-        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
+        const idToken = result.credential.idToken;
+        const rawNonce = result.credential.nonce;
+        
+        console.log("Got idToken:", idToken.substring(0, 50) + "...");
+        console.log("Got rawNonce:", rawNonce);
+        
+        // Create OAuthCredential
+        console.log("Creating Apple OAuth credential...");
+        const provider = new OAuthProvider('apple.com');
+        const credential = provider.credential({
+          idToken: idToken,
+          rawNonce: rawNonce,
+        });
+        console.log("Credential created:", credential);
+        
+        // Sign in with Firebase
+        console.log("Signing in with Firebase...");
+        try {
+          const authResult = await signInWithCredential(auth, credential);
+          console.log("Firebase sign-in successful!");
+          console.log("User UID:", authResult.user.uid);
+          console.log("User Email:", authResult.user.email);
+          
+          user = authResult.user;
+          isNewUser = result.additionalUserInfo?.isNewUser ?? false;
+        } catch (firebaseErr: any) {
+          console.error("Firebase signInWithCredential Error:");
+          console.error("  Code:", firebaseErr.code);
+          console.error("  Message:", firebaseErr.message);
+          console.error("  Full error:", JSON.stringify(firebaseErr, Object.getOwnPropertyNames(firebaseErr)));
+          throw firebaseErr;
+        }
       } else {
-        // Web: Use popup
         const provider = new OAuthProvider('apple.com');
         provider.addScope('email');
         provider.addScope('name');
@@ -345,11 +356,14 @@ function LoginPageInner() {
         isNewUser = !userDoc.exists();
       }
       
+      console.log("Proceeding to redirect...");
       await handleRoleBasedRedirect(user, isNewUser);
     } catch (err: any) {
-      console.error("Apple Auth Error:", err);
+      console.error("Apple Auth Error - Full:", err);
+      console.error("Apple Auth Error - Code:", err.code);
+      console.error("Apple Auth Error - Message:", err.message);
+      console.error("Apple Auth Error - Stack:", err.stack);
       
-      // Don't show error for user cancellation
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
           err.message?.includes("1000") ||
@@ -358,7 +372,8 @@ function LoginPageInner() {
         return;
       }
       
-      setError(getAuthErrorMessage(err.code) || err.message || "Apple sign-in failed");
+      const errorMessage = err.message || err.code || "Apple sign-in failed";
+      setError(getAuthErrorMessage(err.code) || errorMessage);
     } finally {
       setSocialLoading(null);
     }
@@ -371,12 +386,9 @@ function LoginPageInner() {
 
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-white">
-      {/* Left Panel - Form */}
       <div className="flex items-center justify-center p-6 md:p-10 pt-safe">
         <div className="w-full max-w-md space-y-6">
-          {/* Header */}
           <div className="text-center">
-            {/* Mobile Logo */}
             <div className="md:hidden mb-6">
               <Image 
                 src="/stackbot-logo.png" 
@@ -398,7 +410,6 @@ function LoginPageInner() {
             </p>
           </div>
 
-          {/* Error Message */}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
               <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -408,7 +419,6 @@ function LoginPageInner() {
             </div>
           )}
 
-          {/* Success Message */}
           {success && (
             <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
               <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -418,7 +428,6 @@ function LoginPageInner() {
             </div>
           )}
 
-          {/* Form */}
           <form 
             onSubmit={isForgot ? handleForgotPassword : isLogin ? handleLogin : handleSignup} 
             className="space-y-4"
@@ -603,7 +612,6 @@ function LoginPageInner() {
         </div>
       </div>
 
-      {/* Right Panel - Branding (desktop only) */}
       <div className="hidden md:flex flex-col items-center justify-center bg-[#55529d] p-8">
         <Image 
           src="/stackbot-logo-white.png" 
