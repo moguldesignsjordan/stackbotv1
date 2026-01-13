@@ -391,7 +391,7 @@ function LoginPageInner() {
           <div className="text-center">
             <div className="md:hidden mb-6">
               <Image 
-                src="/stackbot-logo.png" 
+                src="/stackbot-logo-purp.png" 
                 alt="StackBot" 
                 width={60} 
                 height={60} 
