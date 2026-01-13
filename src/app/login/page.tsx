@@ -12,6 +12,8 @@ import {
   signInWithCredential,
   sendPasswordResetEmail,
   updateProfile,
+  onAuthStateChanged,
+  User,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase/config";
@@ -28,7 +30,7 @@ const isValidEmail = (email: string) => {
   return emailRegex.test(email);
 };
 
-// Error message mapping for user-friendly messages
+// Error message mapping
 const getAuthErrorMessage = (errorCode: string): string => {
   const errorMessages: Record<string, string> = {
     "auth/invalid-email": "Please enter a valid email address.",
@@ -43,6 +45,7 @@ const getAuthErrorMessage = (errorCode: string): string => {
     "auth/popup-closed-by-user": "Sign-in was cancelled.",
     "auth/cancelled-popup-request": "Sign-in was cancelled.",
     "auth/operation-not-allowed": "This sign-in method is not enabled.",
+    "auth/missing-or-invalid-nonce": "Authentication error. Please try again.",
   };
   return errorMessages[errorCode] || "An error occurred. Please try again.";
 };
@@ -99,30 +102,26 @@ function LoginPageInner() {
   }, [mode]);
 
   // Shared redirect logic after authentication
-  const handleRoleBasedRedirect = async (user: any, isNewUser = false) => {
+  const handleRoleBasedRedirect = async (user: User, isNewUser = false) => {
     try {
       const token = await getIdTokenResult(user, true);
       const role = token.claims.role as string | undefined;
 
-      // Vendor signup intent
       if (intent === "vendor") {
         router.push("/vendor-signup");
         return;
       }
 
-      // Admin redirect
       if (role === "admin") {
         router.push("/admin");
         return;
       }
 
-      // Vendor redirect
       if (role === "vendor") {
         router.push("/vendor");
         return;
       }
 
-      // New user goes to onboarding
       if (isNewUser) {
         const onboardingUrl = redirect 
           ? `/onboarding?redirect=${encodeURIComponent(redirect)}` 
@@ -131,7 +130,6 @@ function LoginPageInner() {
         return;
       }
 
-      // Check if existing customer completed onboarding
       try {
         const customerDoc = await getDoc(doc(db, "customers", user.uid));
         if (!customerDoc.exists() || !customerDoc.data()?.onboardingCompleted) {
@@ -145,7 +143,6 @@ function LoginPageInner() {
         console.error("Error checking onboarding status:", e);
       }
 
-      // Default redirect
       router.push(redirect || "/account");
     } catch (e) {
       console.error("Error in redirect:", e);
@@ -206,7 +203,6 @@ function LoginPageInner() {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Update profile with name if provided
       if (name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
@@ -248,32 +244,44 @@ function LoginPageInner() {
     }
   };
 
+  // Helper: Wait for Firebase Auth state to sync after native sign-in
+  const waitForAuthState = (): Promise<User> => {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        reject(new Error("Authentication timeout"));
+      }, 10000); // 10 second timeout
+
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user) {
+          clearTimeout(timeout);
+          unsubscribe();
+          resolve(user);
+        }
+      });
+    });
+  };
+
   // Google Sign-In (Native + Web)
   const handleGoogleAuth = async () => {
     setSocialLoading("google");
     setError("");
     
     try {
-      let user;
+      let user: User;
       let isNewUser = false;
       
       if (isNative) {
-        // Native Google Sign-In via Capacitor
+        // Native: Plugin handles Firebase auth automatically with skipNativeAuth: false
         const result = await FirebaseAuthentication.signInWithGoogle();
         
-        if (!result.credential?.idToken) {
-          throw new Error("No ID token received from Google Sign-In");
-        }
+        // The plugin signs into Firebase natively, wait for auth state to sync
+        user = await waitForAuthState();
         
-        const credential = GoogleAuthProvider.credential(result.credential.idToken);
-        const authResult = await signInWithCredential(auth, credential);
-        user = authResult.user;
-        
-        // Check if new user
-        const userDoc = await getDoc(doc(db, "customers", user.uid));
-        isNewUser = !userDoc.exists();
+        // Check if new user based on plugin result
+        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
       } else {
-        // Web Google Sign-In via popup
+        // Web: Use popup
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
         provider.addScope('profile');
@@ -281,7 +289,6 @@ function LoginPageInner() {
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
-        // Check if new user
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
       }
@@ -291,9 +298,9 @@ function LoginPageInner() {
       console.error("Google Auth Error:", err);
       
       // Don't show error for user cancellation
-      if (err.code === "auth/popup-closed-by-user" || 
-          err.code === "auth/cancelled-popup-request" ||
-          err.message?.includes("cancelled")) {
+      if (err.message?.includes("canceled") || 
+          err.message?.includes("cancelled") ||
+          err.code === "auth/popup-closed-by-user") {
         setSocialLoading(null);
         return;
       }
@@ -310,33 +317,23 @@ function LoginPageInner() {
     setError("");
     
     try {
-      let user;
+      let user: User;
       let isNewUser = false;
       
       if (isNative) {
-        // Native Apple Sign-In via Capacitor
-        const result = await FirebaseAuthentication.signInWithApple({
-          scopes: ['email', 'name'],
-        });
+        // Native: Plugin handles Firebase auth automatically with skipNativeAuth: false
+        // DO NOT call signInWithCredential - the plugin does this internally
+        const result = await FirebaseAuthentication.signInWithApple();
         
-        if (!result.credential?.idToken) {
-          throw new Error("No ID token received from Apple Sign-In");
-        }
+        console.log("Apple Sign-In Result:", JSON.stringify(result, null, 2));
         
-        const provider = new OAuthProvider('apple.com');
-        const credential = provider.credential({
-          idToken: result.credential.idToken,
-          rawNonce: result.credential.nonce,
-        });
+        // The plugin signs into Firebase natively, wait for auth state to sync
+        user = await waitForAuthState();
         
-        const authResult = await signInWithCredential(auth, credential);
-        user = authResult.user;
-        
-        // Check if new user
-        const userDoc = await getDoc(doc(db, "customers", user.uid));
-        isNewUser = !userDoc.exists();
+        // Check if new user based on plugin result
+        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
       } else {
-        // Web Apple Sign-In via popup
+        // Web: Use popup
         const provider = new OAuthProvider('apple.com');
         provider.addScope('email');
         provider.addScope('name');
@@ -344,7 +341,6 @@ function LoginPageInner() {
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
-        // Check if new user
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
       }
@@ -354,10 +350,10 @@ function LoginPageInner() {
       console.error("Apple Auth Error:", err);
       
       // Don't show error for user cancellation
-      if (err.code === "auth/popup-closed-by-user" || 
-          err.code === "auth/cancelled-popup-request" ||
+      if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
-          err.message?.includes("ASAuthorizationErrorDomain")) {
+          err.message?.includes("1000") ||
+          err.message?.includes("1001")) {
         setSocialLoading(null);
         return;
       }
@@ -383,7 +379,7 @@ function LoginPageInner() {
             {/* Mobile Logo */}
             <div className="md:hidden mb-6">
               <Image 
-                src="/stackbot-logo-purp.png" 
+                src="/stackbot-logo.png" 
                 alt="StackBot" 
                 width={60} 
                 height={60} 
@@ -427,7 +423,6 @@ function LoginPageInner() {
             onSubmit={isForgot ? handleForgotPassword : isLogin ? handleLogin : handleSignup} 
             className="space-y-4"
           >
-            {/* Name field (signup only) */}
             {isSignup && (
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
@@ -445,7 +440,6 @@ function LoginPageInner() {
               </div>
             )}
 
-            {/* Email field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 Email Address
@@ -462,7 +456,6 @@ function LoginPageInner() {
               />
             </div>
 
-            {/* Password field (not for forgot mode) */}
             {!isForgot && (
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
@@ -481,7 +474,6 @@ function LoginPageInner() {
               </div>
             )}
 
-            {/* Confirm Password (signup only) */}
             {isSignup && (
               <div>
                 <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
@@ -500,7 +492,6 @@ function LoginPageInner() {
               </div>
             )}
 
-            {/* Forgot Password Link (login only) */}
             {isLogin && (
               <div className="text-right">
                 <button
@@ -514,7 +505,6 @@ function LoginPageInner() {
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isAnyLoading}
@@ -535,7 +525,6 @@ function LoginPageInner() {
             </button>
           </form>
 
-          {/* Back to login (forgot mode) */}
           {isForgot && (
             <button
               onClick={() => setMode("login")}
@@ -546,7 +535,6 @@ function LoginPageInner() {
             </button>
           )}
 
-          {/* Social Login Divider */}
           {!isForgot && (
             <>
               <div className="relative">
@@ -558,9 +546,7 @@ function LoginPageInner() {
                 </div>
               </div>
 
-              {/* Social Buttons */}
               <div className="space-y-3">
-                {/* Apple Sign-In */}
                 <button
                   type="button"
                   onClick={handleAppleAuth}
@@ -577,7 +563,6 @@ function LoginPageInner() {
                   <span>Continue with Apple</span>
                 </button>
 
-                {/* Google Sign-In */}
                 <button
                   type="button"
                   onClick={handleGoogleAuth}
@@ -595,7 +580,6 @@ function LoginPageInner() {
             </>
           )}
 
-          {/* Toggle Mode */}
           {!isForgot && (
             <div className="text-center text-sm">
               <button
@@ -608,7 +592,6 @@ function LoginPageInner() {
             </div>
           )}
 
-          {/* Terms (signup only) */}
           {isSignup && (
             <p className="text-xs text-center text-gray-500 mt-4">
               By creating an account, you agree to our{" "}
