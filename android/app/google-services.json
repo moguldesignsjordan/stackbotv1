@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "443911086980",
+    "project_id": "stackbot-a5e78",
+    "storage_bucket": "stackbot-a5e78.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:443911086980:android:7a4aff6f446c0d0f22b3d1",
+        "android_client_info": {
+          "package_name": "com.stackbotglobal.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5f3G-SfO7aCL_Xc_BpbNuhdYlCPa_75Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "443911086980-f8l4q8c9gdieheinda2hvcim33mqbqn1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.stackbotglobal.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
