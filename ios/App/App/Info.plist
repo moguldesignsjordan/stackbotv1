@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>StackBot</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+    
+    <!-- PRIVACY DESCRIPTIONS - REQUIRED -->
+    <key>NSCameraUsageDescription</key>
+    <string>StackBot needs access to your camera to take photos of products and profile pictures.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>StackBot needs access to your photo library to select product images and profile pictures.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>StackBot needs permission to save images to your photo library.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>StackBot needs your location to show nearby vendors and calculate delivery distances.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>StackBot needs your location to provide delivery tracking and nearby vendor recommendations.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>StackBot uses Face ID for secure authentication.</string>
+    
+    <!-- URL SCHEMES FOR AUTHENTICATION -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <!-- Google Sign-In URL Scheme -->
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>google</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.443911086980-f8l4q8c9gdieheinda2hvcim33mqbqn1</string>
+            </array>
+        </dict>
+        <!-- Capacitor URL Scheme -->
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>capacitor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>capacitor</string>
+                <string>stackbot</string>
+            </array>
+        </dict>
+    </array>
+    
+    <!-- BACKGROUND MODES -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>remote-notification</string>
+    </array>
+    
+    <!-- CAPACITOR -->
+    <key>CAPACITOR_DEBUG</key>
+    <string>$(CAPACITOR_DEBUG)</string>
+</dict>
+</plist>

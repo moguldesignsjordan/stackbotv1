@@ -13,8 +13,10 @@ const nextConfig: NextConfig = {
         hostname: "**",
       },
     ],
+    // Add this - helps with WebView rendering issues
+    unoptimized: true,
   },
-  // Fix COOP issues for Firebase popup auth
+  // Fix COOP issues for Firebase popup auth (web fallback)
   async headers() {
     return [
       {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StackBot</string>
+    <string name="title_activity_main">StackBot</string>
+    <string name="package_name">com.stackbotglobal.app</string>
+    <string name="custom_url_scheme">com.stackbotglobal.app</string>
+</resources>
