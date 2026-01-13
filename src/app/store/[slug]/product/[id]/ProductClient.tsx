@@ -116,9 +116,27 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
     });
   };
 
+  // ✅ Validation Logic
+  const validateSelections = (): boolean => {
+    if (!product.options) return true;
+
+    for (const group of product.options) {
+      if (group.required) {
+        const hasSelection = selected.some((s) => s.groupId === group.id);
+        if (!hasSelection) {
+          alert(`Please select an option for: ${group.title}`);
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   const vendorId = vendor.id || slug;
 
   const handleAddToCart = () => {
+    if (!validateSelections()) return;
+
     addItem({
       productId: product.id,
       vendorId: vendorId,
@@ -134,6 +152,8 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
   };
 
   const buyNow = () => {
+    if (!validateSelections()) return;
+
     const user = auth.currentUser;
 
     if (!user) {
@@ -180,31 +200,13 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
 
   return (
     <>
-      <div className="bg-gray-50 min-h-screen pb-32 lg:pb-10">
-        {/* Breadcrumb */}
-        <div className="bg-white border-b">
-          <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Link href="/" className="text-gray-500 hover:text-gray-700">
-                Home
-              </Link>
-              <span className="text-gray-300">/</span>
-              <Link href={`/store/${slug}`} className="text-gray-500 hover:text-gray-700">
-                {vendor.name}
-              </Link>
-              <span className="text-gray-300">/</span>
-              <span className="text-gray-900 font-medium truncate max-w-[200px]">
-                {product.name}
-              </span>
-            </div>
-          </div>
-        </div>
-
+      <div className="bg-gray-50 min-h-screen pb-32 lg:pb-10 pt-[64px]">
         <div className="max-w-7xl mx-auto px-4 py-6 lg:py-10">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+            
             {/* IMAGE GALLERY */}
             <div className="space-y-4">
-              {/* Main Image */}
+              {/* Main Image Container */}
               <div className="relative aspect-square bg-white rounded-2xl overflow-hidden shadow-sm group">
                 <Image
                   src={images[currentImageIndex]}
@@ -216,10 +218,18 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                   onClick={() => setShowLightbox(true)}
                 />
 
-                {/* Zoom Button */}
+                {/* ✅ BACK BUTTON (On Picture, Top Left) */}
+                <Link
+                  href={`/store/${slug}`}
+                  className="absolute top-4 left-4 z-20 inline-flex items-center justify-center bg-white/90 text-gray-700 w-10 h-10 rounded-full hover:bg-white transition shadow-md"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </Link>
+
+                {/* ZOOM BUTTON (On Picture, Top Right) */}
                 <button
                   onClick={() => setShowLightbox(true)}
-                  className="absolute top-4 right-4 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                  className="absolute top-4 right-4 z-20 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
                 >
                   <ZoomIn className="w-5 h-5 text-gray-700" />
                 </button>
@@ -229,19 +239,19 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                   <>
                     <button
                       onClick={prevImage}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 z-10 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
                     >
                       <ChevronLeft className="w-5 h-5 text-gray-700" />
                     </button>
                     <button
                       onClick={nextImage}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 z-10 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
                     >
                       <ChevronRight className="w-5 h-5 text-gray-700" />
                     </button>
 
                     {/* Image Counter */}
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/60 text-white text-sm font-medium rounded-full">
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-black/60 text-white text-sm font-medium rounded-full">
                       {currentImageIndex + 1} / {images.length}
                     </div>
                   </>
@@ -352,7 +362,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-gray-900">{group.title}</span>
                         {group.required && (
-                          <span className="text-xs text-red-500">Required</span>
+                          <span className="text-xs text-red-500 font-medium">Required</span>
                         )}
                         {group.type === "multiple" && (
                           <span className="text-xs text-gray-500">(Select multiple)</span>

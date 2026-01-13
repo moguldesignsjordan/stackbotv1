@@ -18,20 +18,51 @@ import { auth, db } from "@/lib/firebase/config";
 import Image from "next/image";
 import Link from "next/link";
 
-// 1. IMPORT CAPACITOR UTILS
+// Capacitor imports
 import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 
+// Email validation
 const isValidEmail = (email: string) => {
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 };
 
+// Error message mapping for user-friendly messages
+const getAuthErrorMessage = (errorCode: string): string => {
+  const errorMessages: Record<string, string> = {
+    "auth/invalid-email": "Please enter a valid email address.",
+    "auth/user-disabled": "This account has been disabled.",
+    "auth/user-not-found": "No account found with this email.",
+    "auth/wrong-password": "Incorrect password. Please try again.",
+    "auth/invalid-credential": "Invalid email or password.",
+    "auth/email-already-in-use": "An account already exists with this email.",
+    "auth/weak-password": "Password must be at least 6 characters.",
+    "auth/network-request-failed": "Network error. Please check your connection.",
+    "auth/too-many-requests": "Too many attempts. Please try again later.",
+    "auth/popup-closed-by-user": "Sign-in was cancelled.",
+    "auth/cancelled-popup-request": "Sign-in was cancelled.",
+    "auth/operation-not-allowed": "This sign-in method is not enabled.",
+  };
+  return errorMessages[errorCode] || "An error occurred. Please try again.";
+};
+
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-center">Loading…</div>}>
+    <Suspense fallback={<LoadingScreen />}>
       <LoginPageInner />
     </Suspense>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="text-center">
+        <div className="w-12 h-12 border-4 border-[#55529d] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-gray-600">Loading...</p>
+      </div>
+    </div>
   );
 }
 
@@ -41,194 +72,569 @@ function LoginPageInner() {
   const intent = searchParams.get("intent");
   const redirect = searchParams.get("redirect");
 
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isNative, setIsNative] = useState(false);
+
+  // Detect native platform on mount
+  useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform());
+  }, []);
 
   useEffect(() => {
     if (intent === "vendor") setMode("signup");
   }, [intent]);
 
-  // --- SHARED REDIRECT LOGIC ---
+  // Clear messages when changing modes
+  useEffect(() => {
+    setError("");
+    setSuccess("");
+  }, [mode]);
+
+  // Shared redirect logic after authentication
   const handleRoleBasedRedirect = async (user: any, isNewUser = false) => {
-    const token = await getIdTokenResult(user, true);
-    const role = token.claims.role as string | undefined;
-
-    if (intent === "vendor") {
-      router.push("/vendor-signup");
-      return;
-    }
-    if (role === "admin") {
-      router.push("/admin");
-      return;
-    }
-    if (role === "vendor") {
-      router.push("/vendor");
-      return;
-    }
-
-    if (isNewUser) {
-      const onboardingUrl = redirect ? `/onboarding?redirect=${encodeURIComponent(redirect)}` : "/onboarding";
-      router.push(onboardingUrl);
-      return;
-    }
-
-    // Check if onboarding is complete
     try {
-      const customerDoc = await getDoc(doc(db, "customers", user.uid));
-      if (!customerDoc.exists() || !customerDoc.data()?.onboardingCompleted) {
-        const onboardingUrl = redirect ? `/onboarding?redirect=${encodeURIComponent(redirect)}` : "/onboarding";
+      const token = await getIdTokenResult(user, true);
+      const role = token.claims.role as string | undefined;
+
+      // Vendor signup intent
+      if (intent === "vendor") {
+        router.push("/vendor-signup");
+        return;
+      }
+
+      // Admin redirect
+      if (role === "admin") {
+        router.push("/admin");
+        return;
+      }
+
+      // Vendor redirect
+      if (role === "vendor") {
+        router.push("/vendor");
+        return;
+      }
+
+      // New user goes to onboarding
+      if (isNewUser) {
+        const onboardingUrl = redirect 
+          ? `/onboarding?redirect=${encodeURIComponent(redirect)}` 
+          : "/onboarding";
         router.push(onboardingUrl);
         return;
       }
-    } catch (e) {
-      console.error(e);
-    }
 
-    router.push(redirect || "/account");
+      // Check if existing customer completed onboarding
+      try {
+        const customerDoc = await getDoc(doc(db, "customers", user.uid));
+        if (!customerDoc.exists() || !customerDoc.data()?.onboardingCompleted) {
+          const onboardingUrl = redirect 
+            ? `/onboarding?redirect=${encodeURIComponent(redirect)}` 
+            : "/onboarding";
+          router.push(onboardingUrl);
+          return;
+        }
+      } catch (e) {
+        console.error("Error checking onboarding status:", e);
+      }
+
+      // Default redirect
+      router.push(redirect || "/account");
+    } catch (e) {
+      console.error("Error in redirect:", e);
+      router.push("/account");
+    }
   };
 
-  // --- AUTH HANDLERS ---
-
+  // Email/Password Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
     setLoading(true);
     setError("");
+    
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       await handleRoleBasedRedirect(cred.user, false);
     } catch (err: any) {
-      setError("Invalid email or password.");
+      console.error("Login error:", err);
+      setError(getAuthErrorMessage(err.code));
     } finally {
       setLoading(false);
     }
   };
 
+  // Email/Password Signup
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!email || !password || !confirmPassword) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
     setError("");
-    if (password !== confirmPassword) { setError("Passwords do not match."); setLoading(false); return; }
     
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-      if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
+      
+      // Update profile with name if provided
+      if (name.trim()) {
+        await updateProfile(cred.user, { displayName: name.trim() });
+      }
+      
       await handleRoleBasedRedirect(cred.user, true);
     } catch (err: any) {
-      setError(err.message);
+      console.error("Signup error:", err);
+      setError(getAuthErrorMessage(err.code));
     } finally {
       setLoading(false);
     }
   };
 
-  // --- NATIVE & WEB SOCIAL LOGIN ---
+  // Password Reset
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email) {
+      setError("Please enter your email address.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
 
-  const handleGoogleAuth = async () => {
     setLoading(true);
     setError("");
     
     try {
-      // 1. Check if running in Mobile App
-      if (Capacitor.isNativePlatform()) {
-        const result = await FirebaseAuthentication.signInWithGoogle();
-        const credential = GoogleAuthProvider.credential(result.credential?.idToken);
-        const authResult = await signInWithCredential(auth, credential);
-        
-        const userDoc = await getDoc(doc(db, "customers", authResult.user.uid));
-        await handleRoleBasedRedirect(authResult.user, !userDoc.exists());
-      } else {
-        // 2. Web Fallback
-        const result = await signInWithPopup(auth, new GoogleAuthProvider());
-        const userDoc = await getDoc(doc(db, "customers", result.user.uid));
-        await handleRoleBasedRedirect(result.user, !userDoc.exists());
-      }
+      await sendPasswordResetEmail(auth, email);
+      setSuccess("Password reset email sent! Check your inbox.");
+      setTimeout(() => setMode("login"), 3000);
     } catch (err: any) {
-      console.error("Auth Error:", err);
-      setError(err.message || "Login failed");
+      console.error("Password reset error:", err);
+      setError(getAuthErrorMessage(err.code));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAppleAuth = async () => {
-    setLoading(true);
+  // Google Sign-In (Native + Web)
+  const handleGoogleAuth = async () => {
+    setSocialLoading("google");
     setError("");
+    
     try {
-      if (Capacitor.isNativePlatform()) {
-        const result = await FirebaseAuthentication.signInWithApple();
+      let user;
+      let isNewUser = false;
+      
+      if (isNative) {
+        // Native Google Sign-In via Capacitor
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        
+        if (!result.credential?.idToken) {
+          throw new Error("No ID token received from Google Sign-In");
+        }
+        
+        const credential = GoogleAuthProvider.credential(result.credential.idToken);
+        const authResult = await signInWithCredential(auth, credential);
+        user = authResult.user;
+        
+        // Check if new user
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        isNewUser = !userDoc.exists();
+      } else {
+        // Web Google Sign-In via popup
+        const provider = new GoogleAuthProvider();
+        provider.addScope('email');
+        provider.addScope('profile');
+        
+        const result = await signInWithPopup(auth, provider);
+        user = result.user;
+        
+        // Check if new user
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        isNewUser = !userDoc.exists();
+      }
+      
+      await handleRoleBasedRedirect(user, isNewUser);
+    } catch (err: any) {
+      console.error("Google Auth Error:", err);
+      
+      // Don't show error for user cancellation
+      if (err.code === "auth/popup-closed-by-user" || 
+          err.code === "auth/cancelled-popup-request" ||
+          err.message?.includes("cancelled")) {
+        setSocialLoading(null);
+        return;
+      }
+      
+      setError(getAuthErrorMessage(err.code) || err.message || "Google sign-in failed");
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  // Apple Sign-In (Native + Web)
+  const handleAppleAuth = async () => {
+    setSocialLoading("apple");
+    setError("");
+    
+    try {
+      let user;
+      let isNewUser = false;
+      
+      if (isNative) {
+        // Native Apple Sign-In via Capacitor
+        const result = await FirebaseAuthentication.signInWithApple({
+          scopes: ['email', 'name'],
+        });
+        
+        if (!result.credential?.idToken) {
+          throw new Error("No ID token received from Apple Sign-In");
+        }
+        
         const provider = new OAuthProvider('apple.com');
         const credential = provider.credential({
-          idToken: result.credential?.idToken,
-          rawNonce: (result.credential as any)?.rawNonce,
+          idToken: result.credential.idToken,
+          rawNonce: result.credential.nonce,
         });
+        
         const authResult = await signInWithCredential(auth, credential);
-        const userDoc = await getDoc(doc(db, "customers", authResult.user.uid));
-        await handleRoleBasedRedirect(authResult.user, !userDoc.exists());
+        user = authResult.user;
+        
+        // Check if new user
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        isNewUser = !userDoc.exists();
       } else {
+        // Web Apple Sign-In via popup
         const provider = new OAuthProvider('apple.com');
         provider.addScope('email');
         provider.addScope('name');
+        
         const result = await signInWithPopup(auth, provider);
-        const userDoc = await getDoc(doc(db, "customers", result.user.uid));
-        await handleRoleBasedRedirect(result.user, !userDoc.exists());
+        user = result.user;
+        
+        // Check if new user
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        isNewUser = !userDoc.exists();
       }
+      
+      await handleRoleBasedRedirect(user, isNewUser);
     } catch (err: any) {
-      console.error("Auth Error:", err);
-      setError(err.message || "Login failed");
+      console.error("Apple Auth Error:", err);
+      
+      // Don't show error for user cancellation
+      if (err.code === "auth/popup-closed-by-user" || 
+          err.code === "auth/cancelled-popup-request" ||
+          err.message?.includes("cancelled") ||
+          err.message?.includes("ASAuthorizationErrorDomain")) {
+        setSocialLoading(null);
+        return;
+      }
+      
+      setError(getAuthErrorMessage(err.code) || err.message || "Apple sign-in failed");
     } finally {
-      setLoading(false);
+      setSocialLoading(null);
     }
   };
 
   const isLogin = mode === "login";
+  const isForgot = mode === "forgot";
+  const isSignup = mode === "signup";
+  const isAnyLoading = loading || socialLoading !== null;
 
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-white">
-      <div className="flex items-center justify-center p-6 md:p-10">
+      {/* Left Panel - Form */}
+      <div className="flex items-center justify-center p-6 md:p-10 pt-safe">
         <div className="w-full max-w-md space-y-6">
+          {/* Header */}
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">{isLogin ? "Welcome Back" : "Create Account"}</h1>
+            {/* Mobile Logo */}
+            <div className="md:hidden mb-6">
+              <Image 
+                src="/stackbot-logo-purp.png" 
+                alt="StackBot" 
+                width={60} 
+                height={60} 
+                className="mx-auto"
+              />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              {isForgot ? "Reset Password" : isLogin ? "Welcome Back" : "Create Account"}
+            </h1>
+            <p className="text-gray-600 mt-2">
+              {isForgot 
+                ? "Enter your email to receive a reset link" 
+                : isLogin 
+                  ? "Sign in to continue to StackBot" 
+                  : "Join StackBot today"}
+            </p>
           </div>
 
-          {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
+              <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span>{error}</span>
+            </div>
+          )}
 
-          <form onSubmit={isLogin ? handleLogin : handleSignup} className="space-y-4">
-            {!isLogin && <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full Name" className="w-full border p-3 rounded-xl" />}
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full border p-3 rounded-xl" />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="w-full border p-3 rounded-xl" />
-            {!isLogin && <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm Password" className="w-full border p-3 rounded-xl" />}
-            
-            <button type="submit" disabled={loading} className="w-full bg-[#55529d] text-white py-3 rounded-xl font-semibold">
-              {loading ? "Processing..." : isLogin ? "Sign In" : "Create Account"}
+          {/* Success Message */}
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
+              <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <span>{success}</span>
+            </div>
+          )}
+
+          {/* Form */}
+          <form 
+            onSubmit={isForgot ? handleForgotPassword : isLogin ? handleLogin : handleSignup} 
+            className="space-y-4"
+          >
+            {/* Name field (signup only) */}
+            {isSignup && (
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="John Doe"
+                  disabled={isAnyLoading}
+                  className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
+            )}
+
+            {/* Email field */}
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email Address
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                disabled={isAnyLoading}
+                autoComplete="email"
+                className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            {/* Password field (not for forgot mode) */}
+            {!isForgot && (
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={isAnyLoading}
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
+            )}
+
+            {/* Confirm Password (signup only) */}
+            {isSignup && (
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={isAnyLoading}
+                  autoComplete="new-password"
+                  className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
+            )}
+
+            {/* Forgot Password Link (login only) */}
+            {isLogin && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setMode("forgot")}
+                  disabled={isAnyLoading}
+                  className="text-sm text-[#55529d] hover:underline disabled:opacity-50"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isAnyLoading}
+              className="w-full bg-[#55529d] text-white py-3 rounded-xl font-semibold hover:bg-[#4a478a] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : isForgot ? (
+                "Send Reset Link"
+              ) : isLogin ? (
+                "Sign In"
+              ) : (
+                "Create Account"
+              )}
             </button>
           </form>
 
-          <div className="flex justify-center text-sm"><span className="px-4 bg-white text-gray-500">or</span></div>
+          {/* Back to login (forgot mode) */}
+          {isForgot && (
+            <button
+              onClick={() => setMode("login")}
+              disabled={isAnyLoading}
+              className="w-full text-[#55529d] font-semibold hover:underline disabled:opacity-50"
+            >
+              ← Back to Sign In
+            </button>
+          )}
 
-          <div className="space-y-3">
-            <button onClick={handleAppleAuth} className="w-full bg-black text-white py-3 rounded-xl flex justify-center gap-3">
-              <span>Continue with Apple</span>
-            </button>
-            <button onClick={handleGoogleAuth} className="w-full border border-gray-300 py-3 rounded-xl flex justify-center gap-3">
-              <Image src="/google-icon.png" alt="G" width={20} height={20} />
-              <span>Continue with Google</span>
-            </button>
-          </div>
+          {/* Social Login Divider */}
+          {!isForgot && (
+            <>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-4 bg-white text-gray-500">or continue with</span>
+                </div>
+              </div>
 
-          <div className="text-center text-sm mt-4">
-            <button onClick={() => setMode(isLogin ? "signup" : "login")} className="text-[#55529d] font-semibold hover:underline">
-              {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-            </button>
-          </div>
+              {/* Social Buttons */}
+              <div className="space-y-3">
+                {/* Apple Sign-In */}
+                <button
+                  type="button"
+                  onClick={handleAppleAuth}
+                  disabled={isAnyLoading}
+                  className="w-full bg-black text-white py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {socialLoading === "apple" ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                    </svg>
+                  )}
+                  <span>Continue with Apple</span>
+                </button>
+
+                {/* Google Sign-In */}
+                <button
+                  type="button"
+                  onClick={handleGoogleAuth}
+                  disabled={isAnyLoading}
+                  className="w-full border border-gray-300 py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {socialLoading === "google" ? (
+                    <div className="w-5 h-5 border-2 border-[#55529d] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Image src="/google-icon.png" alt="Google" width={20} height={20} />
+                  )}
+                  <span>Continue with Google</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Toggle Mode */}
+          {!isForgot && (
+            <div className="text-center text-sm">
+              <button
+                onClick={() => setMode(isLogin ? "signup" : "login")}
+                disabled={isAnyLoading}
+                className="text-[#55529d] font-semibold hover:underline disabled:opacity-50"
+              >
+                {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+              </button>
+            </div>
+          )}
+
+          {/* Terms (signup only) */}
+          {isSignup && (
+            <p className="text-xs text-center text-gray-500 mt-4">
+              By creating an account, you agree to our{" "}
+              <Link href="/terms" className="text-[#55529d] hover:underline">Terms of Service</Link>
+              {" "}and{" "}
+              <Link href="/privacy" className="text-[#55529d] hover:underline">Privacy Policy</Link>
+            </p>
+          )}
         </div>
       </div>
+
+      {/* Right Panel - Branding (desktop only) */}
       <div className="hidden md:flex flex-col items-center justify-center bg-[#55529d] p-8">
-        <Image src="/stackbot-logo-white.png" alt="StackBot" width={200} height={200} className="mb-8" />
-        <h2 className="text-white text-2xl font-bold">Shop Local, Delivered Fast</h2>
+        <Image 
+          src="/stackbot-logo-white.png" 
+          alt="StackBot" 
+          width={200} 
+          height={200} 
+          className="mb-8"
+        />
+        <h2 className="text-white text-3xl font-bold text-center mb-4">
+          Shop Local, Delivered Fast
+        </h2>
+        <p className="text-white/80 text-center max-w-sm">
+          Discover amazing local vendors and get your favorites delivered right to your door.
+        </p>
       </div>
     </div>
   );
