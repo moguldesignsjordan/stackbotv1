@@ -14,7 +14,7 @@ import {
   updateProfile,
   User,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"; // Added setDoc & serverTimestamp
 import { auth, db } from "@/lib/firebase/config";
 import Image from "next/image";
 import Link from "next/link";
@@ -97,48 +97,56 @@ function LoginPageInner() {
     setSuccess("");
   }, [mode]);
 
-  const handleRoleBasedRedirect = async (user: User, isNewUser = false) => {
+  // MODIFIED: Accepts explicitName to ensure we save the name before redirecting
+  const handleRoleBasedRedirect = async (user: User, isNewUser = false, explicitName?: string) => {
     try {
       const token = await getIdTokenResult(user, true);
       const role = token.claims.role as string | undefined;
 
+      // 1. Check for Special Roles
       if (intent === "vendor") {
         router.push("/vendor-signup");
         return;
       }
-
       if (role === "admin") {
         router.push("/admin");
         return;
       }
-
       if (role === "vendor") {
         router.push("/vendor");
         return;
       }
 
-      if (isNewUser) {
-        const onboardingUrl = redirect 
-          ? `/onboarding?redirect=${encodeURIComponent(redirect)}` 
-          : "/onboarding";
-        router.push(onboardingUrl);
-        return;
-      }
+      // 2. CUSTOMER LOGIC - BYPASS ONBOARDING
+      // We check if the profile exists. If not, we create it immediately.
+      const userRef = doc(db, "customers", user.uid);
+      const userSnap = await getDoc(userRef);
 
-      try {
-        const customerDoc = await getDoc(doc(db, "customers", user.uid));
-        if (!customerDoc.exists() || !customerDoc.data()?.onboardingCompleted) {
-          const onboardingUrl = redirect 
-            ? `/onboarding?redirect=${encodeURIComponent(redirect)}` 
-            : "/onboarding";
-          router.push(onboardingUrl);
-          return;
+      if (!userSnap.exists()) {
+        // Determine the best display name available
+        const displayNameToUse = explicitName || user.displayName || (mode === 'signup' ? name : '') || 'App User';
+
+        // Create the profile in the background
+        await setDoc(userRef, {
+          uid: user.uid,
+          email: user.email,
+          displayName: displayNameToUse,
+          role: 'customer',
+          onboardingCompleted: true, // Mark as done so we never see the onboarding page
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        // If profile exists, just ensure onboarding is marked true
+        if (explicitName && (!userSnap.data().displayName || userSnap.data().displayName === 'App User')) {
+             await setDoc(userRef, { displayName: explicitName }, { merge: true });
         }
-      } catch (e) {
-        console.error("Error checking onboarding status:", e);
+        await setDoc(userRef, { onboardingCompleted: true }, { merge: true });
       }
 
+      // 3. Redirect DIRECTLY to dashboard/account
       router.push(redirect || "/account");
+      
     } catch (e) {
       console.error("Error in redirect:", e);
       router.push("/account");
@@ -200,7 +208,8 @@ function LoginPageInner() {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
       
-      await handleRoleBasedRedirect(cred.user, true);
+      // Pass the name from the form to the redirect handler
+      await handleRoleBasedRedirect(cred.user, true, name.trim());
     } catch (err: any) {
       console.error("Signup error:", err);
       setError(getAuthErrorMessage(err.code));
@@ -244,25 +253,24 @@ function LoginPageInner() {
     try {
       let user: User;
       let isNewUser = false;
+      let googleName = "";
       
       if (isNative) {
         console.log("Starting native Google Sign-In...");
         const result = await FirebaseAuthentication.signInWithGoogle();
-        console.log("Google Sign-In Result:", JSON.stringify(result, null, 2));
         
         if (!result.credential?.idToken) {
           throw new Error("No credential received from Google Sign-In");
         }
         
-        console.log("Creating Google credential...");
         const credential = GoogleAuthProvider.credential(result.credential.idToken);
-        
-        console.log("Signing in with Firebase...");
         const authResult = await signInWithCredential(auth, credential);
-        console.log("Firebase sign-in successful, user:", authResult.user.uid);
         
         user = authResult.user;
         isNewUser = result.additionalUserInfo?.isNewUser ?? false;
+        // Try to capture name from native result
+        if (result.user?.displayName) googleName = result.user.displayName;
+
       } else {
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
@@ -273,21 +281,19 @@ function LoginPageInner() {
         
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
+        // Capture name from web result
+        if (user.displayName) googleName = user.displayName;
       }
       
-      await handleRoleBasedRedirect(user, isNewUser);
+      await handleRoleBasedRedirect(user, isNewUser, googleName);
     } catch (err: any) {
-      console.error("Google Auth Error - Full:", err);
-      console.error("Google Auth Error - Code:", err.code);
-      console.error("Google Auth Error - Message:", err.message);
-      
+      console.error("Google Auth Error:", err);
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
           err.code === "auth/popup-closed-by-user") {
         setSocialLoading(null);
         return;
       }
-      
       setError(getAuthErrorMessage(err.code) || err.message || "Google sign-in failed");
     } finally {
       setSocialLoading(null);
@@ -302,48 +308,34 @@ function LoginPageInner() {
     try {
       let user: User;
       let isNewUser = false;
+      let capturedName = ""; 
       
       if (isNative) {
         console.log("Starting native Apple Sign-In...");
         const result = await FirebaseAuthentication.signInWithApple();
-        console.log("Apple Sign-In Result:", JSON.stringify(result, null, 2));
         
         if (!result.credential?.idToken) {
           throw new Error("No credential received from Apple Sign-In");
         }
         
+        // CAPTURE NAME (Native)
+        if (result.user?.name?.givenName) {
+          capturedName = `${result.user.name.givenName} ${result.user.name.familyName || ''}`.trim();
+        }
+
         const idToken = result.credential.idToken;
         const rawNonce = result.credential.nonce;
         
-        console.log("Got idToken:", idToken.substring(0, 50) + "...");
-        console.log("Got rawNonce:", rawNonce);
-        
-        // Create OAuthCredential
-        console.log("Creating Apple OAuth credential...");
         const provider = new OAuthProvider('apple.com');
         const credential = provider.credential({
           idToken: idToken,
           rawNonce: rawNonce,
         });
-        console.log("Credential created:", credential);
         
-        // Sign in with Firebase
-        console.log("Signing in with Firebase...");
-        try {
-          const authResult = await signInWithCredential(auth, credential);
-          console.log("Firebase sign-in successful!");
-          console.log("User UID:", authResult.user.uid);
-          console.log("User Email:", authResult.user.email);
-          
-          user = authResult.user;
-          isNewUser = result.additionalUserInfo?.isNewUser ?? false;
-        } catch (firebaseErr: any) {
-          console.error("Firebase signInWithCredential Error:");
-          console.error("  Code:", firebaseErr.code);
-          console.error("  Message:", firebaseErr.message);
-          console.error("  Full error:", JSON.stringify(firebaseErr, Object.getOwnPropertyNames(firebaseErr)));
-          throw firebaseErr;
-        }
+        const authResult = await signInWithCredential(auth, credential);
+        user = authResult.user;
+        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
+
       } else {
         const provider = new OAuthProvider('apple.com');
         provider.addScope('email');
@@ -352,18 +344,27 @@ function LoginPageInner() {
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
+        // CAPTURE NAME (Web) - Apple puts it in _tokenResponse on the very first login
+        // @ts-ignore
+        const appleProfile = result?._tokenResponse; 
+        if (appleProfile?.firstName) {
+            capturedName = `${appleProfile.firstName} ${appleProfile.lastName || ''}`.trim();
+        }
+
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
       }
       
-      console.log("Proceeding to redirect...");
-      await handleRoleBasedRedirect(user, isNewUser);
+      // Update Firebase Profile immediately if we have the name
+      if (user && capturedName) {
+        await updateProfile(user, { displayName: capturedName });
+      }
+
+      // Pass the captured name to the redirect function so it saves to Firestore
+      await handleRoleBasedRedirect(user, isNewUser, capturedName);
+
     } catch (err: any) {
-      console.error("Apple Auth Error - Full:", err);
-      console.error("Apple Auth Error - Code:", err.code);
-      console.error("Apple Auth Error - Message:", err.message);
-      console.error("Apple Auth Error - Stack:", err.stack);
-      
+      console.error("Apple Auth Error:", err);
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
           err.message?.includes("1000") ||
@@ -371,7 +372,6 @@ function LoginPageInner() {
         setSocialLoading(null);
         return;
       }
-      
       const errorMessage = err.message || err.code || "Apple sign-in failed";
       setError(getAuthErrorMessage(err.code) || errorMessage);
     } finally {

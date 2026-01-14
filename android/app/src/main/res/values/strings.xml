@@ -4,5 +4,6 @@
     <string name="title_activity_main">StackBot</string>
     <string name="package_name">com.stackbotglobal.app</string>
     <string name="custom_url_scheme">com.stackbotglobal.app</string>
+
     <string name="server_client_id">443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com</string>
 </resources>
