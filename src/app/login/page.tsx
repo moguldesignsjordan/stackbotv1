@@ -14,7 +14,7 @@ import {
   updateProfile,
   User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"; // Added setDoc & serverTimestamp
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase/config";
 import Image from "next/image";
 import Link from "next/link";
@@ -319,8 +319,10 @@ function LoginPageInner() {
         }
         
         // CAPTURE NAME (Native)
-        if (result.user?.name?.givenName) {
-          capturedName = `${result.user.name.givenName} ${result.user.name.familyName || ''}`.trim();
+        // FIX: Cast to any to avoid TypeScript error on 'name' property
+        const appleUser = result.user as any;
+        if (appleUser?.name?.givenName) {
+          capturedName = `${appleUser.name.givenName} ${appleUser.name.familyName || ''}`.trim();
         }
 
         const idToken = result.credential.idToken;
