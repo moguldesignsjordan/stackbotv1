@@ -148,7 +148,8 @@ export default function AdminTopbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-12 lg:pt-0 transition-all">
+      {/* Updated padding to pt-[65px] for mobile safe area */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-[65px] lg:pt-0 transition-all">
         <div className="flex items-center justify-between h-16 px-4 lg:px-8">
           {/* Left: Logo/Search */}
           <div className="flex items-center gap-4">
@@ -339,9 +340,9 @@ export default function AdminTopbar() {
         </div>
       </header>
 
-      {/* Mobile Search Overlay */}
+      {/* Mobile Search Overlay - Updated padding here as well */}
       {showSearch && (
-        <div className="fixed inset-0 z-50 bg-white lg:hidden animate-fade-in pt-12">
+        <div className="fixed inset-0 z-50 bg-white lg:hidden animate-fade-in pt-[65px]">
           <div className="flex items-center gap-3 p-4 border-b border-gray-100">
             <form onSubmit={handleSearch} className="flex-1">
               <div className="relative">
