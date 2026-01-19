@@ -121,15 +121,66 @@ export default function HomePage() {
   const [featured, setFeatured] = useState<ProductWithVendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const searchRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
 
   // Memoized search handler
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
+      setShowSuggestions(false);
       router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   }, [searchQuery, router]);
+
+  // Generate search suggestions from featured products
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const suggestions = new Set<string>();
+
+    // Search in product names
+    featured.forEach((product) => {
+      const name = product.name?.toLowerCase() || "";
+      const vendor = product.vendor_name?.toLowerCase() || "";
+      const category = product.category?.toLowerCase() || "";
+
+      if (name.includes(query)) suggestions.add(product.name || "");
+      if (vendor.includes(query)) suggestions.add(product.vendor_name || "");
+      if (category.includes(query)) suggestions.add(product.category || "");
+    });
+
+    // Limit to 5 suggestions
+    const suggestionsArray = Array.from(suggestions).slice(0, 5);
+    setSearchSuggestions(suggestionsArray);
+    setShowSuggestions(suggestionsArray.length > 0);
+  }, [searchQuery, featured]);
+
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion: string) => {
+    setSearchQuery(suggestion);
+    setShowSuggestions(false);
+    router.push(`/search?q=${encodeURIComponent(suggestion)}`);
+  };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -348,7 +399,15 @@ export default function HomePage() {
       `}</style>
 
       <Navbar />
-      <Hero searchQuery={searchQuery} setSearchQuery={setSearchQuery} handleSearch={handleSearch} />
+      <Hero 
+        searchQuery={searchQuery} 
+        setSearchQuery={setSearchQuery} 
+        handleSearch={handleSearch}
+        showSuggestions={showSuggestions}
+        searchSuggestions={searchSuggestions}
+        handleSuggestionClick={handleSuggestionClick}
+        searchRef={searchRef}
+      />
     
       
       {/* Featured Vendors Section */}
@@ -946,11 +1005,19 @@ function Navbar() {
 function Hero({ 
   searchQuery, 
   setSearchQuery, 
-  handleSearch 
+  handleSearch,
+  showSuggestions,
+  searchSuggestions,
+  handleSuggestionClick,
+  searchRef
 }: { 
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   handleSearch: (e: React.FormEvent) => void;
+  showSuggestions: boolean;
+  searchSuggestions: string[];
+  handleSuggestionClick: (suggestion: string) => void;
+  searchRef: React.RefObject<HTMLDivElement>;
 }) {
   const [mounted, setMounted] = useState(false);
   const { t } = useLanguage();
@@ -999,22 +1066,43 @@ function Hero({
             <div className={`mt-10 transition-all duration-700 delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}>
               <form onSubmit={handleSearch} className="relative max-w-xl">
                 <div className="absolute inset-0 bg-white rounded-2xl blur-xl opacity-30" />
-                <div className="relative flex items-center gap-3 bg-white rounded-2xl p-2 shadow-2xl">
-                  <Search className="ml-4 text-gray-400 w-5 h-5 flex-shrink-0" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={t('hero.searchPlaceholder')}
-                    className="flex-1 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-base"
-                  />
-                  <button 
-                    type="submit"
-                    className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-[var(--sb-primary-dark)] transition-all duration-300 flex-shrink-0"
-                  >
-                    <span className="hidden sm:inline">{t('common.search')}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                <div ref={searchRef} className="relative">
+                  <div className="relative flex items-center gap-3 bg-white rounded-2xl p-2 shadow-2xl">
+                    <Search className="ml-4 text-gray-400 w-5 h-5 flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={t('hero.searchPlaceholder')}
+                      className="flex-1 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-base"
+                    />
+                    <button 
+                      type="submit"
+                      className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-[var(--sb-primary-dark)] transition-all duration-300 flex-shrink-0"
+                    >
+                      <span className="hidden sm:inline">{t('common.search')}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Autocomplete Suggestions */}
+                  {showSuggestions && searchSuggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50">
+                      {searchSuggestions.map((suggestion, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => handleSuggestionClick(suggestion)}
+                          className="w-full px-6 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3 group"
+                        >
+                          <Search className="w-4 h-4 text-gray-400 group-hover:text-[var(--sb-primary)] transition-colors" />
+                          <span className="text-gray-700 group-hover:text-[var(--sb-primary)] transition-colors">
+                            {suggestion}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </form>
             </div>
