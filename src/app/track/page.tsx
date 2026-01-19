@@ -434,7 +434,7 @@ export default function TrackOrderPage() {
                   order={order}
                   steps={order.deliveryMethod === 'pickup' ? pickupStatusKeys : deliveryStatusKeys}
                   formatDate={formatDate}
-                  t={t}
+                  t={t as (key: string) => string}
                 />
               </div>
             )}
