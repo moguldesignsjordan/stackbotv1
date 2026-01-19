@@ -33,7 +33,7 @@ export default function Footer() {
       ],
       [t('footer.letUsHelpYou')]: [
         { labelKey: 'footer.account', href: "/account" },
-        { labelKey: 'footer.orderHistory', href: "/orders" },
+        { labelKey: 'footer.orderHistory', href: "/account" },
         { labelKey: 'footer.support', href: "/support" },
         { labelKey: 'footer.trackOrder', href: "/track" },
       ],
