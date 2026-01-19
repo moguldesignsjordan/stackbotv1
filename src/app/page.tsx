@@ -349,7 +349,7 @@ export default function HomePage() {
 
       <Navbar />
       <Hero searchQuery={searchQuery} setSearchQuery={setSearchQuery} handleSearch={handleSearch} />
-      <MarketplaceGrid />
+    
       
       {/* Featured Vendors Section */}
       <SectionWrapper 
@@ -370,8 +370,7 @@ export default function HomePage() {
         )}
       </SectionWrapper>
 
-      <WhyStackBot />
-      <TravelerSection />
+
       <OnboardingCards />
 
       <SectionWrapper 
@@ -394,7 +393,7 @@ export default function HomePage() {
       </SectionWrapper>
 
       <Categories />
-      <VendorCTA />
+
       <Footer />
     </div>
   );
