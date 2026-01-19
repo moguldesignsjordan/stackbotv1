@@ -112,7 +112,7 @@ function SearchLoadingState() {
 function SearchPageInner() {
   const searchParams = useSearchParams();
   const rawQuery = searchParams.get("q") || "";
-  const { formatPrice: contextFormatPrice, t } = useLanguage();
+  const { formatCurrency: contextFormatPrice, t } = useLanguage();
   
   // Fallback formatPrice in case context isn't ready
   const formatPrice = contextFormatPrice || ((price: number) => `$${price.toFixed(2)}`);
