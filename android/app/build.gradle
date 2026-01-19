@@ -3,12 +3,23 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.stackbotglobal.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    
+    // SIGNING CONFIG - Must come BEFORE buildTypes
+    signingConfigs {
+        release {
+            storeFile file("../stackbot-release.keystore")
+            storePassword 'Iamamogul2323$$.'
+            keyAlias "stackbot"
+            keyPassword 'Iamamogul2323$$.'
+        }
+    }
+    
     defaultConfig {
         applicationId "com.stackbotglobal.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.0.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,6 +29,7 @@ android {
     }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -43,7 +55,6 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:33.0.0')
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
-   
 }
 
 apply from: 'capacitor.build.gradle'

@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { SavedAddress } from '@/lib/types/address';
 import { CartItem } from '@/lib/types/order';
 import { doc, getDoc } from 'firebase/firestore';
@@ -43,6 +44,7 @@ interface VendorLocation {
 export default function CartPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { language, setLanguage, formatCurrency, t } = useLanguage();
   const {
     cart,
     removeItem,
@@ -88,6 +90,9 @@ export default function CartPage() {
   });
 
   const [notes, setNotes] = useState('');
+
+  // Item-specific notes
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
 
   // Calculate adjusted totals based on fulfillment type
   const TAX_PERCENT = 0.18;
@@ -162,13 +167,6 @@ export default function CartPage() {
       });
     }
   }, [user]);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
 
   const handleProceedToCheckout = () => {
     if (!user) {
@@ -259,6 +257,12 @@ export default function CartPage() {
           : manualAddress;
       }
 
+      // Attach item notes to items
+      const itemsWithNotes = cart.items.map((item: CartItem) => ({
+        ...item,
+        notes: itemNotes[item.productId] || '',
+      }));
+
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: {
@@ -266,7 +270,7 @@ export default function CartPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          items: cart.items,
+          items: itemsWithNotes,
           customerInfo,
           deliveryAddress,
           fulfillmentType,
@@ -302,19 +306,23 @@ export default function CartPage() {
   // Empty cart
   if (cart.items.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 pt-[75px]">
         <div className="bg-white rounded-2xl shadow-sm p-8 max-w-md w-full text-center">
           <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <ShoppingCart className="w-10 h-10 text-gray-400" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h1>
-          <p className="text-gray-500 mb-6">Add some items to get started</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {language === 'en' ? 'Your cart is empty' : 'Tu carrito está vacío'}
+          </h1>
+          <p className="text-gray-500 mb-6">
+            {language === 'en' ? 'Add some items to get started' : 'Agrega artículos para comenzar'}
+          </p>
           <Link
             href="/"
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            Continue Shopping
+            {language === 'en' ? 'Continue Shopping' : 'Seguir Comprando'}
           </Link>
         </div>
       </div>
@@ -324,7 +332,7 @@ export default function CartPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 pt-[75px]">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -335,18 +343,33 @@ export default function CartPage() {
                 <ArrowLeft className="w-6 h-6" />
               </Link>
               <h1 className="text-xl font-bold text-gray-900">
-                Your Cart ({itemCount} {itemCount === 1 ? 'item' : 'items'})
+                {language === 'en' 
+                  ? `Your Cart (${itemCount} ${itemCount === 1 ? 'item' : 'items'})`
+                  : `Tu Carrito (${itemCount} ${itemCount === 1 ? 'artículo' : 'artículos'})`
+                }
               </h1>
             </div>
 
-            {cart.items.length > 0 && (
+            <div className="flex items-center gap-3">
+              {/* Language Toggle */}
               <button
-                onClick={clearCart}
-                className="text-sm text-red-500 hover:text-red-600"
+                onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                title={language === 'en' ? 'Cambiar a Español' : 'Switch to English'}
               >
-                Clear Cart
+                <span className="text-sm">{language === 'en' ? '🇺🇸' : '🇩🇴'}</span>
+                <span className="text-xs font-medium text-gray-600">{language === 'en' ? 'USD' : 'DOP'}</span>
               </button>
-            )}
+
+              {cart.items.length > 0 && (
+                <button
+                  onClick={clearCart}
+                  className="text-sm text-red-500 hover:text-red-600"
+                >
+                  {language === 'en' ? 'Clear Cart' : 'Vaciar'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -358,7 +381,8 @@ export default function CartPage() {
             {/* Vendor Info */}
             <div className="bg-white rounded-xl shadow-sm p-4">
               <p className="text-sm text-gray-500">
-                Ordering from <span className="font-medium text-gray-900">{cart.vendorName}</span>
+                {language === 'en' ? 'Ordering from' : 'Ordenando de'}{' '}
+                <span className="font-medium text-gray-900">{cart.vendorName}</span>
               </p>
             </div>
 
@@ -366,53 +390,66 @@ export default function CartPage() {
             {cart.items.map((item: CartItem) => (
               <div
                 key={item.productId}
-                className="bg-white rounded-xl shadow-sm p-4 flex gap-4"
+                className="bg-white rounded-xl shadow-sm p-4"
               >
-                {item.imageUrl && (
-                  <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-100">
-                    <Image
-                      src={item.imageUrl}
-                      alt={item.name}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                )}
+                <div className="flex gap-4">
+                  {item.imageUrl && (
+                    <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                      <Image
+                        src={item.imageUrl}
+                        alt={item.name}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                  )}
 
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-gray-900 truncate">{item.name}</h3>
-                  <p className="text-[#55529d] font-semibold">{formatCurrency(item.price)}</p>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-gray-900 truncate">{item.name}</h3>
+                    <p className="text-[#55529d] font-semibold">{formatCurrency(item.price)}</p>
 
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2 bg-gray-100 rounded-lg">
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center gap-2 bg-gray-100 rounded-lg">
+                        <button
+                          onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          className="p-2 text-gray-600 hover:text-gray-900"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          className="p-2 text-gray-600 hover:text-gray-900"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                        className="p-2 text-gray-600 hover:text-gray-900"
+                        onClick={() => removeItem(item.productId)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
                       >
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <span className="w-8 text-center font-medium">{item.quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                        className="p-2 text-gray-600 hover:text-gray-900"
-                      >
-                        <Plus className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                       </button>
                     </div>
+                  </div>
 
-                    <button
-                      onClick={() => removeItem(item.productId)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                  <div className="text-right shrink-0">
+                    <p className="font-semibold text-gray-900">
+                      {formatCurrency(item.price * item.quantity)}
+                    </p>
                   </div>
                 </div>
 
-                <div className="text-right shrink-0">
-                  <p className="font-semibold text-gray-900">
-                    {formatCurrency(item.price * item.quantity)}
-                  </p>
+                {/* Item Notes */}
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <input
+                    type="text"
+                    placeholder={language === 'en' ? 'Special instructions (e.g., no onions)' : 'Instrucciones especiales (ej. sin cebolla)'}
+                    value={itemNotes[item.productId] || ''}
+                    onChange={(e) => setItemNotes({ ...itemNotes, [item.productId]: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent placeholder:text-gray-400"
+                  />
                 </div>
               </div>
             ))}
@@ -421,11 +458,15 @@ export default function CartPage() {
           {/* Order Summary & Checkout */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-sm p-6 sticky top-24">
-              <h2 className="text-lg font-bold text-gray-900 mb-4">Order Summary</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-4">
+                {language === 'en' ? 'Order Summary' : 'Resumen del Pedido'}
+              </h2>
 
               {/* Fulfillment Type Toggle */}
               <div className="mb-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">How would you like to receive your order?</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">
+                  {language === 'en' ? 'How would you like to receive your order?' : '¿Cómo deseas recibir tu pedido?'}
+                </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -437,7 +478,7 @@ export default function CartPage() {
                     }`}
                   >
                     <Truck className="w-5 h-5" />
-                    <span className="font-medium">Delivery</span>
+                    <span className="font-medium">{language === 'en' ? 'Delivery' : 'Envío'}</span>
                   </button>
                   <button
                     type="button"
@@ -449,7 +490,7 @@ export default function CartPage() {
                     }`}
                   >
                     <Store className="w-5 h-5" />
-                    <span className="font-medium">Pickup</span>
+                    <span className="font-medium">{language === 'en' ? 'Pickup' : 'Recoger'}</span>
                   </button>
                 </div>
               </div>
@@ -459,35 +500,38 @@ export default function CartPage() {
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm text-green-700 font-medium flex items-center gap-2">
                     <Check className="w-4 h-4" />
-                    You save {formatCurrency(deliveryFee)} with pickup!
+                    {language === 'en' 
+                      ? `You save ${formatCurrency(deliveryFee)} with pickup!`
+                      : `¡Ahorras ${formatCurrency(deliveryFee)} al recoger!`
+                    }
                   </p>
                 </div>
               )}
 
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Subtotal</span>
+                  <span className="text-gray-600">{language === 'en' ? 'Subtotal' : 'Subtotal'}</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">
-                    {fulfillmentType === 'pickup' ? 'Delivery Fee' : 'Delivery Fee'}
+                    {language === 'en' ? 'Delivery Fee' : 'Envío'}
                   </span>
                   {fulfillmentType === 'pickup' ? (
                     <span className="font-medium text-green-600 flex items-center gap-1">
                       <span className="line-through text-gray-400">{formatCurrency(deliveryFee)}</span>
-                      FREE
+                      {language === 'en' ? 'FREE' : 'GRATIS'}
                     </span>
                   ) : (
                     <span className="font-medium">{formatCurrency(deliveryFee)}</span>
                   )}
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Tax (ITBIS 18%)</span>
+                  <span className="text-gray-600">{language === 'en' ? 'Tax (ITBIS 18%)' : 'ITBIS (18%)'}</span>
                   <span className="font-medium">{formatCurrency(adjustedTax)}</span>
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
-                  <span className="font-bold text-gray-900">Total</span>
+                  <span className="font-bold text-gray-900">{language === 'en' ? 'Total' : 'Total'}</span>
                   <span className="font-bold text-[#55529d]">{formatCurrency(adjustedTotal)}</span>
                 </div>
               </div>
@@ -499,9 +543,14 @@ export default function CartPage() {
                     <div className="flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-medium text-amber-800">Sign in to checkout</p>
+                        <p className="text-sm font-medium text-amber-800">
+                          {language === 'en' ? 'Sign in to checkout' : 'Inicia sesión para pagar'}
+                        </p>
                         <p className="text-sm text-amber-700 mt-1">
-                          Create an account to save your addresses and track orders
+                          {language === 'en' 
+                            ? 'Create an account to save your addresses and track orders'
+                            : 'Crea una cuenta para guardar direcciones y rastrear pedidos'
+                          }
                         </p>
                       </div>
                     </div>
@@ -512,13 +561,13 @@ export default function CartPage() {
                     className="w-full flex items-center justify-center gap-2 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium"
                   >
                     <LogIn className="w-5 h-5" />
-                    Sign In to Checkout
+                    {language === 'en' ? 'Sign In to Checkout' : 'Iniciar Sesión'}
                   </button>
 
                   <p className="text-center text-sm text-gray-500 mt-3">
-                    New customer?{' '}
+                    {language === 'en' ? 'New customer?' : '¿Nuevo cliente?'}{' '}
                     <Link href="/login?redirect=/cart" className="text-[#55529d] hover:underline">
-                      Create an account
+                      {language === 'en' ? 'Create an account' : 'Crear cuenta'}
                     </Link>
                   </p>
                 </div>
@@ -530,7 +579,7 @@ export default function CartPage() {
                   onClick={handleProceedToCheckout}
                   className="w-full mt-6 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium flex items-center justify-center gap-2"
                 >
-                  Proceed to Checkout
+                  {language === 'en' ? 'Proceed to Checkout' : 'Continuar al Pago'}
                   <ChevronRight className="w-5 h-5" />
                 </button>
               )}
@@ -789,4 +838,4 @@ export default function CartPage() {
       </main>
     </div>
   );
-}
+} 

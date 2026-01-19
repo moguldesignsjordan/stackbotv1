@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "443911086980-0fnocbdsajc3thdpsmbc6lplmt556d45.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.stackbotglobal.app",
+            "certificate_hash": "5f48a5512b60d8ec85ab59a032ce27a66921a30e"
+          }
+        },
+        {
+          "client_id": "443911086980-o8nd5hmpg2vcds0se3gkucspmqvh6obr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.stackbotglobal.app",
+            "certificate_hash": "3514f06c2bb82d77c794359916f7b6671dcb427f"
+          }
+        },
+        {
           "client_id": "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
           "client_type": 3
         }
