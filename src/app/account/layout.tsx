@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { NotificationBell } from '@/components/notifications'; // ADD THIS IMPORT
@@ -18,7 +19,9 @@ import {
   Loader2,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  HelpCircle,
+  Globe
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
@@ -37,6 +40,7 @@ export default function AccountLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading } = useAuth();
+  const { language, setLanguage } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string>('');
@@ -136,8 +140,8 @@ export default function AccountLayout({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 pt-[75px]">
+        <div className="max-w-7xl mx-auto px-4 py-2">
           <div className="flex items-center justify-between">
             {/* Left: Logo/Back */}
             <div className="flex items-center gap-4">
@@ -176,52 +180,158 @@ export default function AccountLayout({
             </div>
           </div>
         </div>
+      </header>
 
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-gray-200 bg-white">
-            <nav className="px-4 py-2 space-y-1">
+      {/* Mobile Slide-out Drawer Menu */}
+      <div
+        className={`fixed inset-0 z-[60] lg:hidden transition-all duration-300 ${
+          mobileMenuOpen
+            ? 'opacity-100 pointer-events-auto'
+            : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+        
+        {/* Drawer */}
+        <div
+          className={`absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-white shadow-2xl transition-transform duration-300 safe-top ${
+            mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {/* Close button */}
+          <div className="flex justify-end p-4 pt-6">
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="px-6 pb-6 space-y-4">
+            {/* User Profile Card */}
+            <div className="pb-4 mb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <Avatar size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900 truncate">
+                    {displayName || 'Customer'}
+                  </p>
+                  <p className="text-sm text-gray-500 truncate">{user.email}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Navigation Links */}
+            <nav className="space-y-1">
               {navItems.map((item) => {
                 const isActive = isActiveRoute(item.href, item.exact);
+                const label = language === 'en' ? item.label : 
+                  item.label === 'My Orders' ? 'Mis Pedidos' :
+                  item.label === 'Addresses' ? 'Direcciones' :
+                  item.label === 'Settings' ? 'Configuración' : item.label;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${
+                    className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
                       isActive
-                        ? 'bg-[#55529d]/10 text-[#55529d]'
+                        ? 'bg-[#55529d] text-white'
                         : 'text-gray-700 hover:bg-gray-50'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <item.icon className="w-5 h-5" />
-                      <span className="font-medium">{item.label}</span>
+                      <span className="font-medium">{label}</span>
                     </div>
-                    <ChevronRight className={`w-4 h-4 ${isActive ? 'text-[#55529d]' : 'text-gray-400'}`} />
+                    <ChevronRight className={`w-4 h-4 ${isActive ? 'text-white' : 'text-gray-400'}`} />
                   </Link>
                 );
               })}
-              
-              <div className="my-2 mx-4 border-t border-gray-100" />
-              
+            </nav>
+
+            {/* Divider */}
+            <div className="border-t border-gray-100 pt-4">
+              {/* Language Toggle */}
+              <div className="mb-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide px-4 mb-2">
+                  {language === 'en' ? 'Language & Currency' : 'Idioma y Moneda'}
+                </p>
+                <div className="grid grid-cols-2 gap-2 px-4">
+                  <button
+                    onClick={() => setLanguage('en')}
+                    className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 transition-all ${
+                      language === 'en'
+                        ? 'border-[#55529d] bg-[#55529d]/10 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="text-lg">🇺🇸</span>
+                    <span className="text-sm font-medium">USD</span>
+                  </button>
+                  <button
+                    onClick={() => setLanguage('es')}
+                    className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 transition-all ${
+                      language === 'es'
+                        ? 'border-[#55529d] bg-[#55529d]/10 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="text-lg">🇩🇴</span>
+                    <span className="text-sm font-medium">DOP</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Support Link */}
+              <a
+                href="https://stackbotglobal.com/support"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors"
+              >
+                <HelpCircle className="w-5 h-5" />
+                <span className="font-medium">{language === 'en' ? 'Support' : 'Soporte'}</span>
+              </a>
+
+              {/* Home Link */}
+              <Link
+                href="/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors"
+              >
+                <Home className="w-5 h-5" />
+                <span className="font-medium">{language === 'en' ? 'Back to Home' : 'Volver al Inicio'}</span>
+              </Link>
+
+              {/* Logout */}
               <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors mt-1"
               >
                 <LogOut className="w-5 h-5" />
-                <span className="font-medium">Logout</span>
+                <span className="font-medium">{language === 'en' ? 'Logout' : 'Cerrar Sesión'}</span>
               </button>
-            </nav>
+            </div>
           </div>
-        )}
-      </header>
+        </div>
+      </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex gap-8">
           {/* Desktop Sidebar */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
-            <nav className="bg-white rounded-xl shadow-sm overflow-hidden sticky top-24">
+            <nav className="bg-white rounded-xl shadow-sm overflow-hidden sticky top-[140px]">
               {/* Profile Card */}
               <Link 
                 href="/account/settings"
@@ -242,6 +352,10 @@ export default function AccountLayout({
               <div className="p-2">
                 {navItems.map((item) => {
                   const isActive = isActiveRoute(item.href, item.exact);
+                  const label = language === 'en' ? item.label : 
+                    item.label === 'My Orders' ? 'Mis Pedidos' :
+                    item.label === 'Addresses' ? 'Direcciones' :
+                    item.label === 'Settings' ? 'Configuración' : item.label;
                   return (
                     <Link
                       key={item.href}
@@ -253,10 +367,52 @@ export default function AccountLayout({
                       }`}
                     >
                       <item.icon className="w-5 h-5" />
-                      <span className="font-medium">{item.label}</span>
+                      <span className="font-medium">{label}</span>
                     </Link>
                   );
                 })}
+
+                {/* Support Link */}
+                <a
+                  href="https://stackbotglobal.com/support"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <HelpCircle className="w-5 h-5" />
+                  <span className="font-medium">{language === 'en' ? 'Support' : 'Soporte'}</span>
+                </a>
+              </div>
+
+              {/* Language Toggle - Desktop */}
+              <div className="p-4 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                  {language === 'en' ? 'Currency' : 'Moneda'}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setLanguage('en')}
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border transition-all text-sm ${
+                      language === 'en'
+                        ? 'border-[#55529d] bg-[#55529d]/10 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <span>🇺🇸</span>
+                    <span className="font-medium">USD</span>
+                  </button>
+                  <button
+                    onClick={() => setLanguage('es')}
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border transition-all text-sm ${
+                      language === 'es'
+                        ? 'border-[#55529d] bg-[#55529d]/10 text-[#55529d]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <span>🇩🇴</span>
+                    <span className="font-medium">DOP</span>
+                  </button>
+                </div>
               </div>
             </nav>
           </aside>

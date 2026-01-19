@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { NotificationPanel } from '@/components/notifications';
 import { 
   Package, 
@@ -27,21 +28,52 @@ interface Order {
   createdAt: string;
 }
 
-const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pending: { label: 'Pending', color: 'text-yellow-600 bg-yellow-50', icon: Clock },
-  confirmed: { label: 'Confirmed', color: 'text-blue-600 bg-blue-50', icon: CheckCircle },
-  preparing: { label: 'Preparing', color: 'text-orange-600 bg-orange-50', icon: Package },
-  ready_for_pickup: { label: 'Ready', color: 'text-purple-600 bg-purple-50', icon: Package },
-  out_for_delivery: { label: 'On the way', color: 'text-indigo-600 bg-indigo-50', icon: Truck },
-  delivered: { label: 'Delivered', color: 'text-green-600 bg-green-50', icon: CheckCircle },
-  cancelled: { label: 'Cancelled', color: 'text-red-600 bg-red-50', icon: XCircle },
-};
+const getStatusConfig = (language: 'en' | 'es'): Record<string, { label: string; color: string; icon: React.ElementType }> => ({
+  pending: { 
+    label: language === 'en' ? 'Pending' : 'Pendiente', 
+    color: 'text-yellow-600 bg-yellow-50', 
+    icon: Clock 
+  },
+  confirmed: { 
+    label: language === 'en' ? 'Confirmed' : 'Confirmado', 
+    color: 'text-blue-600 bg-blue-50', 
+    icon: CheckCircle 
+  },
+  preparing: { 
+    label: language === 'en' ? 'Preparing' : 'Preparando', 
+    color: 'text-orange-600 bg-orange-50', 
+    icon: Package 
+  },
+  ready_for_pickup: { 
+    label: language === 'en' ? 'Ready' : 'Listo', 
+    color: 'text-purple-600 bg-purple-50', 
+    icon: Package 
+  },
+  out_for_delivery: { 
+    label: language === 'en' ? 'On the way' : 'En camino', 
+    color: 'text-indigo-600 bg-indigo-50', 
+    icon: Truck 
+  },
+  delivered: { 
+    label: language === 'en' ? 'Delivered' : 'Entregado', 
+    color: 'text-green-600 bg-green-50', 
+    icon: CheckCircle 
+  },
+  cancelled: { 
+    label: language === 'en' ? 'Cancelled' : 'Cancelado', 
+    color: 'text-red-600 bg-red-50', 
+    icon: XCircle 
+  },
+});
 
 export default function AccountOrdersPage() {
   const { user } = useAuth();
+  const { language, formatCurrency } = useLanguage();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+
+  const statusConfig = getStatusConfig(language);
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -65,7 +97,7 @@ export default function AccountOrdersPage() {
   }, [user, filter]);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString(language === 'en' ? 'en-US' : 'es-DO', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -86,7 +118,9 @@ export default function AccountOrdersPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">My Orders</h2>
+        <h2 className="text-2xl font-bold text-gray-900">
+          {language === 'en' ? 'My Orders' : 'Mis Pedidos'}
+        </h2>
         
         {/* Filter */}
         <select
@@ -94,13 +128,13 @@ export default function AccountOrdersPage() {
           onChange={(e) => setFilter(e.target.value)}
           className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
         >
-          <option value="all">All Orders</option>
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="preparing">Preparing</option>
-          <option value="out_for_delivery">Out for Delivery</option>
-          <option value="delivered">Delivered</option>
-          <option value="cancelled">Cancelled</option>
+          <option value="all">{language === 'en' ? 'All Orders' : 'Todos'}</option>
+          <option value="pending">{language === 'en' ? 'Pending' : 'Pendiente'}</option>
+          <option value="confirmed">{language === 'en' ? 'Confirmed' : 'Confirmado'}</option>
+          <option value="preparing">{language === 'en' ? 'Preparing' : 'Preparando'}</option>
+          <option value="out_for_delivery">{language === 'en' ? 'Out for Delivery' : 'En Camino'}</option>
+          <option value="delivered">{language === 'en' ? 'Delivered' : 'Entregado'}</option>
+          <option value="cancelled">{language === 'en' ? 'Cancelled' : 'Cancelado'}</option>
         </select>
       </div>
 
@@ -111,13 +145,17 @@ export default function AccountOrdersPage() {
           {orders.length === 0 ? (
             <div className="bg-white rounded-xl shadow-sm p-12 text-center">
               <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No orders yet</h3>
-              <p className="text-gray-600 mb-6">Start shopping to see your orders here</p>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                {language === 'en' ? 'No orders yet' : 'Sin pedidos aún'}
+              </h3>
+              <p className="text-gray-600 mb-6">
+                {language === 'en' ? 'Start shopping to see your orders here' : 'Comienza a comprar para ver tus pedidos aquí'}
+              </p>
               <Link
                 href="/"
                 className="inline-flex items-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#444287] transition-colors"
               >
-                Browse Stores
+                {language === 'en' ? 'Browse Stores' : 'Ver Tiendas'}
               </Link>
             </div>
           ) : (
@@ -165,7 +203,7 @@ export default function AccountOrdersPage() {
                         {/* Total and Arrow */}
                         <div className="flex items-center gap-3">
                           <span className="font-bold text-gray-900">
-                            ${order.total.toFixed(2)}
+                            {formatCurrency(order.total)}
                           </span>
                           <ChevronRight className="w-5 h-5 text-gray-400" />
                         </div>
@@ -181,7 +219,7 @@ export default function AccountOrdersPage() {
         {/* Notifications Panel - Sidebar on large screens */}
         <div className="lg:col-span-1">
           <NotificationPanel
-            title="Order Updates"
+            title={language === 'en' ? 'Order Updates' : 'Actualizaciones'}
             maxItems={6}
             filterTypes={['order_', 'payment_']}
             viewAllLink="/notifications"
