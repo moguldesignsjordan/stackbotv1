@@ -7,9 +7,7 @@ import { useRouter } from "next/navigation";
 import Footer from "@/components/layout/Footer";
 import { useAuth } from "@/hooks/useAuth";
 import { signOut, getIdTokenResult } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
-import { LogOut, User, ChevronDown, ShoppingCart } from "lucide-react";
-import { db } from "@/lib/firebase/config";
+import { auth, db } from "@/lib/firebase/config";
 import {
   collection,
   getDocs,
@@ -17,28 +15,19 @@ import {
   where,
   limit,
 } from "firebase/firestore";
-
 import type { Product } from "@/lib/types";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCart } from "@/contexts/CartContext";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
-
 import {
   ArrowRight,
   Store,
   Search,
-  Smartphone,
-  Bike,
   Utensils,
   Car,
   Brush,
   Shirt,
-  Home,
-  Map,
-  Users,
-  Shield,
-  Zap,
-  Globe,
+  Home as HomeIcon,
   Menu,
   X,
   ChevronRight,
@@ -48,6 +37,22 @@ import {
   TrendingUp,
   Clock,
   BadgeCheck,
+  Bell,
+  ShoppingCart,
+  User,
+  LogOut,
+  ChevronDown,
+  Heart,
+  Compass,
+  Package,
+  Percent,
+  Coffee,
+  Salad,
+  Pizza,
+  Gift,
+  Truck,
+  Shield,
+  Zap,
 } from "lucide-react";
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -74,6 +79,8 @@ interface Vendor {
   verified?: boolean;
   slug?: string;
   created_at?: any;
+  delivery_time?: string;
+  delivery_fee?: number;
 }
 
 interface ProductWithVendor extends Product {
@@ -83,7 +90,7 @@ interface ProductWithVendor extends Product {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// PERFORMANCE: INTERSECTION OBSERVER HOOK WITH ONCE OPTION
+// INTERSECTION OBSERVER HOOK
 ////////////////////////////////////////////////////////////////////////////////
 
 function useInView(options = {}) {
@@ -117,25 +124,36 @@ function useInView(options = {}) {
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+  const { itemCount } = useCart();
+  const { t, language, setLanguage, formatCurrency } = useLanguage();
+
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [featured, setFeatured] = useState<ProductWithVendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
-  const { t } = useLanguage();
 
-  // Memoized search handler
-  const handleSearch = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setShowSuggestions(false);
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-    }
-  }, [searchQuery, router]);
+  // Get user's first name
+  const userName = user?.displayName?.split(" ")[0] || "";
 
-  // Generate search suggestions from featured products
+  // Search handler
+  const handleSearch = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (searchQuery.trim()) {
+        setShowSuggestions(false);
+        router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      }
+    },
+    [searchQuery, router]
+  );
+
+  // Generate search suggestions
   useEffect(() => {
     if (searchQuery.trim().length < 2) {
       setSearchSuggestions([]);
@@ -143,25 +161,30 @@ export default function HomePage() {
       return;
     }
 
-    const query = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase();
     const suggestions = new Set<string>();
 
-    // Search in product names
     featured.forEach((product) => {
       const name = product.name?.toLowerCase() || "";
       const vendor = product.vendor_name?.toLowerCase() || "";
       const category = product.category?.toLowerCase() || "";
 
-      if (name.includes(query)) suggestions.add(product.name || "");
-      if (vendor.includes(query)) suggestions.add(product.vendor_name || "");
-      if (category.includes(query)) suggestions.add(product.category || "");
+      if (name.includes(q)) suggestions.add(product.name || "");
+      if (vendor.includes(q)) suggestions.add(product.vendor_name || "");
+      if (category.includes(q)) suggestions.add(product.category || "");
     });
 
-    // Limit to 5 suggestions
+    vendors.forEach((vendor) => {
+      const name = (vendor.business_name || vendor.name || "").toLowerCase();
+      const category = (vendor.category || "").toLowerCase();
+      if (name.includes(q)) suggestions.add(vendor.business_name || vendor.name || "");
+      if (category.includes(q)) suggestions.add(vendor.category || "");
+    });
+
     const suggestionsArray = Array.from(suggestions).slice(0, 5);
     setSearchSuggestions(suggestionsArray);
     setShowSuggestions(suggestionsArray.length > 0);
-  }, [searchQuery, featured]);
+  }, [searchQuery, featured, vendors]);
 
   // Handle suggestion click
   const handleSuggestionClick = (suggestion: string) => {
@@ -170,26 +193,41 @@ export default function HomePage() {
     router.push(`/search?q=${encodeURIComponent(suggestion)}`);
   };
 
-  // Close suggestions when clicking outside
+  // Close suggestions on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setShowSuggestions(false);
       }
     };
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Fetch user role
+  useEffect(() => {
+    const fetchRole = async () => {
+      if (user) {
+        try {
+          const token = await getIdTokenResult(user);
+          setUserRole((token.claims.role as string) || "customer");
+        } catch {
+          setUserRole("customer");
+        }
+      } else {
+        setUserRole(null);
+      }
+    };
+    fetchRole();
+  }, [user]);
+
+  // Load data
   useEffect(() => {
     const load = async () => {
       try {
-        // First fetch vendors
         const vendorsList = await fetchVendors();
         setVendors(vendorsList);
 
-        // Then fetch products from those vendors
         if (vendorsList.length > 0) {
           const productsList = await fetchProductsFromVendors(vendorsList);
           setFeatured(productsList);
@@ -202,8 +240,15 @@ export default function HomePage() {
     load();
   }, []);
 
+  const getDashboardLink = () => {
+    if (userRole === "admin") return "/admin";
+    if (userRole === "vendor") return "/vendor";
+    return "/account";
+  };
+
   return (
-    <div className="min-h-screen bg-[#fafafa] overflow-x-hidden">
+    <div className="min-h-screen bg-[#fafafa] pb-20 lg:pb-0">
+      {/* Global Styles */}
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
         
@@ -228,6 +273,21 @@ export default function HomePage() {
 
         .font-display {
           font-family: 'Space Grotesk', sans-serif;
+        }
+        
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        
+        .safe-area-top {
+          padding-top: env(safe-area-inset-top, 0px);
+        }
+        .safe-area-bottom {
+          padding-bottom: env(safe-area-inset-bottom, 0px);
         }
 
         @keyframes float {
@@ -261,19 +321,11 @@ export default function HomePage() {
           to { opacity: 1; transform: scale(1); }
         }
 
-        @keyframes badge-pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.05); }
-        }
-
         .animate-float { animation: float 6s ease-in-out infinite; }
         .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
         .animate-gradient { 
           background-size: 200% 200%;
           animation: gradient-shift 8s ease infinite;
-        }
-        .animate-badge-pulse {
-          animation: badge-pulse 2s ease-in-out infinite;
         }
 
         .skeleton {
@@ -297,23 +349,14 @@ export default function HomePage() {
         .stagger-2 { transition-delay: 0.1s; }
         .stagger-3 { transition-delay: 0.15s; }
         .stagger-4 { transition-delay: 0.2s; }
-        .stagger-5 { transition-delay: 0.25s; }
-        .stagger-6 { transition-delay: 0.3s; }
-        .stagger-7 { transition-delay: 0.35s; }
-        .stagger-8 { transition-delay: 0.4s; }
 
         .card-hover {
           transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-          will-change: transform, box-shadow;
         }
 
         .card-hover:hover {
           transform: translateY(-6px);
           box-shadow: 0 20px 40px -12px rgba(85, 82, 157, 0.2);
-        }
-
-        .card-hover:active {
-          transform: translateY(-2px);
         }
 
         .btn-hover {
@@ -348,34 +391,13 @@ export default function HomePage() {
           -webkit-backdrop-filter: blur(20px);
         }
 
-        .glass-dark {
-          background: rgba(26, 26, 46, 0.9);
-          backdrop-filter: blur(20px);
-          -webkit-backdrop-filter: blur(20px);
-        }
-
         .noise {
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
           opacity: 0.03;
         }
 
-        .img-loading {
-          background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        }
-
-        /* Smooth image loading */
-        .img-reveal {
-          opacity: 0;
-          transition: opacity 0.3s ease;
-        }
-        .img-reveal.loaded {
-          opacity: 1;
-        }
-
-        /* Better focus states */
-        *:focus-visible {
-          outline: 2px solid var(--sb-primary);
-          outline-offset: 2px;
+        .animate-fade-in {
+          animation: fade-in-up 0.3s ease-out;
         }
 
         /* Reduce motion for accessibility */
@@ -386,144 +408,447 @@ export default function HomePage() {
             transition-duration: 0.01ms !important;
           }
         }
-
-        /* Safe area support for iPhone notch */
-        @supports (padding-top: env(safe-area-inset-top)) {
-          .safe-top {
-            padding-top: env(safe-area-inset-top);
-          }
-          .safe-top-nav {
-            padding-top: max(env(safe-area-inset-top), 12px);
-          }
-        }
       `}</style>
 
-      <Navbar />
-      <Hero 
-        searchQuery={searchQuery} 
-        setSearchQuery={setSearchQuery} 
-        handleSearch={handleSearch}
-        showSuggestions={showSuggestions}
-        searchSuggestions={searchSuggestions}
-        handleSuggestionClick={handleSuggestionClick}
-        searchRef={searchRef}
+      {/* Desktop Navbar */}
+      <DesktopNavbar
+        user={user}
+        userRole={userRole}
+        itemCount={itemCount}
+        language={language}
+        setLanguage={setLanguage}
+        getDashboardLink={getDashboardLink}
+        t={t}
       />
-    
-      
-      {/* Featured Vendors Section */}
-      <SectionWrapper 
-        title={t('section.featuredVendors')}
-        subtitle={t('section.featuredVendorsSubtitle')}
-        link="/vendors"
-        icon={<BadgeCheck className="w-5 h-5" />}
-      >
-        {loading ? (
-          <LoadingGrid count={4} type="vendor" />
-        ) : vendors.length > 0 ? (
-          <Grid>{vendors.map((v, i) => <VendorCard key={v.id} vendor={v} index={i} />)}</Grid>
-        ) : (
-          <EmptyState 
-            message={t('vendors.noVendors')}
-            description={t('vendors.noVendors')}
-          />
-        )}
-      </SectionWrapper>
 
+      {/* Mobile Header */}
+      <header className="lg:hidden sticky top-0 z-50 bg-white border-b border-gray-100 safe-area-top">
+        {/* Location & Actions Row */}
+        <div className="px-4 py-3 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <Image
+              src="/stackbot-logo-purp.png"
+              alt="StackBot"
+              width={100}
+              height={30}
+              className="object-contain"
+              priority
+            />
+          </Link>
 
-      <OnboardingCards />
+          <div className="flex items-center gap-1">
+            {/* Language Toggle */}
+            <button
+              onClick={() => setLanguage(language === "en" ? "es" : "en")}
+              className="p-2 hover:bg-gray-100 rounded-full text-sm font-medium"
+            >
+              {language === "en" ? "🇺🇸" : "🇩🇴"}
+            </button>
 
-      <SectionWrapper 
-        title={t('section.featuredProducts')}
-        subtitle={t('section.featuredProductsSubtitle')}
-        link="/products"
-        icon={<Sparkles className="w-5 h-5" />}
-        bgColor="bg-white"
-      >
-        {loading ? (
-          <LoadingGrid count={4} type="product" />
-        ) : featured.length > 0 ? (
-          <Grid>{featured.map((p, i) => <ProductCard key={p.id} product={p} index={i} />)}</Grid>
-        ) : (
-          <EmptyState 
-            message={t('products.noProducts')}
-            description={t('products.noProducts')}
-          />
-        )}
-      </SectionWrapper>
+            <Link
+              href="/account/notifications"
+              className="p-2 hover:bg-gray-100 rounded-full relative"
+            >
+              <Bell className="w-5 h-5 text-gray-700" />
+            </Link>
 
-      <Categories />
+            <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
+              <ShoppingCart className="w-5 h-5 text-gray-700" />
+              {itemCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[var(--sb-primary)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {itemCount > 9 ? "9+" : itemCount}
+                </span>
+              )}
+            </Link>
+          </div>
+        </div>
 
+        {/* Location Bar */}
+        <div className="px-4 pb-2">
+          <button className="flex items-center gap-1.5 text-sm">
+            <MapPin className="w-4 h-4 text-[var(--sb-primary)]" />
+            <span className="font-medium text-gray-900 truncate">
+              {language === "es" ? "Sosúa, Puerto Plata" : "Sosúa, Puerto Plata"}
+            </span>
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="px-4 pb-3" ref={searchRef}>
+          <form onSubmit={handleSearch}>
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  language === "es"
+                    ? "Buscar comida, tiendas..."
+                    : "Search food, stores..."
+                }
+                className="w-full pl-12 pr-4 py-3 bg-gray-100 rounded-full text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[var(--sb-primary)]/20 focus:bg-white border border-transparent focus:border-[var(--sb-primary)]/30 transition-all"
+              />
+
+              {/* Search Suggestions */}
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in">
+                  {searchSuggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-sm"
+                    >
+                      <Search className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-700">{suggestion}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </form>
+        </div>
+
+      </header>
+
+      {/* Main Content */}
+      <main>
+        {/* Welcome Section (Mobile) */}
+        <section className="lg:hidden px-4 pt-4">
+          {userName && (
+            <h1 className="text-xl font-bold text-gray-900 mb-1">
+              {language === "es" ? `¡Hola, ${userName}!` : `Hi, ${userName}!`}
+            </h1>
+          )}
+          <p className="text-gray-500 text-sm mb-4">
+            {language === "es"
+              ? "¿Qué te gustaría pedir hoy?"
+              : "What would you like to order today?"}
+          </p>
+        </section>
+
+        {/* Desktop Hero Section */}
+        <DesktopHero
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          handleSearch={handleSearch}
+          showSuggestions={showSuggestions}
+          searchSuggestions={searchSuggestions}
+          handleSuggestionClick={handleSuggestionClick}
+          searchRef={searchRef}
+          language={language}
+          t={t}
+        />
+
+        {/* Category Pills */}
+        <section className="px-4 lg:max-w-7xl lg:mx-auto lg:px-8 lg:pt-8">
+          <div className="overflow-x-auto scrollbar-hide -mx-4 px-4 lg:mx-0 lg:px-0">
+            <div className="flex gap-2 min-w-max pb-1">
+              <CategoryPill
+                emoji="🥗"
+                label={language === "es" ? "Saludable" : "Healthy"}
+                href="/search?q=healthy"
+              />
+              <CategoryPill
+                emoji="🍔"
+                label={language === "es" ? "Hamburguesas" : "Burgers"}
+                href="/search?q=burger"
+              />
+              <CategoryPill
+                emoji="🥪"
+                label={language === "es" ? "Sándwiches" : "Sandwiches"}
+                href="/search?q=sandwich"
+              />
+              <CategoryPill
+                emoji="🎉"
+                label={language === "es" ? "Ofertas" : "Deals"}
+                href="/categories/deals"
+              />
+              <CategoryPill
+                emoji="🍟"
+                label={language === "es" ? "Comida rápida" : "Fast Food"}
+                href="/search?q=fast+food"
+              />
+              <CategoryPill
+                emoji="🥗"
+                label={language === "es" ? "Ensalada" : "Salad"}
+                href="/search?q=salad"
+              />
+              <CategoryPill emoji="🍕" label="Pizza" href="/search?q=pizza" />
+              <CategoryPill
+                emoji="🍣"
+                label="Sushi"
+                href="/search?q=sushi"
+              />
+              <CategoryPill
+                emoji="🌮"
+                label="Tacos"
+                href="/search?q=tacos"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Promo Banners */}
+        <section className="px-4 py-6 lg:max-w-7xl lg:mx-auto lg:px-8">
+          <div className="overflow-x-auto scrollbar-hide -mx-4 px-4 lg:mx-0 lg:px-0">
+            <div className="flex gap-4 min-w-max lg:grid lg:grid-cols-2 lg:min-w-0">
+              <PromoBanner
+                title={
+                  language === "es"
+                    ? "Hasta 25% de descuento"
+                    : "Up to 25% off"
+                }
+                subtitle={
+                  language === "es"
+                    ? "En tus restaurantes favoritos"
+                    : "Your favorite restaurants"
+                }
+                cta={language === "es" ? "Ordenar ahora" : "Order now"}
+                bgColor="bg-gradient-to-r from-[#6C5CE7] to-[#a29bfe]"
+                href="/categories/deals"
+              />
+              <PromoBanner
+                title={language === "es" ? "Envío gratis" : "Free delivery"}
+                subtitle={
+                  language === "es"
+                    ? "En tu primer pedido"
+                    : "On your first order"
+                }
+                cta={language === "es" ? "Ver más" : "Learn more"}
+                bgColor="bg-gradient-to-r from-[#ff7675] to-[#fd79a8]"
+                href="/signup"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Featured Vendors */}
+        <section className="px-4 pb-8 lg:max-w-7xl lg:mx-auto lg:px-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg lg:text-2xl font-bold text-gray-900">
+              {language === "es" ? "Tiendas destacadas" : "Featured Stores"}
+            </h2>
+            <Link
+              href="/vendors"
+              className="flex items-center text-[var(--sb-primary)] text-sm font-semibold hover:underline"
+            >
+              {language === "es" ? "Ver todo" : "See all"}
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <VendorCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : vendors.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {vendors.slice(0, 6).map((vendor, index) => (
+                <VendorCard key={vendor.id} vendor={vendor} index={index} language={language} formatCurrency={formatCurrency} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              message={
+                language === "es"
+                  ? "No hay tiendas disponibles"
+                  : "No stores available"
+              }
+            />
+          )}
+        </section>
+
+        {/* Featured Products */}
+        <section className="px-4 pb-8 lg:max-w-7xl lg:mx-auto lg:px-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg lg:text-2xl font-bold text-gray-900">
+              {language === "es" ? "Productos populares" : "Popular Products"}
+            </h2>
+            <Link
+              href="/products"
+              className="flex items-center text-[var(--sb-primary)] text-sm font-semibold hover:underline"
+            >
+              {language === "es" ? "Ver todo" : "See all"}
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <ProductCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : featured.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4">
+              {featured.slice(0, 8).map((product, index) => (
+                <ProductCard key={product.id} product={product} index={index} formatCurrency={formatCurrency} t={t} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              message={
+                language === "es"
+                  ? "No hay productos disponibles"
+                  : "No products available"
+              }
+            />
+          )}
+        </section>
+
+        {/* Browse Categories */}
+        <section className="px-4 pb-8 lg:max-w-7xl lg:mx-auto lg:px-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg lg:text-2xl font-bold text-gray-900">
+              {language === "es" ? "Explorar categorías" : "Browse Categories"}
+            </h2>
+            <Link
+              href="/categories"
+              className="flex items-center text-[var(--sb-primary)] text-sm font-semibold hover:underline"
+            >
+              {language === "es" ? "Ver todo" : "See all"}
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+            <CategoryCard
+              icon={<Utensils className="w-6 h-6" />}
+              label={language === "es" ? "Restaurantes" : "Restaurants"}
+              count={vendors.filter((v) => v.category === "Restaurants").length}
+              href="/categories/restaurants"
+              color="bg-orange-50 text-orange-600"
+            />
+            <CategoryCard
+              icon={<Car className="w-6 h-6" />}
+              label={language === "es" ? "Taxi" : "Taxi Service"}
+              count={vendors.filter((v) => v.category === "Taxi Service").length}
+              href="/categories/taxi-service"
+              color="bg-yellow-50 text-yellow-600"
+            />
+            <CategoryCard
+              icon={<Shirt className="w-6 h-6" />}
+              label={language === "es" ? "Tiendas" : "Retail Shops"}
+              count={vendors.filter((v) => v.category === "Retail Shops").length}
+              href="/categories/retail-shops"
+              color="bg-blue-50 text-blue-600"
+            />
+            <CategoryCard
+              icon={<Brush className="w-6 h-6" />}
+              label={language === "es" ? "Limpieza" : "Cleaning"}
+              count={vendors.filter((v) => v.category === "Cleaning Services").length}
+              href="/categories/cleaning-services"
+              color="bg-green-50 text-green-600"
+            />
+          </div>
+        </section>
+
+        {/* How It Works */}
+        <HowItWorks language={language} />
+
+        {/* Become a Vendor CTA */}
+        <VendorCTA language={language} />
+      </main>
+
+      {/* Footer - shown on all devices */}
       <Footer />
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 lg:hidden safe-area-bottom">
+        <div className="flex items-center justify-around py-2">
+          <NavItem
+            icon={<HomeIcon className="w-6 h-6" />}
+            label={language === "es" ? "Inicio" : "Home"}
+            href="/"
+            active
+          />
+          <NavItem
+            icon={<Compass className="w-6 h-6" />}
+            label={language === "es" ? "Explorar" : "Browse"}
+            href="/vendors"
+          />
+          <NavItem
+            icon={<Package className="w-6 h-6" />}
+            label={language === "es" ? "Pedidos" : "Orders"}
+            href="/account/orders"
+          />
+          <NavItem
+            icon={<User className="w-6 h-6" />}
+            label={language === "es" ? "Perfil" : "Account"}
+            href={user ? getDashboardLink() : "/login"}
+          />
+        </div>
+      </nav>
+
+      {/* Floating Cart Button */}
+      {itemCount > 0 && (
+        <Link
+          href="/cart"
+          className="fixed bottom-20 left-4 right-4 lg:bottom-6 lg:left-auto lg:right-6 lg:w-auto bg-[var(--sb-primary)] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[var(--sb-primary)]/30 z-40 hover:bg-[var(--sb-primary-dark)] transition-colors lg:hidden"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
+            <span className="font-semibold text-sm">
+              {language === "es" ? "Ver carrito" : "View Cart"}
+            </span>
+          </div>
+          <span className="font-bold">{itemCount}</span>
+        </Link>
+      )}
     </div>
   );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// DATA FETCHING FUNCTIONS (Optimized)
-////////////////////////////////////////////////////////////////////////////////
-
-// imports here...
-
-////////////////////////////////////////////////////////////////////////////////
-// DATA FETCHING FUNCTIONS (TOP LEVEL)
+// DATA FETCHING FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////
 
 async function fetchVendors(): Promise<Vendor[]> {
-  // 1. Fetch approved vendors (modern status)
   const approvedSnap = await getDocs(
-    query(
-      collection(db, "vendors"),
-      where("status", "==", "approved"),
-      limit(8)
-    )
+    query(collection(db, "vendors"), where("status", "==", "approved"), limit(12))
   );
 
-  // Start with the approved list
-  let allVendors = approvedSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Vendor));
+  let allVendors = approvedSnap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  })) as Vendor[];
 
-  // 2. If we don't have a full list of 8, fetch legacy "verified" vendors to fill the gaps
-  if (allVendors.length < 8) {
+  if (allVendors.length < 12) {
     const legacySnap = await getDocs(
-      query(
-        collection(db, "vendors"),
-        where("verified", "==", true),
-        limit(8)
-      )
+      query(collection(db, "vendors"), where("verified", "==", true), limit(12))
     );
 
     const legacyVendors = legacySnap.docs
-      .map((d) => ({ id: d.id, ...d.data() } as Vendor))
+      .map((d) => ({ id: d.id, ...d.data() }) as Vendor)
       .filter((v) => {
-        // Filter out suspended or deleted vendors
         if (v.status === "suspended" || v.status === "deleted") return false;
-        
-        // IMPORTANT: Prevent duplicates.
-        // If a vendor is both "approved" AND "verified", we already have them in 'allVendors'.
-        // This check ensures we don't add them twice.
-        const isDuplicate = allVendors.some(existing => existing.id === v.id);
-        return !isDuplicate;
+        return !allVendors.some((existing) => existing.id === v.id);
       });
 
-    // Combine the lists
     allVendors = [...allVendors, ...legacyVendors];
   }
 
-  // 3. Sort by newest created and ensure we return max 8 items
-  return allVendors
-    .sort(sortByCreatedAt)
-    .slice(0, 8);
+  return allVendors.sort(sortByCreatedAt).slice(0, 12);
 }
 
 async function fetchProductsFromVendors(
   vendorsList: Vendor[]
 ): Promise<ProductWithVendor[]> {
-  let allProducts: ProductWithVendor[] = [];
-
-  const productPromises = vendorsList.slice(0, 6).map(async (vendor) => {
+  const productPromises = vendorsList.slice(0, 8).map(async (vendor) => {
     try {
-      // 🚫 HARD STOP — skip suspended vendors
-      if (vendor.status && vendor.status !== "approved" && vendor.status !== undefined && vendor.verified === false) return [];
-      // Note: kept logic generous here to allow legacy verified vendors
+      if (
+        vendor.status &&
+        vendor.status !== "approved" &&
+        vendor.verified === false
+      )
+        return [];
 
       const productsSnap = await getDocs(
         collection(db, "vendors", vendor.id, "products")
@@ -539,116 +864,62 @@ async function fetchProductsFromVendors(
             vendorId: vendor.id,
             vendorSlug: vendor.slug || vendor.id,
             vendor_name:
-              productData.vendor_name ||
-              vendor.name ||
-              vendor.business_name,
+              productData.vendor_name || vendor.name || vendor.business_name,
           } as ProductWithVendor;
         });
     } catch (err) {
-      console.error(
-        `Error fetching products for vendor ${vendor.id}`,
-        err
-      );
+      console.error(`Error fetching products for vendor ${vendor.id}`, err);
       return [];
     }
   });
 
   const results = await Promise.all(productPromises);
-  allProducts = results.flat();
+  const allProducts = results.flat();
 
-  return allProducts
-    .sort(() => Math.random() - 0.5)
-    .slice(0, 8);
+  return allProducts.sort(() => Math.random() - 0.5).slice(0, 12);
 }
 
 function sortByCreatedAt(a: Vendor, b: Vendor) {
-  const aTime =
-    a.created_at?.toMillis?.() ||
-    a.created_at?.seconds * 1000 ||
-    0;
-
-  const bTime =
-    b.created_at?.toMillis?.() ||
-    b.created_at?.seconds * 1000 ||
-    0;
-
+  const aTime = a.created_at?.toMillis?.() || a.created_at?.seconds * 1000 || 0;
+  const bTime = b.created_at?.toMillis?.() || b.created_at?.seconds * 1000 || 0;
   return bTime - aTime;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// NAVBAR (Auth-Aware with Cart + Language Toggle)
+// DESKTOP NAVBAR
 ////////////////////////////////////////////////////////////////////////////////
 
-function Navbar() {
-  const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+function DesktopNavbar({
+  user,
+  userRole,
+  itemCount,
+  language,
+  setLanguage,
+  getDashboardLink,
+  t,
+}: {
+  user: any;
+  userRole: string | null;
+  itemCount: number;
+  language: string;
+  setLanguage: (lang: "en" | "es") => void;
+  getDashboardLink: () => string;
+  t: any;
+}) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const { user, loading } = useAuth();
-  const { itemCount } = useCart();
-  const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
-  useEffect(() => {
-    let ticking = false;
-    const handleScroll = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          setScrolled(window.scrollY > 20);
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  // Get user role for proper dashboard redirect
-  useEffect(() => {
-    const fetchRole = async () => {
-      if (user) {
-        try {
-          const token = await getIdTokenResult(user);
-          setUserRole((token.claims.role as string) || "customer");
-        } catch {
-          setUserRole("customer");
-        }
-      } else {
-        setUserRole(null);
-      }
-    };
-    fetchRole();
-  }, [user]);
-
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setUserMenuOpen(false);
-      setMobileOpen(false);
-      router.push("/");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  };
-
-  const getDashboardLink = () => {
-    if (userRole === "admin") return "/admin";
-    if (userRole === "vendor") return "/vendor";
-    return "/account";
-  };
-
-  const getDashboardLabel = () => {
-    if (userRole === "admin") return t('nav.adminDashboard');
-    if (userRole === "vendor") return t('nav.vendorDashboard');
-    return t('account.title');
+    await signOut(auth);
+    setUserMenuOpen(false);
+    router.push("/");
   };
 
   const getInitials = () => {
     if (user?.displayName) {
       return user.displayName
         .split(" ")
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join("")
         .toUpperCase()
         .slice(0, 2);
@@ -657,377 +928,177 @@ function Navbar() {
   };
 
   return (
-    <>
-      <nav
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 safe-top-nav ${
-          scrolled ? "glass shadow-lg py-2" : "bg-transparent py-3 sm:py-4"
-        }`}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
+    <nav className="hidden lg:block sticky top-0 z-50 bg-white border-b border-gray-100">
+      <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center">
             <Image
               src="/stackbot-logo-purp.png"
               alt="StackBot"
-              width={120}
-              height={36}
+              width={130}
+              height={40}
+              className="object-contain"
               priority
-              className="object-contain transition-transform duration-300 group-hover:scale-105 w-[100px] sm:w-[120px]"
             />
           </Link>
 
-          {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-6">
-            {[
-              { href: "/vendors", label: t('nav.vendors') },
-              { href: "/vendor-signup", label: t('vendors.becomeVendor') },
-            ].map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm font-medium text-gray-700 hover:text-[var(--sb-primary)] transition-colors relative group"
-              >
-                {link.label}
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[var(--sb-primary)] transition-all duration-300 group-hover:w-full" />
-              </Link>
-            ))}
-
-            {/* Language Toggle */}
-            <LanguageToggle variant="pill" />
-
-            {/* Cart Button */}
-            <Link
-              href="/cart"
-              className="relative p-2 rounded-full hover:bg-gray-100 transition-colors"
-              aria-label={t('nav.cart')}
-            >
-              <ShoppingCart className="w-5 h-5 text-gray-700" />
-              {itemCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--sb-accent)] text-white text-xs font-bold rounded-full flex items-center justify-center animate-badge-pulse">
-                  {itemCount > 99 ? '99+' : itemCount}
-                </span>
-              )}
-            </Link>
-
-            {/* Auth-aware button/menu */}
-            {loading ? (
-              <div className="w-20 h-10 rounded-full bg-gray-200 animate-pulse" />
-            ) : user ? (
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 bg-[var(--sb-primary)]/10 hover:bg-[var(--sb-primary)]/20 px-3 py-2 rounded-full transition-all duration-300"
-                >
-                  <div className="w-8 h-8 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-sm font-semibold">
-                    {getInitials()}
-                  </div>
-                  <ChevronDown
-                    className={`w-4 h-4 text-[var(--sb-primary)] transition-transform duration-200 ${
-                      userMenuOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-
-                {/* Dropdown Menu */}
-                {userMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setUserMenuOpen(false)}
-                    />
-                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-fade-in">
-                      <div className="px-4 py-3 border-b border-gray-100">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {user.displayName || "Welcome!"}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {user.email}
-                        </p>
-                      </div>
-                      <Link
-                        href={getDashboardLink()}
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
-                      >
-                        <User className="w-4 h-4" />
-                        <span className="text-sm font-medium">
-                          {getDashboardLabel()}
-                        </span>
-                      </Link>
-                      <Link
-                        href="/account/orders"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                        <span className="text-sm font-medium">{t('orders.title')}</span>
-                      </Link>
-                      <button
-                        onClick={handleLogout}
-                        className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 transition-colors w-full"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        <span className="text-sm font-medium">{t('nav.logout')}</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <Link
-                href="/login"
-                className="btn-hover bg-[var(--sb-primary)] text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-all duration-300 shadow-md hover:shadow-xl"
-              >
-                {t('nav.login')}
-              </Link>
-            )}
-          </div>
-
-          {/* Mobile Right Section */}
-          <div className="flex md:hidden items-center gap-2">
-            {/* Language Toggle (compact for mobile) */}
-            <button
-              onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-xs font-semibold text-gray-600"
-              aria-label="Toggle language"
-            >
-              {language === 'en' ? '🇺🇸' : '🇩🇴'}
-            </button>
-
-            {/* Cart Button */}
-            <Link
-              href="/cart"
-              className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              aria-label={t('nav.cart')}
-            >
-              <ShoppingCart className="w-5 h-5 text-gray-700" />
-              {itemCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[var(--sb-accent)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {itemCount > 99 ? '99+' : itemCount}
-                </span>
-              )}
-            </Link>
-
-            {/* Menu Button */}
-            <button
-              onClick={() => setMobileOpen(!mobileOpen)}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              aria-label="Toggle menu"
-            >
-              {mobileOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
-            </button>
-          </div>
+          {/* Location */}
+          <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+            <MapPin className="w-4 h-4 text-[var(--sb-primary)]" />
+            <span className="text-sm font-medium text-gray-700">
+              Sosúa, Puerto Plata
+            </span>
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          </button>
         </div>
-      </nav>
 
-      {/* Mobile Menu */}
-      <div
-        className={`fixed inset-0 z-[60] md:hidden transition-all duration-300 ${
-          mobileOpen
-            ? "opacity-100 pointer-events-auto"
-            : "opacity-0 pointer-events-none"
-        }`}
-      >
-        <div
-          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-          onClick={() => setMobileOpen(false)}
-        />
-        <div
-          className={`absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-white shadow-2xl transition-transform duration-300 safe-top ${
-            mobileOpen ? "translate-x-0" : "translate-x-full"
-          }`}
-        >
-          {/* Close button at top */}
-          <div className="flex justify-end p-4 pt-6">
-            <button
-              onClick={() => setMobileOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              aria-label="Close menu"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="px-6 pb-6 space-y-4">
-            {/* User info when logged in */}
-            {user && (
-              <div className="pb-4 mb-4 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-lg font-semibold">
-                    {getInitials()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-gray-900 truncate">
-                      {user.displayName || "Welcome!"}
-                    </p>
-                    <p className="text-sm text-gray-500 truncate">
-                      {user.email}
-                    </p>
-                  </div>
-                </div>
-              </div>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/vendors"
+            className="text-sm font-medium text-gray-700 hover:text-[var(--sb-primary)] transition-colors"
+          >
+            {language === "es" ? "Tiendas" : "Stores"}
+          </Link>
+          <Link
+            href="/vendor-signup"
+            className="text-sm font-medium text-gray-700 hover:text-[var(--sb-primary)] transition-colors"
+          >
+            {language === "es" ? "Vender" : "Sell"}
+          </Link>
+
+          {/* Language Toggle */}
+          <button
+            onClick={() => setLanguage(language === "en" ? "es" : "en")}
+            className="px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
+          >
+            {language === "en" ? "🇺🇸 EN" : "🇩🇴 ES"}
+          </button>
+
+          {/* Cart */}
+          <Link
+            href="/cart"
+            className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <ShoppingCart className="w-5 h-5 text-gray-700" />
+            {itemCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--sb-primary)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {itemCount > 9 ? "9+" : itemCount}
+              </span>
             )}
+          </Link>
 
-            {/* Language Selector - Mobile - ENHANCED */}
-            <div className="pb-5 mb-4 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                {language === 'en' ? '🌐 Language & Currency' : '🌐 Idioma y Moneda'}
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setLanguage('en')}
-                  className={`relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border-2 transition-all duration-200 ${
-                    language === 'en'
-                      ? 'border-[var(--sb-primary)] bg-[var(--sb-primary)]/10 shadow-md'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+          {/* User Menu */}
+          {user ? (
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 bg-[var(--sb-primary)]/10 hover:bg-[var(--sb-primary)]/20 px-3 py-2 rounded-full transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-[var(--sb-primary)] text-white flex items-center justify-center text-sm font-semibold">
+                  {getInitials()}
+                </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-[var(--sb-primary)] transition-transform ${
+                    userMenuOpen ? "rotate-180" : ""
                   }`}
-                >
-                  {language === 'en' && (
-                    <div className="absolute top-2 right-2 w-2 h-2 bg-[var(--sb-primary)] rounded-full" />
-                  )}
-                  <span className="text-3xl mb-1">🇺🇸</span>
-                  <span className={`text-sm font-bold ${language === 'en' ? 'text-[var(--sb-primary)]' : 'text-gray-700'}`}>
-                    English
-                  </span>
-                  <span className={`text-xs mt-0.5 ${language === 'en' ? 'text-[var(--sb-primary)]/70' : 'text-gray-400'}`}>
-                    USD ($)
-                  </span>
-                </button>
-                <button
-                  onClick={() => setLanguage('es')}
-                  className={`relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border-2 transition-all duration-200 ${
-                    language === 'es'
-                      ? 'border-[var(--sb-primary)] bg-[var(--sb-primary)]/10 shadow-md'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {language === 'es' && (
-                    <div className="absolute top-2 right-2 w-2 h-2 bg-[var(--sb-primary)] rounded-full" />
-                  )}
-                  <span className="text-3xl mb-1">🇩🇴</span>
-                  <span className={`text-sm font-bold ${language === 'es' ? 'text-[var(--sb-primary)]' : 'text-gray-700'}`}>
-                    Español
-                  </span>
-                  <span className={`text-xs mt-0.5 ${language === 'es' ? 'text-[var(--sb-primary)]/70' : 'text-gray-400'}`}>
-                    DOP (RD$)
-                  </span>
-                </button>
-              </div>
-            </div>
+                />
+              </button>
 
-            <Link
-              href="/products"
-              onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
-            >
-              {t('nav.products')}
-            </Link>
-            <Link
-              href="/vendors"
-              onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
-            >
-              {t('nav.vendors')}
-            </Link>
-            <Link
-              href="/categories"
-              onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
-            >
-              {t('nav.categories')}
-            </Link>
-            <Link
-              href="/vendor-signup"
-              onClick={() => setMobileOpen(false)}
-              className="block text-lg font-medium text-gray-800 hover:text-[var(--sb-primary)] transition-colors py-2"
-            >
-              {t('vendors.becomeVendor')}
-            </Link>
-
-            <div className="pt-4 space-y-3">
-              {user ? (
+              {userMenuOpen && (
                 <>
-                  <Link
-                    href={getDashboardLink()}
-                    onClick={() => setMobileOpen(false)}
-                    className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
-                  >
-                    {getDashboardLabel()}
-                  </Link>
-                  <Link
-                    href="/account"
-                    onClick={() => setMobileOpen(false)}
-                    className="block w-full text-center border-2 border-gray-200 text-gray-700 px-6 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
-                  >
-                    {t('orders.title')}
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center justify-center gap-2 w-full text-center border-2 border-red-200 text-red-600 px-6 py-3 rounded-full font-semibold hover:bg-red-50 transition-colors"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    {t('nav.logout')}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link
-                    href="/login"
-                    onClick={() => setMobileOpen(false)}
-                    className="block w-full text-center bg-[var(--sb-primary)] text-white px-6 py-3 rounded-full font-semibold"
-                  >
-                    {t('nav.login')}
-                  </Link>
-                  <Link
-                    href="/signup"
-                    onClick={() => setMobileOpen(false)}
-                    className="block w-full text-center border-2 border-gray-200 text-gray-700 px-6 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
-                  >
-                    {t('nav.signUp')}
-                  </Link>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setUserMenuOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-fade-in">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {user.displayName || "Welcome!"}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {user.email}
+                      </p>
+                    </div>
+                    <Link
+                      href={getDashboardLink()}
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <User className="w-4 h-4" />
+                      <span className="text-sm font-medium">
+                        {language === "es" ? "Mi Cuenta" : "My Account"}
+                      </span>
+                    </Link>
+                    <Link
+                      href="/account/orders"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <Package className="w-4 h-4" />
+                      <span className="text-sm font-medium">
+                        {language === "es" ? "Mis Pedidos" : "My Orders"}
+                      </span>
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 transition-colors w-full"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-sm font-medium">
+                        {language === "es" ? "Cerrar sesión" : "Logout"}
+                      </span>
+                    </button>
+                  </div>
                 </>
               )}
             </div>
-          </div>
+          ) : (
+            <Link
+              href="/login"
+              className="bg-[var(--sb-primary)] text-white px-5 py-2.5 rounded-full text-sm font-semibold hover:bg-[var(--sb-primary-dark)] transition-colors"
+            >
+              {language === "es" ? "Iniciar sesión" : "Sign In"}
+            </Link>
+          )}
         </div>
       </div>
-    </>
+    </nav>
   );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// HERO SECTION (Optimized with priority loading)
+// DESKTOP HERO - Original Elaborate Version
 ////////////////////////////////////////////////////////////////////////////////
 
-function Hero({ 
-  searchQuery, 
-  setSearchQuery, 
+function DesktopHero({
+  searchQuery,
+  setSearchQuery,
   handleSearch,
   showSuggestions,
   searchSuggestions,
   handleSuggestionClick,
-  searchRef
-}: { 
+  searchRef,
+  language,
+  t,
+}: {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   handleSearch: (e: React.FormEvent) => void;
   showSuggestions: boolean;
   searchSuggestions: string[];
-  handleSuggestionClick: (suggestion: string) => void;
-  searchRef: React.RefObject<HTMLDivElement>;
+  handleSuggestionClick: (s: string) => void;
+  searchRef: React.RefObject<HTMLDivElement | null>;
+  language: string;
+  t: any;
 }) {
   const [mounted, setMounted] = useState(false);
-  const { t } = useLanguage();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden bg-gradient-to-br from-[#55529d] via-[#6b67b5] to-[#7c78c9] animate-gradient">
+    <section className="hidden lg:flex relative min-h-[90vh] items-center overflow-hidden bg-gradient-to-br from-[#55529d] via-[#6b67b5] to-[#7c78c9] animate-gradient">
       {/* Decorative Elements */}
       <div className="absolute inset-0 noise pointer-events-none" />
       <div className="absolute top-20 left-10 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-float" />
@@ -1039,90 +1110,86 @@ function Hero({
         backgroundSize: '60px 60px'
       }} />
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-32 lg:py-40">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-32">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
           {/* Left Content */}
           <div className={`transition-all duration-700 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}>
-            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm px-4 py-2 rounded-full mb-6 border border-white/20">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
-              </span>
-              <span className="text-white/90 text-sm font-medium">{t('hero.nowServing')}</span>
-            </div>
-
-            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-white leading-[1.1] tracking-tight">
-              {t('hero.allInOne')}
-              <span className="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-white via-orange-200 to-orange-400">
-                {t('hero.marketplace')}
-              </span>
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-semibold text-white mb-6 border border-white/20">
+              <Sparkles className="w-4 h-4" />
+              {language === "es" ? "Tu Mercado Local" : "Your Local Marketplace"}
+            </span>
+            
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight">
+              {language === "es" 
+                ? "Descubre lo mejor de tu comunidad"
+                : "Discover the best of your community"}
             </h1>
-
-            <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-lg leading-relaxed">
-              {t('hero.heroDescription')}
+            
+            <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-lg">
+              {language === "es"
+                ? "Conectamos compradores con vendedores locales. Restaurantes, tiendas, servicios y más."
+                : "We connect buyers with local vendors. Restaurants, shops, services, and more."}
             </p>
 
             {/* Search Bar */}
-            <div className={`mt-10 transition-all duration-700 delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}>
-              <form onSubmit={handleSearch} className="relative max-w-xl">
-                <div className="absolute inset-0 bg-white rounded-2xl blur-xl opacity-30" />
-                <div ref={searchRef} className="relative">
-                  <div className="relative flex items-center gap-3 bg-white rounded-2xl p-2 shadow-2xl">
-                    <Search className="ml-4 text-gray-400 w-5 h-5 flex-shrink-0" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder={t('hero.searchPlaceholder')}
-                      className="flex-1 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-base"
-                    />
-                    <button 
-                      type="submit"
-                      className="btn-hover bg-[var(--sb-primary)] text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-[var(--sb-primary-dark)] transition-all duration-300 flex-shrink-0"
-                    >
-                      <span className="hidden sm:inline">{t('common.search')}</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Autocomplete Suggestions */}
-                  {showSuggestions && searchSuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50">
-                      {searchSuggestions.map((suggestion, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() => handleSuggestionClick(suggestion)}
-                          className="w-full px-6 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3 group"
-                        >
-                          <Search className="w-4 h-4 text-gray-400 group-hover:text-[var(--sb-primary)] transition-colors" />
-                          <span className="text-gray-700 group-hover:text-[var(--sb-primary)] transition-colors">
-                            {suggestion}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+            <div className="mt-10 relative" ref={searchRef}>
+              <form onSubmit={handleSearch}>
+                <div className="flex items-center bg-white rounded-full p-2 shadow-2xl">
+                  <Search className="ml-4 text-gray-400 w-6 h-6" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={
+                      language === "es"
+                        ? "Buscar comida, tiendas, productos..."
+                        : "Search food, stores, products..."
+                    }
+                    className="flex-1 px-4 py-4 text-gray-900 placeholder:text-gray-400 focus:outline-none text-lg"
+                  />
+                  <button
+                    type="submit"
+                    className="btn-hover bg-[var(--sb-primary)] text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-[var(--sb-primary-dark)] transition-colors shadow-lg"
+                  >
+                    {language === "es" ? "Buscar" : "Search"}
+                  </button>
                 </div>
+
+                {/* Suggestions */}
+                {showSuggestions && searchSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-fade-in">
+                    {searchSuggestions.map((suggestion, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleSuggestionClick(suggestion)}
+                        className="w-full px-6 py-4 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                      >
+                        <Search className="w-5 h-5 text-gray-400" />
+                        <span className="text-gray-700 font-medium">{suggestion}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </form>
             </div>
 
             {/* Stats */}
             <div className={`mt-12 flex flex-wrap gap-8 sm:gap-12 transition-all duration-700 delay-300 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}>
               {[
-                { value: "500+", labelKey: 'hero.vendorPartners', icon: Store },
-                { value: "99%", labelKey: 'hero.onTimeDelivery', icon: Clock },
-                { value: "24/7", labelKey: 'hero.support', icon: Shield },
+                { value: "500+", label: language === "es" ? "Tiendas" : "Stores", icon: Store },
+                { value: "99%", label: language === "es" ? "Entrega a tiempo" : "On-time delivery", icon: Clock },
+                { value: "24/7", label: language === "es" ? "Soporte" : "Support", icon: Shield },
               ].map((stat) => (
-                <div key={stat.labelKey} className="group flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                    <stat.icon className="w-5 h-5 text-white/80" />
+                <div key={stat.label} className="group flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                    <stat.icon className="w-6 h-6 text-white/80" />
                   </div>
                   <div>
                     <div className="text-2xl sm:text-3xl font-bold text-white group-hover:text-orange-300 transition-colors duration-300">
                       {stat.value}
                     </div>
-                    <p className="text-white/60 text-xs">{t(stat.labelKey as any)}</p>
+                    <p className="text-white/60 text-sm">{stat.label}</p>
                   </div>
                 </div>
               ))}
@@ -1141,28 +1208,52 @@ function Hero({
                 priority
                 className="rounded-[2.5rem] shadow-2xl object-cover w-full h-[550px] animate-pulse-glow"
               />
-              {/* Floating Card */}
+              
+              {/* Floating Card - Fast Delivery */}
               <div className="absolute -left-8 bottom-20 bg-white rounded-2xl p-4 shadow-xl animate-float" style={{ animationDelay: "-2s" }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                    <Zap className="w-5 h-5 text-green-600" />
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <Zap className="w-6 h-6 text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">{t('hero.fastDelivery')}</p>
-                    <p className="text-xs text-gray-500">{t('hero.underMinutes')}</p>
+                    <p className="text-sm font-bold text-gray-900">
+                      {language === "es" ? "Entrega Rápida" : "Fast Delivery"}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {language === "es" ? "En menos de 30 min" : "Under 30 minutes"}
+                    </p>
                   </div>
                 </div>
               </div>
               
-              {/* Second Floating Card */}
+              {/* Floating Card - Growing */}
               <div className="absolute -right-4 top-20 bg-white rounded-2xl p-4 shadow-xl animate-float" style={{ animationDelay: "-4s" }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-purple-600" />
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">500+ {t('nav.vendors')}</p>
-                    <p className="text-xs text-gray-500">{t('hero.andGrowing')}</p>
+                    <p className="text-sm font-bold text-gray-900">500+ {language === "es" ? "Tiendas" : "Stores"}</p>
+                    <p className="text-xs text-gray-500">
+                      {language === "es" ? "Y creciendo" : "And growing"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Floating Card - Verified */}
+              <div className="absolute right-10 bottom-10 bg-white rounded-2xl p-4 shadow-xl animate-float" style={{ animationDelay: "-5s" }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <BadgeCheck className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">
+                      {language === "es" ? "Verificados" : "Verified"}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {language === "es" ? "Vendedores confiables" : "Trusted vendors"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1182,242 +1273,393 @@ function Hero({
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// MARKETPLACE GRID
+// UI COMPONENTS
 ////////////////////////////////////////////////////////////////////////////////
 
-function MarketplaceGrid() {
-  const { ref, isInView } = useInView();
-  const { t } = useLanguage();
+function CategoryPill({
+  emoji,
+  label,
+  href,
+}: {
+  emoji: string;
+  label: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+    >
+      <span className="text-base">{emoji}</span>
+      <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+        {label}
+      </span>
+    </Link>
+  );
+}
 
-  const items = useMemo(() => [
-    { labelKey: 'marketplace.foodDelivery', icon: Utensils, color: "from-orange-400 to-red-500" },
-    { labelKey: 'marketplace.retailShops', icon: Shirt, color: "from-blue-400 to-indigo-500" },
-    { labelKey: 'marketplace.taxiTransport', icon: Car, color: "from-yellow-400 to-orange-500" },
-    { labelKey: 'marketplace.beautyWellness', icon: Brush, color: "from-pink-400 to-rose-500" },
-    { labelKey: 'marketplace.homeServices', icon: Store, color: "from-teal-400 to-cyan-500" },
-    { labelKey: 'marketplace.rentals', icon: Home, color: "from-green-400 to-emerald-500" },
-    { labelKey: 'marketplace.tours', icon: Map, color: "from-purple-400 to-violet-500" },
-    { labelKey: 'marketplace.peerToPeer', icon: Users, color: "from-sky-400 to-blue-500" },
-  ], []);
+function PromoBanner({
+  title,
+  subtitle,
+  cta,
+  bgColor,
+  href,
+}: {
+  title: string;
+  subtitle: string;
+  cta: string;
+  bgColor: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`${bgColor} rounded-2xl p-5 min-w-[280px] lg:min-w-0 flex-1 hover:opacity-95 transition-opacity`}
+    >
+      <div className="text-white">
+        <p className="font-bold text-lg leading-tight">{title}</p>
+        <p className="text-sm opacity-90 mt-1">{subtitle}</p>
+        <span className="inline-block mt-3 bg-white/20 backdrop-blur-sm text-white text-sm font-semibold px-4 py-1.5 rounded-full">
+          {cta}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+function CategoryCard({
+  icon,
+  label,
+  count,
+  href,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count?: number;
+  href: string;
+  color: string;
+}) {
+  return (
+    <Link href={href} className="block">
+      <div
+        className={`${color} rounded-xl p-4 flex items-center gap-3 hover:opacity-90 transition-opacity`}
+      >
+        <div className="flex-shrink-0">{icon}</div>
+        <div className="flex-1 min-w-0">
+          <span className="font-semibold text-sm block truncate">{label}</span>
+          {count !== undefined && count > 0 && (
+            <span className="text-xs opacity-70">{count} stores</span>
+          )}
+        </div>
+        <ChevronRight className="w-4 h-4 opacity-50" />
+      </div>
+    </Link>
+  );
+}
+
+function NavItem({
+  icon,
+  label,
+  href,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex flex-col items-center gap-0.5 px-4 py-1 ${
+        active ? "text-[var(--sb-primary)]" : "text-gray-400"
+      }`}
+    >
+      {icon}
+      <span className="text-[10px] font-medium">{label}</span>
+    </Link>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="text-center py-12 bg-gray-50 rounded-2xl">
+      <Store className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+      <p className="text-gray-500 text-sm">{message}</p>
+    </div>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// VENDOR CARD
+////////////////////////////////////////////////////////////////////////////////
+
+function VendorCard({
+  vendor,
+  index,
+  language,
+  formatCurrency,
+}: {
+  vendor: Vendor;
+  index: number;
+  language: string;
+  formatCurrency: (n: number) => string;
+}) {
+  const displayName = vendor.business_name || vendor.name || "Store";
+  const logoUrl = vendor.logo_url || vendor.logoUrl;
+  const bannerUrl = vendor.banner_url || vendor.cover_image_url;
+  const category = vendor.category || vendor.categories?.[0];
+  const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
+  const coverImage = bannerUrl || logoUrl;
+  const deliveryTime = vendor.delivery_time || "15-30 min";
+  const deliveryFee = vendor.delivery_fee;
 
   return (
-    <section ref={ref} className="py-24 sm:py-32 px-4 sm:px-6 lg:px-8 bg-white relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-      
-      <div className="max-w-7xl mx-auto">
-        <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] rounded-full text-sm font-semibold mb-4">
-            <Sparkles className="w-4 h-4" />
-            {t('marketplace.badge')}
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            {t('marketplace.title')}
-          </h2>
-          <p className="mt-4 text-gray-600 text-lg max-w-2xl mx-auto">
-            {t('marketplace.subtitle')}
+    <Link href={vendorLink} className="block group">
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-100 hover:shadow-lg transition-all">
+        {/* Image */}
+        <div className="aspect-[2/1] bg-gray-100 relative overflow-hidden">
+          {coverImage ? (
+            <Image
+              src={coverImage}
+              alt={displayName}
+              fill
+              className="object-cover group-hover:scale-105 transition-transform duration-500"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[var(--sb-primary)] to-[var(--sb-primary-light)] flex items-center justify-center">
+              <Store className="w-12 h-12 text-white/50" />
+            </div>
+          )}
+
+          {/* Verified Badge */}
+          {vendor.verified && (
+            <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-sm rounded-full px-2.5 py-1 flex items-center gap-1 shadow-sm">
+              <BadgeCheck className="w-3.5 h-3.5 text-[var(--sb-primary)]" />
+              <span className="text-[10px] font-semibold text-gray-700">
+                {language === "es" ? "Verificado" : "Verified"}
+              </span>
+            </div>
+          )}
+
+          {/* Heart Button */}
+          <button className="absolute top-3 right-3 w-8 h-8 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white transition-colors">
+            <Heart className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Info */}
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-gray-900 truncate group-hover:text-[var(--sb-primary)] transition-colors">
+                {displayName}
+              </h3>
+              {category && (
+                <p className="text-sm text-gray-500 truncate">{category}</p>
+              )}
+            </div>
+
+            {/* Rating */}
+            {vendor.rating && (
+              <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md flex-shrink-0">
+                <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                <span className="text-sm font-semibold text-gray-700">
+                  {vendor.rating.toFixed(1)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Delivery Info */}
+          <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5" />
+              {deliveryTime}
+            </span>
+            <span className="w-1 h-1 rounded-full bg-gray-300" />
+            {deliveryFee !== undefined ? (
+              <span>
+                {deliveryFee === 0
+                  ? language === "es"
+                    ? "Envío gratis"
+                    : "Free delivery"
+                  : formatCurrency(deliveryFee)}
+              </span>
+            ) : (
+              <span>{language === "es" ? "Ver precios" : "See prices"}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function VendorCardSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+      <div className="aspect-[2/1] skeleton" />
+      <div className="p-4 space-y-3">
+        <div className="h-5 skeleton rounded w-3/4" />
+        <div className="h-4 skeleton rounded w-1/2" />
+        <div className="h-3 skeleton rounded w-2/3" />
+      </div>
+    </div>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// PRODUCT CARD
+////////////////////////////////////////////////////////////////////////////////
+
+function ProductCard({
+  product,
+  index,
+  formatCurrency,
+  t,
+}: {
+  product: ProductWithVendor;
+  index: number;
+  formatCurrency: (n: number) => string;
+  t: any;
+}) {
+  const vendorSlug =
+    product.vendorSlug || product.vendor_slug || product.vendorId || product.vendor_id;
+  const productLink = vendorSlug
+    ? `/store/${vendorSlug}/product/${product.id}`
+    : `/product/${product.id}`;
+  const productImage = product.images?.[0];
+
+  return (
+    <Link href={productLink} className="block group">
+      <div className="bg-white rounded-xl overflow-hidden border border-gray-100 hover:shadow-md transition-all h-full">
+        <div className="aspect-square bg-gray-100 relative overflow-hidden">
+          {productImage ? (
+            <Image
+              src={productImage}
+              alt={product.name || "Product"}
+              fill
+              className="object-cover group-hover:scale-105 transition-transform duration-500"
+              sizes="(max-width: 768px) 50vw, 25vw"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Package className="w-10 h-10 text-gray-300" />
+            </div>
+          )}
+
+          {/* Popular Badge */}
+          {index < 4 && (
+            <div className="absolute top-2 left-2 bg-[var(--sb-accent)] text-white text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
+              <TrendingUp className="w-3 h-3" />
+              Popular
+            </div>
+          )}
+        </div>
+
+        <div className="p-3">
+          <h3 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight group-hover:text-[var(--sb-primary)] transition-colors">
+            {product.name || "Product"}
+          </h3>
+          <p className="text-xs text-gray-500 mt-1 truncate">
+            {product.vendor_name}
+          </p>
+          <p className="text-[var(--sb-primary)] font-bold text-sm mt-2">
+            {formatCurrency(typeof product.price === "number" ? product.price : 0)}
           </p>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {items.map((item, i) => (
-            <div
-              key={item.labelKey}
-              className={`animate-on-scroll stagger-${(i % 8) + 1} ${isInView ? "in-view" : ""}`}
-            >
-              <div className="card-hover group relative p-6 sm:p-8 bg-gray-50 rounded-3xl cursor-pointer overflow-hidden border border-gray-100">
-                <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
-                <div className="relative z-10">
-                  <div className="h-14 w-14 flex items-center justify-center rounded-2xl bg-white shadow-sm text-gray-700 group-hover:text-white group-hover:bg-white/20 transition-all duration-300 mb-4">
-                    <item.icon className="w-7 h-7" />
-                  </div>
-                  <h3 className="font-semibold text-gray-800 group-hover:text-white transition-colors duration-300 text-sm sm:text-base">
-                    {t(item.labelKey as any)}
-                  </h3>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
-    </section>
+    </Link>
   );
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// WHY STACKBOT
-////////////////////////////////////////////////////////////////////////////////
-
-function WhyStackBot() {
-  const { ref, isInView } = useInView();
-  const { t } = useLanguage();
-
-  const features = useMemo(() => [
-    {
-      icon: Zap,
-      titleKey: 'why.fast',
-      descKey: 'why.fastDesc',
-      color: "from-yellow-400 to-orange-500",
-    },
-    {
-      icon: Shield,
-      titleKey: 'why.secure',
-      descKey: 'why.secureDesc',
-      color: "from-green-400 to-emerald-500",
-    },
-    {
-      icon: Globe,
-      titleKey: 'why.caribbean',
-      descKey: 'why.caribbeanDesc',
-      color: "from-blue-400 to-indigo-500",
-    },
-  ], []);
-
+function ProductCardSkeleton() {
   return (
-    <section ref={ref} className="py-24 sm:py-32 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-gray-50 to-white">
-      <div className="max-w-7xl mx-auto">
-        <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-accent)]/10 text-[var(--sb-accent)] rounded-full text-sm font-semibold mb-4">
-            <BadgeCheck className="w-4 h-4" />
-            {t('why.badge')}
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            {t('why.title')}
-          </h2>
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-8 lg:gap-12">
-          {features.map((feature, i) => (
-            <div
-              key={feature.titleKey}
-              className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
-            >
-              <div className="card-hover group p-8 bg-white rounded-3xl border border-gray-100 shadow-sm h-full">
-                <div className={`h-16 w-16 flex items-center justify-center rounded-2xl bg-gradient-to-br ${feature.color} text-white mb-6 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                  <feature.icon className="w-8 h-8" />
-                </div>
-                <h3 className="font-display text-xl font-bold text-gray-900 mb-3">
-                  {t(feature.titleKey as any)}
-                </h3>
-                <p className="text-gray-600 leading-relaxed">
-                  {t(feature.descKey as any)}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+    <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
+      <div className="aspect-square skeleton" />
+      <div className="p-3 space-y-2">
+        <div className="h-4 skeleton rounded w-3/4" />
+        <div className="h-3 skeleton rounded w-1/2" />
+        <div className="h-4 skeleton rounded w-1/3" />
       </div>
-    </section>
+    </div>
   );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// TRAVELER SECTION
+// HOW IT WORKS
 ////////////////////////////////////////////////////////////////////////////////
 
-function TravelerSection() {
+function HowItWorks({ language }: { language: string }) {
   const { ref, isInView } = useInView();
-  const { t } = useLanguage();
 
-  const bullets = [
-    t('traveler.bullet1'),
-    t('traveler.bullet2'),
-    t('traveler.bullet3'),
+  const steps = [
+    {
+      icon: <Search className="w-6 h-6" />,
+      title: language === "es" ? "Busca" : "Search",
+      desc:
+        language === "es"
+          ? "Encuentra tiendas y productos cerca de ti"
+          : "Find stores and products near you",
+    },
+    {
+      icon: <ShoppingCart className="w-6 h-6" />,
+      title: language === "es" ? "Ordena" : "Order",
+      desc:
+        language === "es"
+          ? "Agrega productos a tu carrito y paga"
+          : "Add items to cart and checkout",
+    },
+    {
+      icon: <Truck className="w-6 h-6" />,
+      title: language === "es" ? "Recibe" : "Receive",
+      desc:
+        language === "es"
+          ? "Recibe tu pedido en minutos"
+          : "Get your order in minutes",
+    },
   ];
 
   return (
-    <section ref={ref} className="py-24 sm:py-32 px-4 sm:px-6 lg:px-8 bg-white relative overflow-hidden">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[var(--sb-primary)]/5 rounded-full blur-3xl" />
-      
-      <div className="relative max-w-7xl mx-auto">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-          <div className={`animate-on-scroll ${isInView ? "in-view" : ""}`}>
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-accent)]/10 text-[var(--sb-accent)] rounded-full text-sm font-semibold mb-4">
-              <Map className="w-4 h-4" />
-              {t('traveler.badge')}
-            </span>
-            <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-              {t('traveler.title')}
-            </h2>
-            <p className="text-gray-600 text-lg leading-relaxed mb-8">
-              {t('traveler.description')}
-            </p>
-            <ul className="space-y-4">
-              {bullets.map((item) => (
-                <li key={item} className="flex items-start gap-3">
-                  <div className="mt-1 w-5 h-5 rounded-full bg-[var(--sb-success)]/20 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-3 h-3 text-[var(--sb-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <span className="text-gray-700">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className={`animate-on-scroll stagger-2 ${isInView ? "in-view" : ""}`}>
-            <div className="relative">
-              <div className="absolute -inset-4 bg-gradient-to-tr from-[var(--sb-accent)]/20 to-[var(--sb-primary)]/20 rounded-[3rem] blur-2xl" />
-              <Image
-                src="/coco.jpg"
-                alt="Traveler using StackBot"
-                width={600}
-                height={700}
-                loading="lazy"
-                className="relative rounded-[2.5rem] shadow-2xl object-cover w-full h-[500px]"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// ONBOARDING CARDS
-////////////////////////////////////////////////////////////////////////////////
-
-function OnboardingCards() {
-  const { ref, isInView } = useInView();
-  const { t } = useLanguage();
-
-  const steps = useMemo(() => [
-    { number: "1", titleKey: 'onboarding.step1', descKey: 'onboarding.step1Desc', icon: Users },
-    { number: "2", titleKey: 'onboarding.step2', descKey: 'onboarding.step2Desc', icon: Search },
-    { number: "3", titleKey: 'onboarding.step3', descKey: 'onboarding.step3Desc', icon: MapPin },
-  ], []);
-
-  return (
-    <section ref={ref} className="py-24 sm:py-32 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-white to-gray-50">
-      <div className="max-w-7xl mx-auto">
-        <div className={`text-center mb-16 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
-            {t('onboarding.title')}
+    <section
+      ref={ref}
+      className="py-16 lg:py-24 bg-white"
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className={`text-center mb-12 animate-on-scroll ${isInView ? "in-view" : ""}`}>
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] rounded-full text-sm font-semibold mb-4">
+            <Sparkles className="w-4 h-4" />
+            {language === "es" ? "Fácil y rápido" : "Easy & Fast"}
+          </span>
+          <h2 className="font-display text-3xl lg:text-4xl font-bold text-gray-900">
+            {language === "es" ? "¿Cómo funciona?" : "How It Works"}
           </h2>
+          <p className="text-gray-500 mt-3 text-lg max-w-2xl mx-auto">
+            {language === "es"
+              ? "Ordenar nunca ha sido tan fácil"
+              : "Ordering has never been easier"}
+          </p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8">
           {steps.map((step, i) => (
             <div
-              key={step.number}
-              className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
+              key={i}
+              className={`card-hover text-center p-8 bg-gray-50 rounded-3xl border border-gray-100 animate-on-scroll stagger-${i + 1} ${
+                isInView ? "in-view" : ""
+              }`}
             >
-              <div className="card-hover group relative p-8 bg-white rounded-3xl border border-gray-100 shadow-sm text-center h-full">
-                {/* Connector Line */}
-                {i < 2 && (
-                  <div className="hidden md:block absolute top-1/2 -right-4 w-8 h-0.5 bg-gray-200 z-10" />
-                )}
-                <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[var(--sb-primary)] text-white font-display text-2xl font-bold mb-6 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                  {step.number}
-                </div>
-                <h3 className="font-display text-xl font-bold text-gray-900 mb-3">
-                  {t(step.titleKey as any)}
-                </h3>
-                <p className="text-gray-600">
-                  {t(step.descKey as any)}
-                </p>
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--sb-primary)] to-[var(--sb-primary-light)] text-white flex items-center justify-center mx-auto mb-6 shadow-lg">
+                {step.icon}
               </div>
+              <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[var(--sb-accent)] text-white font-bold text-sm mb-4">
+                {i + 1}
+              </div>
+              <h3 className="font-display font-bold text-gray-900 text-xl">{step.title}</h3>
+              <p className="text-gray-500 mt-3">{step.desc}</p>
             </div>
           ))}
         </div>
@@ -1427,351 +1669,14 @@ function OnboardingCards() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// CATEGORIES
+// VENDOR CTA - Original Elaborate Version
 ////////////////////////////////////////////////////////////////////////////////
 
-function Categories() {
+function VendorCTA({ language }: { language: string }) {
   const { ref, isInView } = useInView();
-  const { t } = useLanguage();
-
-  // UPDATED: Use proper category IDs that match /categories/[slug]
-  const categories = useMemo(() => [
-    { id: "restaurants", titleKey: "categories.restaurants", icon: Utensils },
-    { id: "taxi-service", titleKey: "categories.taxiTransport", icon: Car },
-    { id: "cleaning-services", titleKey: "categories.cleaningServices", icon: Brush },
-    { id: "retail-shops", titleKey: "categories.retailShops", icon: Shirt },
-  ], []);
 
   return (
-    <section ref={ref} className="py-20 px-4 sm:px-6 lg:px-8 bg-white">
-      <div className="max-w-7xl mx-auto">
-        <div className={`flex items-center justify-between mb-10 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <h2 className="font-display text-2xl sm:text-3xl font-bold text-gray-900">{t('nav.categories')}</h2>
-          <Link href="/categories" className="text-[var(--sb-primary)] font-semibold hover:underline flex items-center gap-1">
-            {t('common.viewAll')} <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {categories.map((cat, i) => (
-            <div
-              key={cat.id}
-              className={`animate-on-scroll stagger-${i + 1} ${isInView ? "in-view" : ""}`}
-            >
-              <Link href={`/categories/${cat.id}`}>
-                <div className="card-hover group p-6 bg-white rounded-2xl border-2 border-gray-100 hover:border-[var(--sb-primary)] cursor-pointer">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="h-14 w-14 flex items-center justify-center rounded-2xl bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] group-hover:bg-[var(--sb-primary)] group-hover:text-white transition-all duration-300">
-                      <cat.icon className="w-7 h-7" />
-                    </div>
-                  </div>
-                  <h3 className="font-semibold text-gray-800 text-lg">{t(cat.titleKey as any)}</h3>
-                </div>
-              </Link>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// SECTION WRAPPER & GRID
-////////////////////////////////////////////////////////////////////////////////
-
-function SectionWrapper({ 
-  title, 
-  subtitle,
-  link, 
-  icon,
-  bgColor = "bg-gray-50",
-  children 
-}: { 
-  title: string; 
-  subtitle?: string;
-  link: string; 
-  icon?: React.ReactNode;
-  bgColor?: string;
-  children: React.ReactNode;
-}) {
-  const { ref, isInView } = useInView();
-  const { t } = useLanguage();
-
-  return (
-    <section ref={ref} className={`py-20 px-4 sm:px-6 lg:px-8 ${bgColor}`}>
-      <div className="max-w-7xl mx-auto">
-        <div className={`flex flex-col sm:flex-row sm:items-end justify-between mb-10 gap-4 animate-on-scroll ${isInView ? "in-view" : ""}`}>
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              {icon && <span className="text-[var(--sb-primary)]">{icon}</span>}
-              <h2 className="font-display text-2xl sm:text-3xl font-bold text-gray-900">{title}</h2>
-            </div>
-            {subtitle && <p className="text-gray-500">{subtitle}</p>}
-          </div>
-          <Link href={link} className="text-[var(--sb-primary)] font-semibold hover:underline flex items-center gap-1 group">
-            {t('common.viewAll')}
-            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </Link>
-        </div>
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function Grid({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-      {children}
-    </div>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// VENDOR CARD (Enhanced)
-////////////////////////////////////////////////////////////////////////////////
-
-function VendorCard({ vendor, index }: { vendor: Vendor; index: number }) {
-  const { ref, isInView } = useInView();
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const { t } = useLanguage();
-  
-  const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
-  const description = vendor.business_description || vendor.description;
-// Handle address - could be string or location object
-const addressRaw = vendor.business_address || vendor.address;
-const address = typeof addressRaw === 'string' 
-  ? addressRaw 
-  : (addressRaw as any)?.location_address || '';
-  const logoUrl = vendor.logo_url || vendor.logoUrl;
-  const bannerUrl = vendor.banner_url || vendor.cover_image_url;
-  const category = vendor.category || vendor.categories?.[0];
-  const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
-
-  // Use banner first, fallback to logo
-  const coverImage = bannerUrl || logoUrl;
-
-  return (
-    <div ref={ref} className={`animate-on-scroll stagger-${(index % 4) + 1} ${isInView ? "in-view" : ""}`}>
-      <Link href={vendorLink}>
-        <div className="card-hover bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer group h-full">
-          {/* Banner/Logo Section */}
-          <div className="aspect-[16/9] bg-gradient-to-br from-[var(--sb-primary)] to-[var(--sb-primary-light)] overflow-hidden relative">
-            {/* Featured Badge */}
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/90 backdrop-blur-sm rounded-full text-xs font-semibold text-[var(--sb-primary)] shadow-sm">
-                <Sparkles className="w-3 h-3" />
-                {t('products.featured')}
-              </span>
-            </div>
-            
-            {coverImage ? (
-              <>
-                {/* Image fills entire container */}
-                <Image
-                  src={coverImage}
-                  alt={displayName}
-                  fill
-                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                  loading="lazy"
-                  onLoad={() => setImageLoaded(true)}
-                  className={`object-cover group-hover:scale-105 transition-transform duration-500 ${
-                    imageLoaded ? 'opacity-100' : 'opacity-0'
-                  }`}
-                />
-                
-                {/* Loading skeleton */}
-                {!imageLoaded && (
-                  <div className="absolute inset-0 skeleton" />
-                )}
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <Store className="w-16 h-16 text-white/50" />
-              </div>
-            )}
-          </div>
-
-          {/* Vendor Info */}
-          <div className="p-4">
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="font-semibold text-gray-900 line-clamp-1 text-lg group-hover:text-[var(--sb-primary)] transition-colors">
-                {displayName}
-              </h3>
-              {vendor.verified && (
-                <BadgeCheck className="w-5 h-5 text-[var(--sb-primary)] flex-shrink-0" />
-              )}
-            </div>
-            
-            {description && (
-              <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                {description}
-              </p>
-            )}
-
-            <div className="mt-3 flex items-center justify-between">
-              {category && (
-                <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] rounded-full font-medium">
-                  {category}
-                </span>
-              )}
-
-              {vendor.rating ? (
-                <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  <span className="text-sm font-semibold text-gray-700">
-                    {vendor.rating.toFixed(1)}
-                  </span>
-                  {vendor.total_reviews && (
-                    <span className="text-xs text-gray-500">
-                      ({vendor.total_reviews})
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <span className="text-xs text-gray-400">{t('common.new')}</span>
-              )}
-            </div>
-
-            {address && (
-              <div className="mt-2 flex items-start gap-1.5 text-xs text-gray-500">
-                <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                <span className="line-clamp-1">{address}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </Link>
-    </div>
-  );
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-// PRODUCT CARD (Fixed - Images Fill Container)
-////////////////////////////////////////////////////////////////////////////////
-
-function ProductCard({ product, index }: { product: ProductWithVendor; index: number }) {
-  const { ref, isInView } = useInView();
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const { formatCurrency, t } = useLanguage();
-  
-  const vendorSlug = product.vendorSlug || product.vendor_slug || product.vendorId || product.vendor_id;
-  const productLink = vendorSlug 
-    ? `/store/${vendorSlug}/product/${product.id}`
-    : `/product/${product.id}`;
-
-  const productImage = product.images?.[0];
-
-  return (
-    <div ref={ref} className={`animate-on-scroll stagger-${(index % 4) + 1} ${isInView ? "in-view" : ""}`}>
-      <Link href={productLink}>
-        <div className="card-hover bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer group h-full flex flex-col">
-          <div className="aspect-square bg-gray-100 overflow-hidden relative">
-            {/* Product Badge */}
-            <div className="absolute top-3 left-3 z-10">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--sb-accent)] rounded-full text-xs font-semibold text-white shadow-sm">
-                <TrendingUp className="w-3 h-3" />
-                {t('common.popular')}
-              </span>
-            </div>
-            
-            {productImage ? (
-              <>
-                <Image
-                  src={productImage}
-                  alt={product.name}
-                  fill
-                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                  loading="lazy"
-                  onLoad={() => setImageLoaded(true)}
-                  className={`object-cover group-hover:scale-105 transition-transform duration-500 ${
-                    imageLoaded ? 'opacity-100' : 'opacity-0'
-                  }`}
-                />
-                
-                {/* Loading skeleton */}
-                {!imageLoaded && (
-                  <div className="absolute inset-0 skeleton" />
-                )}
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
-                <Store className="w-12 h-12" />
-              </div>
-            )}
-          </div>
-          <div className="p-4 flex-1 flex flex-col">
-            <h3 className="font-semibold text-gray-900 line-clamp-1 group-hover:text-[var(--sb-primary)] transition-colors">
-              {product.name}
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">{product.vendor_name || "Vendor"}</p>
-            <div className="mt-auto pt-3 flex items-center justify-between">
-              <p className="font-bold text-[var(--sb-primary)] text-lg">
-                {formatCurrency(typeof product.price === 'number' ? product.price : 0)}
-              </p>
-              <span className="text-xs text-gray-400 group-hover:text-[var(--sb-primary)] transition-colors flex items-center gap-1">
-                {t('common.view')} <ArrowRight className="w-3 h-3" />
-              </span>
-            </div>
-          </div>
-        </div>
-      </Link>
-    </div>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// LOADING GRID (Enhanced Skeletons)
-////////////////////////////////////////////////////////////////////////////////
-
-function LoadingGrid({ count = 4, type = "vendor" }: { count?: number; type?: "vendor" | "product" }) {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-      {[...Array(count)].map((_, i) => (
-        <div key={i} className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-          <div className={`${type === "vendor" ? "aspect-[16/9]" : "aspect-square"} skeleton`} />
-          <div className="p-4 space-y-3">
-            <div className="h-5 skeleton rounded-lg w-3/4" />
-            <div className="h-4 skeleton rounded-lg w-1/2" />
-            <div className="flex justify-between items-center">
-              <div className="h-6 skeleton rounded-lg w-1/4" />
-              <div className="h-4 skeleton rounded-full w-16" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// EMPTY STATE (Enhanced)
-////////////////////////////////////////////////////////////////////////////////
-
-function EmptyState({ message, description }: { message: string; description?: string }) {
-  return (
-    <div className="text-center py-16 px-4">
-      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-        <Store className="w-8 h-8 text-gray-400" />
-      </div>
-      <p className="text-gray-700 font-medium text-lg">{message}</p>
-      {description && <p className="text-gray-500 mt-2">{description}</p>}
-    </div>
-  );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// VENDOR CTA
-////////////////////////////////////////////////////////////////////////////////
-
-function VendorCTA() {
-  const { ref, isInView } = useInView();
-  const { t } = useLanguage();
-
-  return (
-    <section ref={ref} className="relative py-24 sm:py-32 overflow-hidden">
+    <section ref={ref} className="relative py-20 sm:py-28 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-[#55529d] via-[#6b67b5] to-[#7c78c9] animate-gradient" />
       <div className="absolute inset-0 noise pointer-events-none" />
       
@@ -1782,27 +1687,60 @@ function VendorCTA() {
       <div className={`relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-on-scroll ${isInView ? "in-view" : ""}`}>
         <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-semibold text-white mb-6 border border-white/20">
           <Store className="w-4 h-4" />
-          {t('vendorCta.badge')}
+          {language === "es" ? "Para Negocios" : "For Businesses"}
         </span>
         <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-white">
-          {t('vendorCta.title')}
+          {language === "es"
+            ? "Haz crecer tu negocio con StackBot"
+            : "Grow your business with StackBot"}
         </h2>
         <p className="mt-6 text-lg sm:text-xl text-white/80 max-w-2xl mx-auto">
-          {t('vendorCta.subtitle')}
+          {language === "es"
+            ? "Únete a cientos de vendedores y llega a más clientes en tu comunidad"
+            : "Join hundreds of vendors and reach more customers in your community"}
         </p>
+
+        {/* Features */}
+        <div className="mt-8 flex flex-wrap justify-center gap-6">
+          <div className="flex items-center gap-2 text-white/90">
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+              <Shield className="w-4 h-4" />
+            </div>
+            <span className="text-sm font-medium">
+              {language === "es" ? "Pagos seguros" : "Secure payments"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-white/90">
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+              <Zap className="w-4 h-4" />
+            </div>
+            <span className="text-sm font-medium">
+              {language === "es" ? "Fácil configuración" : "Easy setup"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-white/90">
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+            <span className="text-sm font-medium">
+              {language === "es" ? "Aumenta ventas" : "Boost sales"}
+            </span>
+          </div>
+        </div>
+
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             href="/vendor-signup"
             className="btn-hover inline-flex items-center justify-center gap-2 bg-white text-[var(--sb-primary)] px-8 py-4 rounded-full font-bold text-lg shadow-2xl hover:shadow-xl hover:bg-gray-50 transition-all duration-300"
           >
-            {t('vendorCta.cta')}
+            {language === "es" ? "Comenzar gratis" : "Get started free"}
             <ArrowRight className="w-5 h-5" />
           </Link>
           <Link
             href="/about"
             className="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm text-white px-8 py-4 rounded-full font-bold text-lg border border-white/20 hover:bg-white/20 transition-all duration-300"
           >
-            {t('vendorCta.learnMore')}
+            {language === "es" ? "Saber más" : "Learn more"}
           </Link>
         </div>
       </div>

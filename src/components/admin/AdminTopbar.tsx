@@ -25,8 +25,7 @@ import {
   User,
   Settings,
   ChevronDown,
-  Check,
-  Trash2
+  Check
 } from "lucide-react";
 
 // Define the shape of a notification
@@ -61,7 +60,6 @@ export default function AdminTopbar() {
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  // Track if we just got a new notification for a specialized animation
   const [isNew, setIsNew] = useState(false);
   
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -83,11 +81,10 @@ export default function AdminTopbar() {
             ...doc.data(),
           })) as Notification[];
 
-          // Check if count increased to trigger animation
           const newUnread = notifs.filter((n) => !n.read).length;
           if (newUnread > unreadCount) {
              setIsNew(true);
-             setTimeout(() => setIsNew(false), 1000); // Reset after 1s
+             setTimeout(() => setIsNew(false), 1000); 
           }
 
           setNotifications(notifs);
@@ -148,9 +145,9 @@ export default function AdminTopbar() {
 
   return (
     <>
-      {/* Updated padding to pt-[65px] for mobile safe area */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-[65px] lg:pt-0 transition-all">
-        <div className="flex items-center justify-between h-16 px-4 lg:px-8">
+      {/* Reduced padding from pt-[65px] to pt-4 for mobile */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-4 lg:pt-0 transition-all">
+        <div className="flex items-center justify-between h-8 px-4 lg:px-8">
           {/* Left: Logo/Search */}
           <div className="flex items-center gap-4">
             <Link href="/admin" className="lg:hidden">
@@ -194,24 +191,20 @@ export default function AdminTopbar() {
                   showNotifications ? "bg-purple-50 text-sb-primary" : "text-gray-500 hover:bg-gray-50"
                 }`}
               >
-                {/* Bell Icon with Shake on Hover */}
                 <Bell className={`h-6 w-6 transition-transform duration-300 group-hover:rotate-12 ${
                   isNew ? "animate-bounce text-sb-primary" : ""
                 }`} />
 
-                {/* Counter Badge with Ping Animation */}
                 {unreadCount > 0 && (
                   <>
                     <span className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white ring-2 ring-white z-10 animate-in zoom-in duration-300">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
-                    {/* Ping Effect Ring */}
                     <span className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-red-500 animate-ping opacity-75"></span>
                   </>
                 )}
               </button>
 
-              {/* Dropdown Content */}
               {showNotifications && (
                 <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-4 duration-200">
                   <div className="px-4 py-3 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
@@ -340,9 +333,9 @@ export default function AdminTopbar() {
         </div>
       </header>
 
-      {/* Mobile Search Overlay - Updated padding here as well */}
+      {/* Mobile Search Overlay - Removed the extra top padding */}
       {showSearch && (
-        <div className="fixed inset-0 z-50 bg-white lg:hidden animate-fade-in pt-[65px]">
+        <div className="fixed inset-0 z-50 bg-white lg:hidden animate-fade-in">
           <div className="flex items-center gap-3 p-4 border-b border-gray-100">
             <form onSubmit={handleSearch} className="flex-1">
               <div className="relative">

@@ -197,7 +197,8 @@ export default function VendorsPage() {
     (selectedCategory !== "all" ? 1 : 0) + (searchTerm ? 1 : 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-safe">
+    // UPDATED: Added pb-[65px] to the main wrapper for mobile nav clearance
+    <div className="min-h-screen bg-gray-50 pb-[65px]">
       {/* Sticky Header */}
       <div className="bg-white border-b sticky top-0 z-30 shadow-sm transition-all duration-200">
         <div className="max-w-6xl mx-auto px-4 py-3 lg:py-4">
