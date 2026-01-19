@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
         name: item.name,
         quantity: item.quantity,
         price: item.price,
-        image: item.image || item.images?.[0] || null,
+        image: item.image || (Array.isArray(item.images) ? item.images[0] : null) || null,
         notes: item.notes || null,
       })),
       subtotal: orderData.subtotal || 0,
