@@ -145,8 +145,8 @@ export default function AdminTopbar() {
 
   return (
     <>
-      {/* Reduced padding from pt-[65px] to pt-4 for mobile */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-4 lg:pt-0 transition-all">
+      {/* Changed pt-4 to py-4 to add bottom padding matching the top */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 py-6 lg:py-0 transition-all">
         <div className="flex items-center justify-between h-8 px-4 lg:px-8">
           {/* Left: Logo/Search */}
           <div className="flex items-center gap-4">
@@ -333,7 +333,7 @@ export default function AdminTopbar() {
         </div>
       </header>
 
-      {/* Mobile Search Overlay - Removed the extra top padding */}
+      {/* Mobile Search Overlay */}
       {showSearch && (
         <div className="fixed inset-0 z-50 bg-white lg:hidden animate-fade-in">
           <div className="flex items-center gap-3 p-4 border-b border-gray-100">
