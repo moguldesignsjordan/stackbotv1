@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       {/* Added pt-[35px] to the class list below */}
-      <body className="min-h-screen bg-sb-bg text-gray-900 antialiased pt-[60px]">
+      <body className="min-h-screen bg-sb-bg text-gray-900 antialiased pt-[20px]">
         <LanguageProvider>
           <ToastProvider>
             <CartProvider>

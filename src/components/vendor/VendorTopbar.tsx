@@ -191,7 +191,7 @@ export default function VendorTopbar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-20 lg:pt-0">
+    <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-10 lg:pt-0">
       <div className="flex items-center justify-between h-16 px-4 lg:px-8">
         {/* Left: Logo on Mobile */}
         <Link href="/vendor" className="lg:hidden">

@@ -16,6 +16,10 @@ import {
   SlidersHorizontal,
   X,
   Filter,
+  Home,
+  ShoppingBag,
+  ClipboardList,
+  User,
 } from "lucide-react";
 
 /* ======================================================
@@ -197,9 +201,11 @@ export default function VendorsPage() {
     (selectedCategory !== "all" ? 1 : 0) + (searchTerm ? 1 : 0);
 
   return (
-    // UPDATED: Added pb-[65px] to the main wrapper for mobile nav clearance
-    <div className="min-h-screen bg-gray-50 pb-[65px]">
-      {/* Sticky Header */}
+    // UPDATED: Increased bottom padding to pb-24 to clear the new bottom menu
+    <div className="min-h-screen bg-gray-50 pb-24">
+      {/* UPDATED HEADER: 
+         Added back "sticky top-0 z-30" so it stays fixed at the top 
+      */}
       <div className="bg-white border-b sticky top-0 z-30 shadow-sm transition-all duration-200">
         <div className="max-w-6xl mx-auto px-4 py-3 lg:py-4">
           <div className="flex items-center gap-3 lg:gap-4">
@@ -387,6 +393,42 @@ export default function VendorsPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* NEW: Mobile Bottom Navigation 
+         Fixed to bottom, white background, standard icons
+      */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 px-6 py-2 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="flex flex-col items-center gap-1 text-purple-600 transition-colors"
+          >
+            <Store className="w-6 h-6" />
+            <span className="text-[10px] font-medium">Stores</span>
+          </Link>
+          <Link
+            href="/cart"
+            className="flex flex-col items-center gap-1 text-gray-400 hover:text-purple-600 transition-colors"
+          >
+            <ShoppingBag className="w-6 h-6" />
+            <span className="text-[10px] font-medium">Cart</span>
+          </Link>
+          <Link
+            href="/orders"
+            className="flex flex-col items-center gap-1 text-gray-400 hover:text-purple-600 transition-colors"
+          >
+            <ClipboardList className="w-6 h-6" />
+            <span className="text-[10px] font-medium">Orders</span>
+          </Link>
+          <Link
+            href="/profile"
+            className="flex flex-col items-center gap-1 text-gray-400 hover:text-purple-600 transition-colors"
+          >
+            <User className="w-6 h-6" />
+            <span className="text-[10px] font-medium">Profile</span>
+          </Link>
+        </div>
       </div>
     </div>
   );
