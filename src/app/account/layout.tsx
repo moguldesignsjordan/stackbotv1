@@ -9,7 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
-import { NotificationBell } from '@/components/notifications'; // ADD THIS IMPORT
+import { NotificationBell } from '@/components/notifications';
 import { 
   Package, 
   MapPin, 
@@ -21,7 +21,6 @@ import {
   X,
   ChevronRight,
   HelpCircle,
-  Globe
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
@@ -141,7 +140,12 @@ export default function AccountLayout({
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-2">
+        {/* UPDATED PADDING: 
+           Changed 'py-2' to 'pt-5 pb-3 lg:py-4'
+           'pt-5' adds extra top space (20px) on mobile to clear the status bar/time.
+           'lg:py-4' keeps it balanced on desktop.
+        */}
+        <div className="max-w-7xl mx-auto px-4 pt-5 pb-3 lg:py-4">
           <div className="flex items-center justify-between">
             {/* Left: Logo/Back */}
             <div className="flex items-center gap-4">
@@ -156,7 +160,7 @@ export default function AccountLayout({
               </Link>
             </div>
 
-            {/* Right: Notification Bell + Mobile Menu - ADD NOTIFICATION BELL HERE */}
+            {/* Right: Notification Bell + Mobile Menu */}
             <div className="flex items-center gap-3">
               {/* Notification Bell */}
               <NotificationBell />
