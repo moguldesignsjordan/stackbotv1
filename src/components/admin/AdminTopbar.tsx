@@ -148,7 +148,7 @@ export default function AdminTopbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pb-5 pt-12 lg:pt-0 transition-all">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pb-5 pt-20 lg:pt-0 transition-all">
         <div className="flex items-center justify-between h-16 px-4 lg:px-8">
           {/* Left: Logo/Search */}
           <div className="flex items-center gap-4">

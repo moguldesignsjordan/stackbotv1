@@ -202,12 +202,12 @@ export default function VendorsPage() {
 
   return (
     // UPDATED: Increased bottom padding to pb-24 to clear the new bottom menu
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gray-50 pb-0">
       {/* UPDATED HEADER: 
          Added back "sticky top-0 z-30" so it stays fixed at the top 
       */}
-      <div className="bg-white border-b sticky top-0 z-30 shadow-sm transition-all duration-200">
-        <div className="max-w-6xl mx-auto px-4 py-3 lg:py-4">
+      <div className="bg-white sticky top-0 z-30 shadow-sm transition-all duration-200">
+        <div className="max-w-6xl mx-auto px-4 py-6 lg:py-8">
           <div className="flex items-center gap-3 lg:gap-4">
             <Link
               href="/"
