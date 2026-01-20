@@ -193,7 +193,7 @@ export default function VendorDashboard() {
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="space-y-5 md:space-y-6 animate-fade-in pb-24 lg:pb-0">
+    <div className="space-y-5 md:space-y-6 animate-fade-in pb-10 lg:pb-0">
       {/* Simple Store Header - No notification bell, that's in VendorTopbar */}
 
 
