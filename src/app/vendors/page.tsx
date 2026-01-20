@@ -539,36 +539,39 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   return (
     <Link href={vendorLink} className="group block">
       <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 h-full">
-        {/* Cover Image/Video */}
-        <div className="relative h-32 bg-gradient-to-br from-purple-100 to-purple-50 overflow-hidden">
-          {coverUrl ? (
-            <CoverMedia
-              url={coverUrl}
-              alt={displayName}
-              isVideo={coverIsVideo}
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Store className="w-12 h-12 text-purple-300" />
-            </div>
-          )}
+        {/* Cover Image/Video Container - relative for logo positioning */}
+        <div className="relative">
+          {/* Cover Media - separate overflow-hidden container */}
+          <div className="relative h-32 bg-gradient-to-br from-purple-100 to-purple-50 overflow-hidden">
+            {coverUrl ? (
+              <CoverMedia
+                url={coverUrl}
+                alt={displayName}
+                isVideo={coverIsVideo}
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Store className="w-12 h-12 text-purple-300" />
+              </div>
+            )}
 
-          {/* Badges */}
-          <div className="absolute top-3 left-3 flex gap-2 z-10">
-            {vendor.featured && (
-              <span className="px-2.5 py-1 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full flex items-center gap-1">
-                <Sparkles className="w-3 h-3" />
-                Featured
-              </span>
-            )}
-            {vendor.isNew && (
-              <span className="px-2.5 py-1 bg-green-500 text-white text-[10px] font-bold rounded-full">
-                New
-              </span>
-            )}
+            {/* Badges */}
+            <div className="absolute top-3 left-3 flex gap-2 z-10">
+              {vendor.featured && (
+                <span className="px-2.5 py-1 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  Featured
+                </span>
+              )}
+              {vendor.isNew && (
+                <span className="px-2.5 py-1 bg-green-500 text-white text-[10px] font-bold rounded-full">
+                  New
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Logo */}
+          {/* Logo - positioned outside overflow-hidden container */}
           {logoUrl && !logoError && (
             <div className="absolute -bottom-6 left-4 z-10">
               <div className="w-14 h-14 rounded-xl bg-white shadow-md overflow-hidden border-2 border-white">
