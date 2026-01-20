@@ -6,7 +6,6 @@ import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/components/ui/Toast";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 
-
 export const metadata: Metadata = {
   title: "StackBot",
   description: "Smart Logistics for the Caribbean",
@@ -27,7 +26,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-sb-bg text-gray-900 antialiased">
+      {/* Added pt-[35px] to the class list below */}
+      <body className="min-h-screen bg-sb-bg text-gray-900 antialiased pt-[45px]">
         <LanguageProvider>
           <ToastProvider>
             <CartProvider>
