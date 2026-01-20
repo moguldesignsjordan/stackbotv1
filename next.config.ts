@@ -13,8 +13,6 @@ const nextConfig: NextConfig = {
         hostname: "**",
       },
     ],
-    // Disable optimization - use native <img> tags for better compatibility
-    // This helps with WebView rendering and external image sources
     unoptimized: true,
   },
   // Fix COOP issues for Firebase popup auth (web fallback)
@@ -28,6 +26,15 @@ const nextConfig: NextConfig = {
             value: "same-origin-allow-popups",
           },
         ],
+      },
+    ];
+  },
+  // Proxy Firebase auth handler to your custom domain
+  async rewrites() {
+    return [
+      {
+        source: "/__/auth/:path*",
+        destination: "https://stackbot-a5e78.firebaseapp.com/__/auth/:path*",
       },
     ];
   },
