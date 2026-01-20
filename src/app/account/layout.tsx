@@ -15,12 +15,13 @@ import {
   MapPin, 
   User, 
   LogOut, 
-  Home,
+  Home as HomeIcon,
   Loader2,
   Menu,
   X,
   ChevronRight,
   HelpCircle,
+  Compass,
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
@@ -29,6 +30,35 @@ const navItems = [
   { href: '/account', label: 'My Orders', icon: Package, exact: true },
   { href: '/account/addresses', label: 'Addresses', icon: MapPin },
   { href: '/account/settings', label: 'Settings', icon: User },
+];
+
+// Mobile bottom navigation items
+const mobileNavItems = [
+  {
+    href: '/',
+    icon: HomeIcon,
+    labelEn: 'Home',
+    labelEs: 'Inicio',
+    exact: true,
+  },
+  {
+    href: '/vendors',
+    icon: Compass,
+    labelEn: 'Browse',
+    labelEs: 'Explorar',
+  },
+  {
+    href: '/account',
+    icon: Package,
+    labelEn: 'Orders',
+    labelEs: 'Pedidos',
+  },
+  {
+    href: '/account/settings',
+    icon: User,
+    labelEn: 'Account',
+    labelEs: 'Perfil',
+  },
 ];
 
 export default function AccountLayout({
@@ -89,6 +119,18 @@ export default function AccountLayout({
     return pathname.startsWith(href);
   };
 
+  // Check if mobile nav item is active
+  const isMobileNavActive = (href: string, exact?: boolean) => {
+    if (exact) {
+      return pathname === href;
+    }
+    // Special case for /account - only exact match, not /account/settings
+    if (href === '/account') {
+      return pathname === '/account' || pathname.startsWith('/account/orders');
+    }
+    return pathname.startsWith(href);
+  };
+
   const getInitials = (name: string, email: string) => {
     if (name) {
       return name
@@ -137,7 +179,7 @@ export default function AccountLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-0">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         {/* UPDATED PADDING: 
@@ -311,7 +353,7 @@ export default function AccountLayout({
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors"
               >
-                <Home className="w-5 h-5" />
+                <HomeIcon className="w-5 h-5" />
                 <span className="font-medium">{language === 'en' ? 'Back to Home' : 'Volver al Inicio'}</span>
               </Link>
 
@@ -425,6 +467,36 @@ export default function AccountLayout({
           <main className="flex-1 min-w-0">{children}</main>
         </div>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 lg:hidden safe-area-bottom">
+        <div className="flex items-center justify-around h-16">
+          {mobileNavItems.map((item) => {
+            const Icon = item.icon;
+            const active = isMobileNavActive(item.href, item.exact);
+            const label = language === 'es' ? item.labelEs : item.labelEn;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center flex-1 h-full px-2 transition ${
+                  active ? 'text-[#55529d]' : 'text-gray-400'
+                }`}
+              >
+                <div
+                  className={`p-1.5 rounded-xl ${
+                    active ? 'bg-[#55529d]/10' : ''
+                  }`}
+                >
+                  <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
+                </div>
+                <span className="text-[10px] mt-0.5 font-medium">{label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
