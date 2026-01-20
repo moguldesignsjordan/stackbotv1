@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { db } from "@/lib/firebase/config";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import {
@@ -15,7 +14,7 @@ import {
   Search,
   SlidersHorizontal,
   X,
-  Filter,
+  Play,
 } from "lucide-react";
 import MobileBottomNav from "@/components/layout/MobileBottomNav";
 
@@ -36,6 +35,7 @@ type Vendor = {
   logo_url?: string;
   cover_image_url?: string;
   banner_url?: string;
+  cover_video_url?: string;
   rating?: number;
   featured?: boolean;
   verified?: boolean;
@@ -67,6 +67,28 @@ function extractAddressString(
     return value.location_address;
   }
   return "";
+}
+
+/* ======================================================
+   HELPER: Check if URL is a video
+====================================================== */
+
+function isVideoUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const videoExtensions = [".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".ogg"];
+  const lowerUrl = url.toLowerCase();
+  
+  // Check file extension
+  if (videoExtensions.some((ext) => lowerUrl.includes(ext))) {
+    return true;
+  }
+  
+  // Check for video content type indicators in Firebase Storage URLs
+  if (lowerUrl.includes("video%2f") || lowerUrl.includes("video/")) {
+    return true;
+  }
+  
+  return false;
 }
 
 /* ======================================================
@@ -442,30 +464,88 @@ function EmptyState({
 }
 
 /* ======================================================
+   COVER MEDIA COMPONENT (Handles both images and videos)
+====================================================== */
+
+function CoverMedia({
+  url,
+  alt,
+  isVideo,
+}: {
+  url: string;
+  alt: string;
+  isVideo: boolean;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  if (isVideo && !videoError) {
+    return (
+      <>
+        <video
+          src={url}
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          onError={() => setVideoError(true)}
+        />
+        {/* Video indicator */}
+        <div className="absolute bottom-2 right-2 bg-black/60 rounded-full p-1.5 z-10">
+          <Play className="w-3 h-3 text-white fill-white" />
+        </div>
+      </>
+    );
+  }
+
+  if (imageError) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-purple-100 to-purple-50">
+        <Store className="w-12 h-12 text-purple-300" />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={alt}
+      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+      onError={() => setImageError(true)}
+      loading="lazy"
+    />
+  );
+}
+
+/* ======================================================
    VENDOR CARD
 ====================================================== */
 
 function VendorCard({ vendor }: { vendor: Vendor }) {
+  const [logoError, setLogoError] = useState(false);
+  
   const displayName = vendor.name || vendor.business_name || "Unnamed Store";
-  const displayDesc =
-    vendor.description || vendor.business_description || "";
+  const displayDesc = vendor.description || vendor.business_description || "";
   const logoUrl = vendor.logoUrl || vendor.logo_url;
-  const coverUrl = vendor.cover_image_url || vendor.banner_url;
+  const coverUrl = vendor.cover_video_url || vendor.cover_image_url || vendor.banner_url;
   const addressStr = extractAddressString(vendor.address || vendor.location);
   const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/vendor/${vendor.id}`;
+  
+  // Check if cover is a video
+  const coverIsVideo = isVideoUrl(coverUrl);
 
   return (
     <Link href={vendorLink} className="group block">
       <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 h-full">
-        {/* Cover Image */}
-        <div className="relative h-32 bg-gradient-to-br from-purple-100 to-purple-50">
+        {/* Cover Image/Video */}
+        <div className="relative h-32 bg-gradient-to-br from-purple-100 to-purple-50 overflow-hidden">
           {coverUrl ? (
-            <Image
-              src={coverUrl}
+            <CoverMedia
+              url={coverUrl}
               alt={displayName}
-              fill
-              className="object-cover group-hover:scale-105 transition-transform duration-500"
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              isVideo={coverIsVideo}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -474,7 +554,7 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
           )}
 
           {/* Badges */}
-          <div className="absolute top-3 left-3 flex gap-2">
+          <div className="absolute top-3 left-3 flex gap-2 z-10">
             {vendor.featured && (
               <span className="px-2.5 py-1 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
@@ -489,15 +569,16 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
           </div>
 
           {/* Logo */}
-          {logoUrl && (
-            <div className="absolute -bottom-6 left-4">
+          {logoUrl && !logoError && (
+            <div className="absolute -bottom-6 left-4 z-10">
               <div className="w-14 h-14 rounded-xl bg-white shadow-md overflow-hidden border-2 border-white">
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src={logoUrl}
                   alt={displayName}
-                  width={56}
-                  height={56}
-                  className="object-cover w-full h-full"
+                  className="w-full h-full object-cover"
+                  onError={() => setLogoError(true)}
+                  loading="lazy"
                 />
               </div>
             </div>
@@ -505,7 +586,7 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
         </div>
 
         {/* Content */}
-        <div className={`p-4 ${logoUrl ? "pt-8" : "pt-4"}`}>
+        <div className={`p-4 ${logoUrl && !logoError ? "pt-8" : "pt-4"}`}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 truncate group-hover:text-purple-600 transition-colors flex items-center gap-1.5">
@@ -520,12 +601,16 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
             </div>
 
             {/* Rating */}
-            {vendor.rating && vendor.rating > 0 && (
+            {vendor.rating && vendor.rating > 0 ? (
               <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg flex-shrink-0">
                 <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
                 <span className="text-sm font-semibold text-gray-700">
                   {vendor.rating.toFixed(1)}
                 </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg flex-shrink-0">
+                <span className="text-sm font-semibold text-gray-400">0</span>
               </div>
             )}
           </div>
