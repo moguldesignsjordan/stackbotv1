@@ -305,14 +305,6 @@ export default function AdminTopbar() {
 
                     <div className="py-1">
                       <Link
-                        href="/admin/profile"
-                        onClick={() => setShowMenu(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition"
-                      >
-                        <User className="h-4 w-4 text-gray-400" />
-                        Profile
-                      </Link>
-                      <Link
                         href="/admin/settings"
                         onClick={() => setShowMenu(false)}
                         className="flex items-center gap-3 px-4 py-2.5 text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition"
