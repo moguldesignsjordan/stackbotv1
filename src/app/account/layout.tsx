@@ -145,7 +145,7 @@ export default function AccountLayout({
            'pt-5' adds extra top space (20px) on mobile to clear the status bar/time.
            'lg:py-4' keeps it balanced on desktop.
         */}
-        <div className="max-w-7xl mx-auto px-4 pt-5 pb-3 lg:py-4">
+        <div className="max-w-7xl mx-auto px-4 pt-9 pb-3 lg:py-4">
           <div className="flex items-center justify-between">
             {/* Left: Logo/Back */}
             <div className="flex items-center gap-4">
