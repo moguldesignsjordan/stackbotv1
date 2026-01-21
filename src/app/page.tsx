@@ -1208,7 +1208,7 @@ function DesktopNavbar({
             href="/vendor-signup"
             className="text-sm font-medium text-gray-700 hover:text-[var(--sb-primary)] transition-colors"
           >
-            {language === "es" ? "Vender" : "Sell"}
+            {language === "es" ? "Conviértete en vendedor" : "Become A Vendor"}
           </Link>
 
           {/* Language Toggle */}

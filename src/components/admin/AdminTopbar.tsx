@@ -152,7 +152,7 @@ export default function AdminTopbar() {
         <div className="flex items-center justify-between h-16 px-4 lg:px-8">
           {/* Left: Logo/Search */}
           <div className="flex items-center gap-4">
-            <Link href="/admin" className="lg:hidden">
+            <Link href="/" className="lg:hidden">
               <Image
                 src="/stackbot-logo-purp.png"
                 alt="StackBot"
