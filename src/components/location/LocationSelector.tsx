@@ -9,7 +9,6 @@ import {
   orderBy,
   onSnapshot,
   addDoc,
-  updateDoc,
   doc,
   serverTimestamp,
   writeBatch,
@@ -22,32 +21,19 @@ import {
   ChevronRight,
   ChevronDown,
   BadgeCheck,
-  Compass,
   Loader2,
   Navigation,
   Home,
   Briefcase,
   Building2,
 } from 'lucide-react';
+import { SavedLocation, Coordinates, LocationPin } from '@/lib/types/location';
+import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
+import { LocationPicker } from '@/components/maps/LocationPicker';
 
 ////////////////////////////////////////////////////////////////////////////////
 // TYPES
 ////////////////////////////////////////////////////////////////////////////////
-
-interface Coordinates {
-  lat: number;
-  lng: number;
-}
-
-interface SavedLocation {
-  id: string;
-  label: string;
-  address: string;
-  coordinates: Coordinates;
-  isDefault: boolean;
-  createdAt: Date;
-  updatedAt?: Date;
-}
 
 interface LocationSelectorProps {
   user: User | null;
@@ -55,7 +41,7 @@ interface LocationSelectorProps {
   isOpen: boolean;
   onClose: () => void;
   currentLocation: string;
-  onLocationChange: (location: string) => void;
+  onLocationChange: (location: string, coordinates?: Coordinates) => void;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -82,11 +68,11 @@ export function LocationSelector({
 }: LocationSelectorProps) {
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
   const [loadingLocations, setLoadingLocations] = useState(true);
-  const [loadingGeo, setLoadingGeo] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
-  const [geoError, setGeoError] = useState<string | null>(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
 
-  // Listen to saved locations from Firestore subcollection
+  // Listen to saved locations from Firestore subcollection (customers collection)
   useEffect(() => {
     if (!user) {
       setSavedLocations([]);
@@ -94,7 +80,8 @@ export function LocationSelector({
       return;
     }
 
-    const locationsRef = collection(db, 'users', user.uid, 'savedLocations');
+    // Changed from 'users' to 'customers'
+    const locationsRef = collection(db, 'customers', user.uid, 'savedLocations');
     const q = query(locationsRef, orderBy('createdAt', 'desc'));
 
     const unsubscribe = onSnapshot(
@@ -119,7 +106,7 @@ export function LocationSelector({
         // Set default location if user hasn't selected one yet
         const defaultLoc = locs.find((l) => l.isDefault);
         if (defaultLoc && currentLocation === 'Sosúa, Puerto Plata') {
-          onLocationChange(defaultLoc.address);
+          onLocationChange(defaultLoc.address, defaultLoc.coordinates);
         }
       },
       (error) => {
@@ -129,28 +116,28 @@ export function LocationSelector({
     );
 
     return () => unsubscribe();
-  }, [user, currentLocation, onLocationChange]);
+  }, [user]);
 
-  // Select a saved address
+  // Select a saved address and set it as default
   const selectSavedAddress = useCallback(
     async (location: SavedLocation) => {
-      onLocationChange(location.address);
+      onLocationChange(location.address, location.coordinates);
 
       // Set this as default if user is logged in
       if (user && !location.isDefault) {
         try {
           const batch = writeBatch(db);
-          
-          // Remove default from all others
+
+          // Remove default from all others (changed from 'users' to 'customers')
           savedLocations
             .filter((loc) => loc.isDefault)
             .forEach((loc) => {
-              const ref = doc(db, 'users', user.uid, 'savedLocations', loc.id);
+              const ref = doc(db, 'customers', user.uid, 'savedLocations', loc.id);
               batch.update(ref, { isDefault: false });
             });
 
-          // Set this one as default
-          const currentRef = doc(db, 'users', user.uid, 'savedLocations', location.id);
+          // Set this one as default (changed from 'users' to 'customers')
+          const currentRef = doc(db, 'customers', user.uid, 'savedLocations', location.id);
           batch.update(currentRef, { isDefault: true, updatedAt: serverTimestamp() });
 
           await batch.commit();
@@ -164,209 +151,81 @@ export function LocationSelector({
     [user, savedLocations, onLocationChange, onClose]
   );
 
-  // Get precise location using browser geolocation + reverse geocoding
-  const detectLocation = useCallback(
-    async (saveToProfile: boolean = false) => {
-      setLoadingGeo(true);
-      setGeoError(null);
+  // Handle location selection from map picker (Google Maps)
+  const handleMapLocationSelect = useCallback(
+    async (locationPin: LocationPin) => {
+      const { address, coordinates } = locationPin;
 
-      if (!navigator.geolocation) {
-        setGeoError(
-          language === 'es'
-            ? 'Geolocalización no disponible'
-            : 'Geolocation not available'
-        );
-        setLoadingGeo(false);
-        return;
+      // Update the current location immediately
+      onLocationChange(address, coordinates);
+
+      // Save to profile if user is logged in
+      if (user) {
+        setSavingLocation(true);
+        try {
+          // Changed from 'users' to 'customers'
+          const locationsRef = collection(db, 'customers', user.uid, 'savedLocations');
+
+          // Check if this location already exists (within ~100m)
+          const existingLoc = savedLocations.find((loc) => {
+            const latDiff = Math.abs(loc.coordinates.lat - coordinates.lat);
+            const lngDiff = Math.abs(loc.coordinates.lng - coordinates.lng);
+            return latDiff < 0.001 && lngDiff < 0.001; // ~100m threshold
+          });
+
+          if (existingLoc) {
+            // Update existing location and set as default (changed from 'users' to 'customers')
+            const existingRef = doc(db, 'customers', user.uid, 'savedLocations', existingLoc.id);
+
+            // Remove default from others first
+            const batch = writeBatch(db);
+            savedLocations
+              .filter((loc) => loc.isDefault && loc.id !== existingLoc.id)
+              .forEach((loc) => {
+                const ref = doc(db, 'customers', user.uid, 'savedLocations', loc.id);
+                batch.update(ref, { isDefault: false });
+              });
+
+            batch.update(existingRef, {
+              address,
+              coordinates,
+              isDefault: true,
+              updatedAt: serverTimestamp(),
+            });
+
+            await batch.commit();
+          } else {
+            // Remove default from all others first (changed from 'users' to 'customers')
+            const batch = writeBatch(db);
+            savedLocations
+              .filter((loc) => loc.isDefault)
+              .forEach((loc) => {
+                const ref = doc(db, 'customers', user.uid, 'savedLocations', loc.id);
+                batch.update(ref, { isDefault: false });
+              });
+            await batch.commit();
+
+            // Add new location as default
+            const label = newLabel.trim() || (language === 'es' ? 'Mi ubicación' : 'My Location');
+            await addDoc(locationsRef, {
+              label,
+              address,
+              coordinates,
+              isDefault: true,
+              createdAt: serverTimestamp(),
+            });
+          }
+        } catch (error) {
+          console.error('Error saving location to profile:', error);
+        }
+        setSavingLocation(false);
       }
 
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude, accuracy } = position.coords;
-            console.log(`Location detected: ${latitude}, ${longitude} (accuracy: ${accuracy}m)`);
-
-            // Use zoom=18 for street-level precision (vs zoom=10 for municipality)
-            // addressdetails=1 gives us granular components
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?` +
-                `format=json&lat=${latitude}&lon=${longitude}` +
-                `&zoom=18&addressdetails=1&accept-language=${language}`
-            );
-
-            if (!response.ok) {
-              throw new Error('Geocoding request failed');
-            }
-
-            const data = await response.json();
-            console.log('Nominatim response:', data);
-
-            if (data && data.address) {
-              // Build precise location string from most specific to least specific
-              const addr = data.address;
-              
-              // Try to get the most precise location name
-              const neighborhood =
-                addr.neighbourhood ||
-                addr.suburb ||
-                addr.hamlet ||
-                addr.village ||
-                addr.residential ||
-                addr.quarter ||
-                '';
-                
-              const road = addr.road || addr.street || '';
-              
-              const city =
-                addr.city ||
-                addr.town ||
-                addr.municipality ||
-                addr.county ||
-                '';
-                
-              const state =
-                addr.state ||
-                addr.province ||
-                addr.region ||
-                '';
-
-              // Build a more precise location string
-              let locationStr = '';
-              
-              if (neighborhood && city) {
-                // Show: "El Batey, Sosúa" or "Charamicos, Puerto Plata"
-                locationStr = `${neighborhood}, ${city}`;
-              } else if (road && city) {
-                // Show: "Calle Principal, Sosúa"
-                locationStr = `${road}, ${city}`;
-              } else if (city && state) {
-                // Fallback: "Sosúa, Puerto Plata"
-                locationStr = `${city}, ${state}`;
-              } else {
-                // Last resort
-                locationStr = data.display_name?.split(',').slice(0, 2).join(',') || 'Location detected';
-              }
-
-              onLocationChange(locationStr);
-
-              // Save to profile if requested and user is logged in
-              if (saveToProfile && user) {
-                setSavingLocation(true);
-                try {
-                  const locationsRef = collection(db, 'users', user.uid, 'savedLocations');
-
-                  // Check if this location already exists (within ~100m)
-                  const existingLoc = savedLocations.find((loc) => {
-                    const latDiff = Math.abs(loc.coordinates.lat - latitude);
-                    const lngDiff = Math.abs(loc.coordinates.lng - longitude);
-                    return latDiff < 0.001 && lngDiff < 0.001; // ~100m threshold
-                  });
-
-                  if (existingLoc) {
-                    // Update existing location
-                    const existingRef = doc(db, 'users', user.uid, 'savedLocations', existingLoc.id);
-                    await updateDoc(existingRef, {
-                      address: locationStr,
-                      coordinates: { lat: latitude, lng: longitude },
-                      isDefault: true,
-                      updatedAt: serverTimestamp(),
-                    });
-
-                    // Remove default from others
-                    const batch = writeBatch(db);
-                    savedLocations
-                      .filter((loc) => loc.isDefault && loc.id !== existingLoc.id)
-                      .forEach((loc) => {
-                        const ref = doc(db, 'users', user.uid, 'savedLocations', loc.id);
-                        batch.update(ref, { isDefault: false });
-                      });
-                    await batch.commit();
-                  } else {
-                    // Add new location
-                    // First, remove default from all others
-                    const batch = writeBatch(db);
-                    savedLocations
-                      .filter((loc) => loc.isDefault)
-                      .forEach((loc) => {
-                        const ref = doc(db, 'users', user.uid, 'savedLocations', loc.id);
-                        batch.update(ref, { isDefault: false });
-                      });
-                    await batch.commit();
-
-                    // Now add the new location
-                    await addDoc(locationsRef, {
-                      label: language === 'es' ? 'Mi ubicación' : 'My Location',
-                      address: locationStr,
-                      coordinates: {
-                        lat: latitude,
-                        lng: longitude,
-                      },
-                      isDefault: true,
-                      createdAt: serverTimestamp(),
-                    });
-                  }
-                } catch (error) {
-                  console.error('Error saving location to profile:', error);
-                }
-                setSavingLocation(false);
-              }
-            } else {
-              setGeoError(
-                language === 'es'
-                  ? 'No se pudo determinar la dirección'
-                  : 'Could not determine address'
-              );
-            }
-          } catch (error) {
-            console.error('Error getting location:', error);
-            setGeoError(
-              language === 'es'
-                ? 'Error al obtener ubicación'
-                : 'Error getting location'
-            );
-          }
-          setLoadingGeo(false);
-          onClose();
-        },
-        (error) => {
-          console.error('Geolocation error:', error);
-          let errorMsg = '';
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              errorMsg =
-                language === 'es'
-                  ? 'Permiso de ubicación denegado'
-                  : 'Location permission denied';
-              break;
-            case error.POSITION_UNAVAILABLE:
-              errorMsg =
-                language === 'es'
-                  ? 'Ubicación no disponible'
-                  : 'Location unavailable';
-              break;
-            case error.TIMEOUT:
-              errorMsg =
-                language === 'es'
-                  ? 'Tiempo de espera agotado'
-                  : 'Location request timed out';
-              break;
-            default:
-              errorMsg =
-                language === 'es'
-                  ? 'Error al obtener ubicación'
-                  : 'Error getting location';
-          }
-          setGeoError(errorMsg);
-          setLoadingGeo(false);
-        },
-        {
-          enableHighAccuracy: true, // Request GPS-level accuracy
-          timeout: 15000, // 15 second timeout
-          maximumAge: 60000, // Accept cached position up to 1 minute old
-        }
-      );
+      setShowMapPicker(false);
+      setNewLabel('');
+      onClose();
     },
-    [language, user, savedLocations, onLocationChange, onClose]
+    [user, savedLocations, language, newLabel, onLocationChange, onClose]
   );
 
   if (!isOpen) return null;
@@ -376,181 +235,240 @@ export function LocationSelector({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={() => {
+          if (!showMapPicker) onClose();
+        }}
       />
 
       {/* Bottom Sheet (Mobile) / Centered Modal (Desktop) */}
-      <div className="relative w-full lg:w-auto lg:max-w-md bg-white rounded-t-3xl lg:rounded-2xl p-6 animate-slide-up lg:animate-fade-in safe-area-bottom lg:m-4 max-h-[85vh] overflow-y-auto">
+      <div
+        className={`relative w-full bg-white rounded-t-3xl lg:rounded-2xl p-6 safe-area-bottom lg:m-4 overflow-hidden transition-all duration-300 ${
+          showMapPicker ? 'lg:max-w-2xl max-h-[95vh]' : 'lg:max-w-md max-h-[85vh]'
+        }`}
+        style={{ animation: 'slideUp 0.3s ease-out' }}
+      >
         {/* Drag handle - mobile only */}
-        <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-6 lg:hidden" />
+        <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4 lg:hidden" />
 
-        {/* Close button - desktop */}
+        {/* Close button */}
         <button
           onClick={onClose}
-          className="hidden lg:flex absolute top-4 right-4 w-8 h-8 items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors z-10"
         >
           <X className="w-5 h-5 text-gray-500" />
         </button>
 
-        <h3 className="text-xl font-bold text-gray-900 mb-2">
-          {language === 'es' ? 'Tu ubicación' : 'Your Location'}
+        <h3 className="text-xl font-bold text-gray-900 mb-1 pr-10">
+          {showMapPicker
+            ? language === 'es'
+              ? 'Seleccionar ubicación'
+              : 'Select Location'
+            : language === 'es'
+            ? 'Tu ubicación'
+            : 'Your Location'}
         </h3>
-        <p className="text-gray-500 text-sm mb-6">
-          {language === 'es'
+        <p className="text-gray-500 text-sm mb-4">
+          {showMapPicker
+            ? language === 'es'
+              ? 'Busca o toca el mapa para seleccionar tu ubicación exacta'
+              : 'Search or tap the map to select your exact location'
+            : language === 'es'
             ? 'Selecciona una dirección guardada o detecta tu ubicación'
             : 'Select a saved address or detect your location'}
         </p>
 
-        {/* Loading State */}
-        {user && loadingLocations && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-[var(--sb-primary)]" />
-          </div>
-        )}
+        {/* Content Area - Scrollable */}
+        <div className={`overflow-y-auto ${showMapPicker ? 'max-h-[70vh]' : 'max-h-[60vh]'}`}>
+          {/* Map Picker View */}
+          {showMapPicker ? (
+            <div className="space-y-4">
+              {/* Label Input for new location */}
+              {user && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {language === 'es' ? 'Etiqueta (opcional)' : 'Label (optional)'}
+                  </label>
+                  <div className="flex gap-2 flex-wrap mb-2">
+                    {['Home', 'Work', 'Office'].map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setNewLabel(label)}
+                        className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                          newLabel === label
+                            ? 'bg-[#55529d] text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    placeholder={language === 'es' ? 'O escribe una etiqueta...' : 'Or enter custom label...'}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent text-sm"
+                  />
+                </div>
+              )}
 
-        {/* Saved Addresses - Show if user is logged in and has addresses */}
-        {user && !loadingLocations && savedLocations.length > 0 && (
-          <div className="mb-6">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              {language === 'es' ? 'Direcciones guardadas' : 'Saved Addresses'}
-            </p>
-            <div className="space-y-2">
-              {savedLocations.map((loc) => {
-                const IconComponent = LABEL_ICONS[loc.label] || MapPin;
-                const isSelected = currentLocation === loc.address;
+              {/* Google Maps Location Picker */}
+              <GoogleMapsProvider>
+                <LocationPicker
+                  onLocationSelect={handleMapLocationSelect}
+                  onCancel={() => setShowMapPicker(false)}
+                  height="350px"
+                  showSaveButton={true}
+                  saveButtonText={
+                    savingLocation
+                      ? language === 'es'
+                        ? 'Guardando...'
+                        : 'Saving...'
+                      : language === 'es'
+                      ? 'Usar esta ubicación'
+                      : 'Use this location'
+                  }
+                  placeholder={
+                    language === 'es'
+                      ? 'Buscar dirección...'
+                      : 'Search for an address...'
+                  }
+                />
+              </GoogleMapsProvider>
 
-                return (
-                  <button
-                    key={loc.id}
-                    onClick={() => selectSavedAddress(loc)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
-                      isSelected
-                        ? 'border-[var(--sb-primary)] bg-[var(--sb-primary)]/5'
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        isSelected
-                          ? 'bg-[var(--sb-primary)] text-white'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      <IconComponent className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm truncate">
-                        {loc.address}
-                      </p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1">
-                        {loc.label}
-                        {loc.isDefault && (
-                          <span className="text-[var(--sb-primary)]">
-                            • {language === 'es' ? 'Predeterminada' : 'Default'}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    {isSelected && (
-                      <BadgeCheck className="w-5 h-5 text-[var(--sb-primary)]" />
-                    )}
-                  </button>
-                );
-              })}
+              {/* Back Button */}
+              <button
+                onClick={() => setShowMapPicker(false)}
+                className="w-full py-3 text-gray-500 font-medium text-sm hover:text-gray-700"
+              >
+                {language === 'es' ? '← Volver' : '← Back'}
+              </button>
             </div>
-          </div>
-        )}
-
-        {/* Divider */}
-        {user && !loadingLocations && savedLocations.length > 0 && (
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-400 uppercase">
-              {language === 'es' ? 'O' : 'Or'}
-            </span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-        )}
-
-        {/* Error Message */}
-        {geoError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-            {geoError}
-          </div>
-        )}
-
-        {/* Detect Location Button */}
-        <button
-          onClick={() => detectLocation(!!user)}
-          disabled={loadingGeo || savingLocation}
-          className="w-full flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white py-4 rounded-xl font-semibold hover:bg-[var(--sb-primary-dark)] transition-colors disabled:opacity-50"
-        >
-          {loadingGeo || savingLocation ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              {savingLocation
-                ? language === 'es'
-                  ? 'Guardando...'
-                  : 'Saving...'
-                : language === 'es'
-                ? 'Detectando...'
-                : 'Detecting...'}
-            </>
           ) : (
             <>
-              <Navigation className="w-5 h-5" />
-              {language === 'es' ? 'Detectar mi ubicación' : 'Detect my location'}
+              {/* Loading State */}
+              {user && loadingLocations && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#55529d]" />
+                </div>
+              )}
+
+              {/* Saved Addresses */}
+              {user && !loadingLocations && savedLocations.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    {language === 'es' ? 'Direcciones guardadas' : 'Saved Addresses'}
+                  </p>
+                  <div className="space-y-2">
+                    {savedLocations.map((loc) => {
+                      const IconComponent = LABEL_ICONS[loc.label] || MapPin;
+                      const isSelected = currentLocation === loc.address;
+
+                      return (
+                        <button
+                          key={loc.id}
+                          onClick={() => selectSavedAddress(loc)}
+                          className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
+                            isSelected
+                              ? 'border-[#55529d] bg-[#55529d]/5'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div
+                            className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                              isSelected ? 'bg-[#55529d] text-white' : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            <IconComponent className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-900 text-sm truncate">{loc.address}</p>
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              {loc.label}
+                              {loc.isDefault && (
+                                <span className="text-[#55529d]">
+                                  • {language === 'es' ? 'Predeterminada' : 'Default'}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          {isSelected && <BadgeCheck className="w-5 h-5 text-[#55529d] flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Divider */}
+              {user && !loadingLocations && savedLocations.length > 0 && (
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs text-gray-400 uppercase">
+                    {language === 'es' ? 'O' : 'Or'}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+
+              {/* Detect/Select Location Button - Opens Map */}
+              <button
+                onClick={() => setShowMapPicker(true)}
+                className="w-full flex items-center justify-center gap-2 bg-[#55529d] text-white py-4 rounded-xl font-semibold hover:bg-[#433f7a] transition-colors"
+              >
+                <Navigation className="w-5 h-5" />
+                {language === 'es' ? 'Detectar o seleccionar ubicación' : 'Detect or select location'}
+              </button>
+
+              {/* Precision note */}
+              <p className="text-xs text-gray-400 text-center mt-2">
+                {language === 'es'
+                  ? 'Usa el mapa para obtener tu ubicación exacta'
+                  : 'Use the map to get your exact location'}
+              </p>
+
+              {/* Save to profile note */}
+              {user && (
+                <p className="text-xs text-gray-400 text-center mt-1">
+                  {language === 'es'
+                    ? 'Se guardará automáticamente en tu perfil'
+                    : 'Will be automatically saved to your profile'}
+                </p>
+              )}
+
+              {/* Login prompt if not logged in */}
+              {!user && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-xl">
+                  <p className="text-sm text-gray-600 text-center">
+                    {language === 'es'
+                      ? 'Inicia sesión para guardar direcciones'
+                      : 'Sign in to save addresses'}
+                  </p>
+                  <Link
+                    href="/login"
+                    onClick={onClose}
+                    className="mt-2 w-full flex items-center justify-center gap-2 text-[#55529d] font-semibold text-sm hover:underline"
+                  >
+                    {language === 'es' ? 'Iniciar sesión' : 'Sign in'}
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              )}
+
+              {/* Close Button - mobile only */}
+              <button onClick={onClose} className="w-full mt-4 py-3 text-gray-500 font-medium lg:hidden">
+                {language === 'es' ? 'Cancelar' : 'Cancel'}
+              </button>
             </>
           )}
-        </button>
-
-        {/* Precision note */}
-        <p className="text-xs text-gray-400 text-center mt-2">
-          {language === 'es'
-            ? 'Detectamos tu ubicación exacta (barrio/calle)'
-            : 'We detect your precise location (neighborhood/street)'}
-        </p>
-
-        {/* Save to profile note */}
-        {user && (
-          <p className="text-xs text-gray-400 text-center mt-1">
-            {language === 'es'
-              ? 'Se guardará automáticamente en tu perfil'
-              : 'Will be automatically saved to your profile'}
-          </p>
-        )}
-
-        {/* Login prompt if not logged in */}
-        {!user && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-xl">
-            <p className="text-sm text-gray-600 text-center">
-              {language === 'es'
-                ? 'Inicia sesión para guardar direcciones'
-                : 'Sign in to save addresses'}
-            </p>
-            <Link
-              href="/login"
-              onClick={onClose}
-              className="mt-2 w-full flex items-center justify-center gap-2 text-[var(--sb-primary)] font-semibold text-sm hover:underline"
-            >
-              {language === 'es' ? 'Iniciar sesión' : 'Sign in'}
-              <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-        )}
-
-        {/* Close Button - mobile only */}
-        <button
-          onClick={onClose}
-          className="w-full mt-4 py-3 text-gray-500 font-medium lg:hidden"
-        >
-          {language === 'es' ? 'Cancelar' : 'Cancel'}
-        </button>
+        </div>
       </div>
 
       {/* Animation Styles */}
       <style jsx>{`
-        @keyframes slide-up {
+        @keyframes slideUp {
           from {
             transform: translateY(100%);
             opacity: 0;
@@ -559,22 +477,6 @@ export function LocationSelector({
             transform: translateY(0);
             opacity: 1;
           }
-        }
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-        .animate-fade-in {
-          animation: fade-in 0.2s ease-out;
         }
       `}</style>
     </div>
@@ -591,11 +493,7 @@ interface LocationButtonProps {
   compact?: boolean;
 }
 
-export function LocationButton({
-  currentLocation,
-  onClick,
-  compact = false,
-}: LocationButtonProps) {
+export function LocationButton({ currentLocation, onClick, compact = false }: LocationButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -603,7 +501,7 @@ export function LocationButton({
         compact ? 'px-2 py-1' : 'px-2 py-1.5 -mx-2'
       }`}
     >
-      <MapPin className="w-4 h-4 text-[var(--sb-primary)]" />
+      <MapPin className="w-4 h-4 text-[#55529d]" />
       <span
         className={`font-semibold text-gray-900 truncate ${
           compact ? 'max-w-[120px] text-xs' : 'max-w-[200px] text-sm'

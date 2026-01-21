@@ -56,6 +56,7 @@ import {
   Shield,
   Zap,
 } from "lucide-react";
+import LocationSelector, { LocationButton } from "@/components/location/LocationSelector";
 
 ////////////////////////////////////////////////////////////////////////////////
 // TYPES
@@ -140,9 +141,6 @@ export default function HomePage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [userLocation, setUserLocation] = useState<string>("Sosúa, Puerto Plata");
-  const [loadingLocation, setLoadingLocation] = useState(false);
-  const [savedAddresses, setSavedAddresses] = useState<Array<{ id: string; label: string; address: string; isDefault?: boolean }>>([]);
-  const [savingAddress, setSavingAddress] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
   // Get user's first name
@@ -228,33 +226,6 @@ export default function HomePage() {
     fetchRole();
   }, [user]);
 
-  // Fetch user's saved addresses
-  useEffect(() => {
-    const fetchAddresses = async () => {
-      if (!user) {
-        setSavedAddresses([]);
-        return;
-      }
-
-      try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          const addresses = userData.addresses || [];
-          setSavedAddresses(addresses);
-          
-          // Set default address as current location if available
-          const defaultAddr = addresses.find((a: any) => a.isDefault);
-          if (defaultAddr) {
-            setUserLocation(defaultAddr.address);
-          }
-        }
-      } catch (err) {
-        console.error("Error fetching addresses:", err);
-      }
-    };
-    fetchAddresses();
-  }, [user]);
 
   // Load data
   useEffect(() => {
@@ -280,100 +251,11 @@ export default function HomePage() {
     if (userRole === "vendor") return "/vendor";
     return "/account";
   };
-
-  // Save address to user profile
-  const saveAddressToProfile = useCallback(async (address: string, makeDefault: boolean = true) => {
-    if (!user) return;
-    
-    setSavingAddress(true);
-    try {
-      const userRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userRef);
-      
-      const newAddress = {
-        id: `addr_${Date.now()}`,
-        label: language === "es" ? "Mi ubicación" : "My Location",
-        address: address,
-        isDefault: makeDefault,
-        createdAt: new Date().toISOString(),
-      };
-
-      let addresses = [];
-      if (userDoc.exists()) {
-        addresses = userDoc.data().addresses || [];
-        // If making default, remove default from others
-        if (makeDefault) {
-          addresses = addresses.map((a: any) => ({ ...a, isDefault: false }));
-        }
-        // Check if address already exists
-        const existingIndex = addresses.findIndex((a: any) => a.address === address);
-        if (existingIndex >= 0) {
-          addresses[existingIndex] = { ...addresses[existingIndex], isDefault: makeDefault };
-        } else {
-          addresses.push(newAddress);
-        }
-        await updateDoc(userRef, { addresses });
-      } else {
-        await setDoc(userRef, { addresses: [newAddress] }, { merge: true });
-        addresses = [newAddress];
-      }
-      
-      setSavedAddresses(addresses);
-    } catch (error) {
-      console.error("Error saving address:", error);
-    }
-    setSavingAddress(false);
-  }, [user, language]);
-
-  // Select a saved address
-  const selectSavedAddress = useCallback((address: string) => {
-    setUserLocation(address);
-    setShowLocationModal(false);
+  
+ // Handle location change from LocationSelector
+  const handleLocationChange = useCallback((location: string) => {
+    setUserLocation(location);
   }, []);
-
-  // Get user's current location using browser geolocation
-  const getUserLocation = useCallback(async (saveToProfile: boolean = false) => {
-    setLoadingLocation(true);
-    
-    if (!navigator.geolocation) {
-      setLoadingLocation(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const { latitude, longitude } = position.coords;
-          // Using OpenStreetMap Nominatim for reverse geocoding (free, no API key needed)
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=${language}`
-          );
-          const data = await response.json();
-          
-          if (data && data.address) {
-            const city = data.address.city || data.address.town || data.address.village || data.address.municipality || "";
-            const state = data.address.state || data.address.province || "";
-            const locationStr = city && state ? `${city}, ${state}` : city || state || "Location detected";
-            setUserLocation(locationStr);
-            
-            // Save to profile if user is logged in and requested
-            if (saveToProfile && user) {
-              await saveAddressToProfile(locationStr, true);
-            }
-          }
-        } catch (error) {
-          console.error("Error getting location:", error);
-        }
-        setLoadingLocation(false);
-        setShowLocationModal(false);
-      },
-      (error) => {
-        console.error("Geolocation error:", error);
-        setLoadingLocation(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-    );
-  }, [language, user, saveAddressToProfile]);
 
   return (
     <div className="min-h-screen bg-[#fafafa] pb-20 lg:pb-0">
@@ -595,7 +477,7 @@ export default function HomePage() {
               <Bell className="w-5 h-5 text-gray-700" />
             </Link>
 
-            <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
+       <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
               <ShoppingCart className="w-5 h-5 text-gray-700" />
               {itemCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[var(--sb-primary)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
@@ -608,16 +490,10 @@ export default function HomePage() {
 
         {/* Location Bar - Clickable */}
         <div className="px-4 pb-2">
-          <button 
+          <LocationButton
+            currentLocation={userLocation}
             onClick={() => setShowLocationModal(true)}
-            className="flex items-center gap-1.5 text-sm hover:bg-gray-50 px-2 py-1.5 -mx-2 rounded-lg transition-colors active:bg-gray-100"
-          >
-            <MapPin className="w-4 h-4 text-[var(--sb-primary)]" />
-            <span className="font-semibold text-gray-900 truncate max-w-[200px]">
-              {userLocation}
-            </span>
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          </button>
+          />
         </div>
 
         {/* Search Bar - Enhanced */}
@@ -658,147 +534,15 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Location Modal - Works on all screen sizes */}
-      {showLocationModal && (
-        <div className="fixed inset-0 z-[100] flex items-end lg:items-center lg:justify-center">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowLocationModal(false)}
-          />
-          
-          {/* Bottom Sheet (Mobile) / Centered Modal (Desktop) */}
-          <div className="relative w-full lg:w-auto lg:max-w-md bg-white rounded-t-3xl lg:rounded-2xl p-6 animate-slide-up lg:animate-fade-in safe-area-bottom lg:m-4 max-h-[85vh] overflow-y-auto">
-            {/* Drag handle - mobile only */}
-            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-6 lg:hidden" />
-            
-            {/* Close button - desktop */}
-            <button
-              onClick={() => setShowLocationModal(false)}
-              className="hidden lg:flex absolute top-4 right-4 w-8 h-8 items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-            
-            <h3 className="text-xl font-bold text-gray-900 mb-2">
-              {language === "es" ? "Tu ubicación" : "Your Location"}
-            </h3>
-            <p className="text-gray-500 text-sm mb-6">
-              {language === "es" 
-                ? "Selecciona una dirección guardada o detecta tu ubicación"
-                : "Select a saved address or detect your location"}
-            </p>
-
-            {/* Saved Addresses - Show if user is logged in and has addresses */}
-            {user && savedAddresses.length > 0 && (
-              <div className="mb-6">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  {language === "es" ? "Direcciones guardadas" : "Saved Addresses"}
-                </p>
-                <div className="space-y-2">
-                  {savedAddresses.map((addr) => (
-                    <button
-                      key={addr.id}
-                      onClick={() => selectSavedAddress(addr.address)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
-                        userLocation === addr.address
-                          ? "border-[var(--sb-primary)] bg-[var(--sb-primary)]/5"
-                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                      }`}
-                    >
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        userLocation === addr.address
-                          ? "bg-[var(--sb-primary)] text-white"
-                          : "bg-gray-100 text-gray-500"
-                      }`}>
-                        <MapPin className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm truncate">{addr.address}</p>
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
-                          {addr.label}
-                          {addr.isDefault && (
-                            <span className="text-[var(--sb-primary)]">• {language === "es" ? "Predeterminada" : "Default"}</span>
-                          )}
-                        </p>
-                      </div>
-                      {userLocation === addr.address && (
-                        <BadgeCheck className="w-5 h-5 text-[var(--sb-primary)]" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Divider */}
-            {user && savedAddresses.length > 0 && (
-              <div className="flex items-center gap-3 mb-6">
-                <div className="flex-1 h-px bg-gray-200" />
-                <span className="text-xs text-gray-400 uppercase">
-                  {language === "es" ? "O" : "Or"}
-                </span>
-                <div className="flex-1 h-px bg-gray-200" />
-              </div>
-            )}
-
-            {/* Detect Location Button */}
-            <button
-              onClick={() => getUserLocation(!!user)}
-              disabled={loadingLocation}
-              className="w-full flex items-center justify-center gap-2 bg-[var(--sb-primary)] text-white py-4 rounded-xl font-semibold hover:bg-[var(--sb-primary-dark)] transition-colors disabled:opacity-50"
-            >
-              {loadingLocation ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {language === "es" ? "Detectando..." : "Detecting..."}
-                </>
-              ) : (
-                <>
-                  <Compass className="w-5 h-5" />
-                  {language === "es" ? "Detectar mi ubicación" : "Detect my location"}
-                </>
-              )}
-            </button>
-
-            {/* Save to profile note */}
-            {user && (
-              <p className="text-xs text-gray-400 text-center mt-3">
-                {language === "es" 
-                  ? "La ubicación detectada se guardará en tu perfil"
-                  : "Detected location will be saved to your profile"}
-              </p>
-            )}
-
-            {/* Login prompt if not logged in */}
-            {!user && (
-              <div className="mt-4 p-4 bg-gray-50 rounded-xl">
-                <p className="text-sm text-gray-600 text-center">
-                  {language === "es" 
-                    ? "Inicia sesión para guardar direcciones"
-                    : "Sign in to save addresses"}
-                </p>
-                <Link
-                  href="/login"
-                  onClick={() => setShowLocationModal(false)}
-                  className="mt-2 w-full flex items-center justify-center gap-2 text-[var(--sb-primary)] font-semibold text-sm hover:underline"
-                >
-                  {language === "es" ? "Iniciar sesión" : "Sign in"}
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-              </div>
-            )}
-
-            {/* Close Button - mobile only */}
-            <button
-              onClick={() => setShowLocationModal(false)}
-              className="w-full mt-4 py-3 text-gray-500 font-medium lg:hidden"
-            >
-              {language === "es" ? "Cancelar" : "Cancel"}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Location Selector Modal */}
+      <LocationSelector
+        user={user}
+        language={language}
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        currentLocation={userLocation}
+        onLocationChange={handleLocationChange}
+      />
 
       {/* Main Content */}
       <main>
@@ -828,8 +572,6 @@ export default function HomePage() {
           language={language}
           t={t}
         />
-
-
 {/* Browse Categories */}
         <section className="px-4 py-6 lg:py-12 lg:max-w-7xl lg:mx-auto lg:px-8">
           <div className="flex items-center justify-between mb-4 lg:mb-6">

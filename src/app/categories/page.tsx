@@ -176,7 +176,7 @@ export default function CategoriesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* HERO HEADER */}
-      <header className="bg-gradient-to-br from-[#55529d] via-[#6563a4] to-[#7574ab] text-white relative overflow-hidden">
+      <header className="bg-gradient-to-br from-[#55529d] via-[#6563a4] to-[#7574ab] text-white relative overflow-hidden pt-15">
         <div className="absolute inset-0 bg-black/5" />
         <div className="absolute top-10 right-10 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute bottom-10 left-10 w-96 h-96 bg-white/5 rounded-full blur-3xl" />

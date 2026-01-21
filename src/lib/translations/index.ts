@@ -454,6 +454,15 @@ export const translations = {
   'track.step.delivered': 'Delivered',
   'track.step.pickedUp': 'Picked Up',
 
+
+  'product.buyNow': 'Buy Now',
+  'product.addedToCart': 'Added to Cart!',
+  'product.secureCheckout': 'Secure checkout',
+  'product.qualityGuaranteed': 'Quality guaranteed',
+  'product.backToStore': 'Back to Store',
+  'product.backToHome': 'Back to Home',
+  'product.linkCopied': 'Link copied to clipboard!',
+
   },
 
   // =========================================================================
@@ -518,6 +527,17 @@ export const translations = {
     'nav.help': 'Ayuda',
     'nav.menu': 'Menú',
 
+
+
+  'product.buyNow': 'Comprar Ahora',
+  'product.addedToCart': '¡Agregado al Carrito!',
+  'product.secureCheckout': 'Pago seguro',
+  'product.qualityGuaranteed': 'Calidad garantizada',
+  'product.backToStore': 'Volver a la Tienda',
+  'product.backToHome': 'Volver al Inicio',
+  'product.linkCopied': '¡Enlace copiado al portapapeles!',
+
+  
     // Auth
     'auth.email': 'Correo Electrónico',
     'auth.password': 'Contraseña',
