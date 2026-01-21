@@ -21,14 +21,13 @@ const navItems = [
     labelEs: "Explorar",
   },
   {
-    href: "/account",
+    href: "account/orders",
     icon: Package,
     labelEn: "Orders",
     labelEs: "Pedidos",
   },
   {
-    href: "/account/settings",
-    icon: User,
+    href: "/account",
     labelEn: "Account",
     labelEs: "Perfil",
   },
