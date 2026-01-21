@@ -158,16 +158,16 @@ export default function OrderDetailPage() {
   const isCancelled = order.status === 'cancelled';
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-white pb-20">
       {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
+      <div className="bg-white  sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <Link
             href="/account"
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900"
           >
             <ArrowLeft className="w-5 h-5" />
-            Back to Account
+            Back
           </Link>
         </div>
       </div>
