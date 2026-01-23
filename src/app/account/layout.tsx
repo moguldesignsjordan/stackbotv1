@@ -48,13 +48,13 @@ const mobileNavItems = [
     labelEs: 'Explorar',
   },
   {
-    href: 'account/orders',
+    href: '/account/orders',
     icon: Package,
     labelEn: 'Orders',
     labelEs: 'Pedidos',
   },
   {
-    href: '/account/',
+    href: '/account',
     icon: User,
     labelEn: 'Account',
     labelEs: 'Perfil',

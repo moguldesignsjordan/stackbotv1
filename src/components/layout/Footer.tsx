@@ -255,14 +255,15 @@ export default function Footer() {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-500">{t('footer.weAccept')}:</span>
                 <div className="flex items-center gap-2">
-                  {/* Visa */}
+                  {/* Visa - Replaced with Image component */}
                   <div className="bg-white rounded px-2 py-1">
-                    <svg className="h-4 w-auto" viewBox="0 0 48 16" fill="none">
-                      <path
-                        d="M19.5 1.5L17 14.5H13.5L16 1.5H19.5ZM33.5 9.5L35.5 4L36.5 9.5H33.5ZM37.5 14.5H41L38 1.5H35C34 1.5 33.5 2 33 3L27 14.5H31L31.5 13H36.5L37.5 14.5ZM28 9.5C28 5.5 22.5 5 22.5 3.5C22.5 3 23 2.5 24 2.5C25.5 2.5 27 3 27.5 3.5L28.5 1C28 0.5 26 0 24 0C20.5 0 18 2 18 4.5C18 8 22 8.5 22 10C22 10.5 21.5 11.5 20 11.5C18 11.5 16.5 10.5 16 10L15 13C15.5 13.5 17.5 14.5 20 14.5C24 15 28 13 28 9.5ZM12 1.5L8 10.5L7.5 8L6 2.5C5.5 1.5 5 1.5 4 1.5H0L0 2C2 2.5 4 3.5 5.5 5L8.5 14.5H12.5L17 1.5H12Z"
-                        fill="#1A1F71"
-                      />
-                    </svg>
+                    <Image
+                      src="/visa.png"
+                      alt="Visa"
+                      width={48}
+                      height={16}
+                      className="h-4 w-auto object-contain"
+                    />
                   </div>
                   {/* Mastercard */}
                   <div className="bg-white rounded px-2 py-1">
