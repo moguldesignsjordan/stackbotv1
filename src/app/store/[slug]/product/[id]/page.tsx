@@ -10,8 +10,7 @@ import {
 } from "firebase/firestore";
 import { Metadata } from "next";
 import ProductClient from "./ProductClient";
-import Link from "next/link";
-import { ArrowLeft, Package } from "lucide-react";
+import ProductErrorState from "./ProductErrorState";
 
 function serializeFirestore(data: any) {
   return JSON.parse(JSON.stringify(data));
@@ -116,23 +115,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function ProductPage({ params }: PageProps) {
   const { slug, id: productId } = await params;
 
+  // ✅ Invalid URL - uses bilingual client component
   if (!slug || !productId) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-gray-600 gap-4 bg-gray-50">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
-          <Package className="w-10 h-10 text-gray-300" />
-        </div>
-        <h1 className="text-2xl font-bold">Invalid Product URL</h1>
-        <p className="text-gray-500">The product link appears to be broken.</p>
-        <Link 
-          href="/" 
-          className="mt-4 inline-flex items-center gap-2 text-[#55529d] font-semibold hover:underline"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
-      </div>
-    );
+    return <ProductErrorState type="invalidUrl" />;
   }
 
   /* ===============================
@@ -167,23 +152,9 @@ export default async function ProductPage({ params }: PageProps) {
     }
   }
 
+  // ✅ Store not found - uses bilingual client component
   if (!vendor) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-gray-600 gap-4 bg-gray-50">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
-          <Package className="w-10 h-10 text-gray-300" />
-        </div>
-        <h1 className="text-2xl font-bold">Store Not Found</h1>
-        <p className="text-gray-500">The store you&apos;re looking for doesn&apos;t exist.</p>
-        <Link 
-          href="/" 
-          className="mt-4 inline-flex items-center gap-2 text-[#55529d] font-semibold hover:underline"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
-      </div>
-    );
+    return <ProductErrorState type="storeNotFound" />;
   }
 
   /* ===============================
@@ -193,44 +164,16 @@ export default async function ProductPage({ params }: PageProps) {
     doc(db, "vendors", vendorId, "products", productId)
   );
 
+  // ✅ Product not found - uses bilingual client component
   if (!productSnap.exists()) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-gray-600 gap-4 bg-gray-50">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
-          <Package className="w-10 h-10 text-gray-300" />
-        </div>
-        <h1 className="text-2xl font-bold">Product Not Found</h1>
-        <p className="text-gray-500">This product doesn&apos;t exist or has been removed.</p>
-        <Link 
-          href={`/store/${slug}`}
-          className="mt-4 inline-flex items-center gap-2 text-[#55529d] font-semibold hover:underline"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Store
-        </Link>
-      </div>
-    );
+    return <ProductErrorState type="productNotFound" storeSlug={slug} />;
   }
 
   const product = productSnap.data();
 
+  // ✅ Product inactive - uses bilingual client component
   if (product.active === false) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-gray-600 gap-4 bg-gray-50">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
-          <Package className="w-10 h-10 text-gray-300" />
-        </div>
-        <h1 className="text-2xl font-bold">Product Unavailable</h1>
-        <p className="text-gray-500">This product is currently unavailable.</p>
-        <Link 
-          href={`/store/${slug}`}
-          className="mt-4 inline-flex items-center gap-2 text-[#55529d] font-semibold hover:underline"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Store
-        </Link>
-      </div>
-    );
+    return <ProductErrorState type="productUnavailable" storeSlug={slug} />;
   }
 
   // Use slug for links, fallback to vendorId

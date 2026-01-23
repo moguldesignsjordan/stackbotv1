@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
     ],
     unoptimized: true,
   },
-  // Fix COOP issues for Firebase popup auth (web fallback)
+
   async headers() {
     return [
       {
@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // Proxy Firebase auth handler to your custom domain
+
   async rewrites() {
     return [
       {

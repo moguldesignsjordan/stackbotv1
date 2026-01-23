@@ -3,15 +3,16 @@ import { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'com.stackbotglobal.app',
   appName: 'StackBot',
-  webDir: 'out',
+
   server: {
-    url: 'https://stackbotglobal.com',
-    cleartext: true,
+    url: 'https://stackbotglobal.com', // ✅ LIVE SITE
+    cleartext: false,
   },
+
   plugins: {
     FirebaseAuthentication: {
-      skipNativeAuth: true,  // ← CHANGE THIS TO TRUE
-      providers: ['apple.com', 'google.com'],
+      skipNativeAuth: false, // ✅ REQUIRED FOR GOOGLE PLAY
+      providers: ['google.com', 'apple.com'],
     },
   },
 };

@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { useCart } from "@/contexts/CartContext";
-import { formatPrice } from "@/lib/utils/currency";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   ShoppingCart,
   Check,
@@ -74,6 +74,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
   const [saved, setSaved] = useState(false);
 
   const { addItem } = useCart();
+  const { t, formatCurrency, language } = useLanguage();
 
   const basePrice = product.price || 0;
   const images = product.images?.length ? product.images : ["/product-placeholder.jpg"];
@@ -116,7 +117,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
     });
   };
 
-  // ✅ Validation Logic
+  // ✅ Validation Logic with i18n
   const validateSelections = (): boolean => {
     if (!product.options) return true;
 
@@ -124,7 +125,10 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
       if (group.required) {
         const hasSelection = selected.some((s) => s.groupId === group.id);
         if (!hasSelection) {
-          alert(`Please select an option for: ${group.title}`);
+          const message = language === 'en' 
+            ? `Please select an option for: ${group.title}`
+            : `Por favor selecciona una opción para: ${group.title}`;
+          alert(message);
           return false;
         }
       }
@@ -184,17 +188,21 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
 
   const handleShare = async () => {
     const url = window.location.href;
+    const shareText = language === 'en'
+      ? `Check out ${product.name} from ${vendor.name}!`
+      : `¡Mira ${product.name} de ${vendor.name}!`;
+    
     if (navigator.share) {
       try {
         await navigator.share({
           title: product.name,
-          text: `Check out ${product.name} from ${vendor.name}!`,
+          text: shareText,
           url,
         });
       } catch (err) {}
     } else {
       await navigator.clipboard.writeText(url);
-      alert("Link copied to clipboard!");
+      alert(t('product.linkCopied'));
     }
   };
 
@@ -210,7 +218,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
               <div className="relative aspect-square bg-white rounded-2xl overflow-hidden shadow-sm group">
                 <Image
                   src={images[currentImageIndex]}
-                  alt={`${product.name} - Image ${currentImageIndex + 1}`}
+                  alt={`${product.name} - ${language === 'en' ? 'Image' : 'Imagen'} ${currentImageIndex + 1}`}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-cover cursor-zoom-in"
@@ -222,6 +230,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                 <Link
                   href={`/store/${slug}`}
                   className="absolute top-4 left-4 z-20 inline-flex items-center justify-center bg-white/90 text-gray-700 w-10 h-10 rounded-full hover:bg-white transition shadow-md"
+                  title={t('product.backToStore')}
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </Link>
@@ -230,6 +239,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                 <button
                   onClick={() => setShowLightbox(true)}
                   className="absolute top-4 right-4 z-20 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                  title={language === 'en' ? 'Zoom' : 'Ampliar'}
                 >
                   <ZoomIn className="w-5 h-5 text-gray-700" />
                 </button>
@@ -273,7 +283,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                     >
                       <Image
                         src={img}
-                        alt={`Thumbnail ${idx + 1}`}
+                        alt={`${language === 'en' ? 'Thumbnail' : 'Miniatura'} ${idx + 1}`}
                         fill
                         className="object-cover"
                         sizes="80px"
@@ -317,7 +327,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                   <button
                     onClick={handleShare}
                     className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-                    title="Share"
+                    title={t('common.share')}
                   >
                     <Share2 className="w-5 h-5" />
                   </button>
@@ -328,7 +338,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                         ? "text-red-500 bg-red-50"
                         : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                     }`}
-                    title="Save"
+                    title={language === 'en' ? 'Save' : 'Guardar'}
                   >
                     <Heart className={`w-5 h-5 ${saved ? "fill-current" : ""}`} />
                   </button>
@@ -338,11 +348,11 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
               {/* Price */}
               <div className="flex items-baseline gap-3">
                 <span className="text-3xl font-bold text-[#55529d]">
-                  {formatPrice(finalPrice)}
+                  {formatCurrency(finalPrice)}
                 </span>
                 {qty > 1 && (
                   <span className="text-sm text-gray-500">
-                    ({formatPrice(finalUnitPrice)} each)
+                    ({formatCurrency(finalUnitPrice)} {language === 'en' ? 'each' : 'c/u'})
                   </span>
                 )}
               </div>
@@ -362,10 +372,14 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-gray-900">{group.title}</span>
                         {group.required && (
-                          <span className="text-xs text-red-500 font-medium">Required</span>
+                          <span className="text-xs text-red-500 font-medium">
+                            {t('common.required')}
+                          </span>
                         )}
                         {group.type === "multiple" && (
-                          <span className="text-xs text-gray-500">(Select multiple)</span>
+                          <span className="text-xs text-gray-500">
+                            ({language === 'en' ? 'Select multiple' : 'Selección múltiple'})
+                          </span>
                         )}
                       </div>
 
@@ -398,7 +412,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                               </div>
                               {opt.priceDelta ? (
                                 <span className="text-sm text-gray-500">
-                                  +{formatPrice(opt.priceDelta)}
+                                  +{formatCurrency(opt.priceDelta)}
                                 </span>
                               ) : null}
                             </button>
@@ -412,7 +426,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
 
               {/* Quantity */}
               <div className="flex items-center gap-4 pt-2">
-                <span className="font-semibold text-gray-900">Quantity</span>
+                <span className="font-semibold text-gray-900">{t('products.quantity')}</span>
                 <div className="flex items-center border-2 border-gray-200 rounded-xl overflow-hidden">
                   <button
                     onClick={() => setQty(Math.max(1, qty - 1))}
@@ -447,12 +461,12 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                   {addedToCart ? (
                     <>
                       <Check className="w-5 h-5" />
-                      Added to Cart!
+                      {t('product.addedToCart')}
                     </>
                   ) : (
                     <>
                       <ShoppingCart className="w-5 h-5" />
-                      Add to Cart
+                      {t('products.addToCart')}
                     </>
                   )}
                 </button>
@@ -461,7 +475,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                   onClick={buyNow}
                   className="flex-1 bg-[#55529d] text-white py-4 rounded-xl font-semibold hover:bg-[#444287] transition-colors shadow-lg shadow-[#55529d]/25"
                 >
-                  Buy Now
+                  {t('product.buyNow')}
                 </button>
               </div>
 
@@ -469,11 +483,11 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
               <div className="flex flex-wrap items-center gap-4 pt-4 border-t text-sm text-gray-500">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  <span>Secure checkout</span>
+                  <span>{t('product.secureCheckout')}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  <span>Quality guaranteed</span>
+                  <span>{t('product.qualityGuaranteed')}</span>
                 </div>
               </div>
             </div>
@@ -484,8 +498,8 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
         <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t shadow-lg p-4 z-50">
           <div className="flex items-center gap-3">
             <div className="flex-shrink-0">
-              <p className="text-xs text-gray-500">Total</p>
-              <p className="font-bold text-lg text-gray-900">{formatPrice(finalPrice)}</p>
+              <p className="text-xs text-gray-500">{t('cart.total')}</p>
+              <p className="font-bold text-lg text-gray-900">{formatCurrency(finalPrice)}</p>
             </div>
 
             <button
@@ -508,7 +522,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
               onClick={buyNow}
               className="flex-1 bg-[#55529d] text-white px-6 py-3.5 rounded-xl font-semibold shadow-lg"
             >
-              Buy Now
+              {t('product.buyNow')}
             </button>
           </div>
         </div>
@@ -540,7 +554,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
           >
             <Image
               src={images[currentImageIndex]}
-              alt={`${product.name} - Image ${currentImageIndex + 1}`}
+              alt={`${product.name} - ${language === 'en' ? 'Image' : 'Imagen'} ${currentImageIndex + 1}`}
               fill
               className="object-contain"
               sizes="100vw"
@@ -589,7 +603,7 @@ export default function ProductClient({ slug, vendor, product }: ProductClientPr
                 >
                   <Image
                     src={img}
-                    alt={`Thumbnail ${idx + 1}`}
+                    alt={`${language === 'en' ? 'Thumbnail' : 'Miniatura'} ${idx + 1}`}
                     fill
                     className="object-cover"
                     sizes="64px"

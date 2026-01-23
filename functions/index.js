@@ -1183,3 +1183,68 @@ exports.sendNotification = functions.https.onRequest((req, res) => {
     }
   });
 });
+/* ============================================================
+    🚀 SEND PUSH NOTIFICATION (FCM Trigger)
+    Listens for new docs in 'notifications' and sends to device
+============================================================ */
+exports.sendPushNotification = functions.firestore
+  .document("notifications/{notificationId}")
+  .onCreate(async (snap, context) => {
+    const notification = snap.data();
+    const userId = notification.userId;
+
+    if (!userId) return;
+
+    try {
+      // 1. Get the token we saved in the Frontend step
+      const tokenDoc = await admin.firestore().collection("pushTokens").doc(userId).get();
+      
+      if (!tokenDoc.exists) {
+        console.log(`No push token found for user ${userId}`);
+        return;
+      }
+
+      const tokenData = tokenDoc.data();
+      const pushToken = tokenData.token;
+
+      if (!pushToken) return;
+
+      // 2. Construct Payload (With Sound Settings)
+      const payload = {
+        token: pushToken,
+        notification: {
+          title: notification.title,
+          body: notification.message,
+        },
+        // Android Sound Settings
+        android: {
+          notification: {
+            sound: "default",
+            channelId: "default", // Must match the channel ID in pushNotifications.ts
+            priority: "high",
+            clickAction: "FCM_PLUGIN_ACTIVITY" 
+          }
+        },
+        // iOS Sound Settings
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+              badge: 1,
+            }
+          }
+        },
+        data: {
+          ...notification.data,
+          url: notification.data?.url || "/"
+        }
+      };
+
+      // 3. Send!
+      await admin.messaging().send(payload);
+      console.log(`Push notification sent to ${userId}`);
+
+    } catch (error) {
+      console.error("Error sending push notification:", error);
+    }
+  });

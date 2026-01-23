@@ -463,6 +463,20 @@ export const translations = {
   'product.backToHome': 'Back to Home',
   'product.linkCopied': 'Link copied to clipboard!',
 
+
+
+// Store Page Specific (add after existing vendor keys)
+'store.notFound': 'Store Not Found',
+'store.notFoundMessage': "This vendor doesn't exist or has been removed.",
+'store.invalidUrl': 'Invalid Store URL',
+'store.invalidUrlMessage': 'The store link appears to be broken.',
+'store.contactStore': 'Contact Store',
+'store.availableOptions': 'Available Options',
+'store.storeHours': 'Store Hours',
+'store.noProducts': 'This vendor has not added any products yet.',
+'store.items': '{count} items',
+'store.services': 'Services',
+
   },
 
   // =========================================================================
@@ -922,6 +936,18 @@ export const translations = {
   'track.step.onTheWay': 'En Camino',
   'track.step.delivered': 'Entregado',
   'track.step.pickedUp': 'Recogido',
+
+  // Store Page Specific
+'store.notFound': 'Tienda No Encontrada',
+'store.notFoundMessage': 'Este vendedor no existe o ha sido eliminado.',
+'store.invalidUrl': 'URL de Tienda Inválida',
+'store.invalidUrlMessage': 'El enlace de la tienda parece estar roto.',
+'store.contactStore': 'Contactar Tienda',
+'store.availableOptions': 'Opciones Disponibles',
+'store.storeHours': 'Horario',
+'store.noProducts': 'Este vendedor aún no ha agregado productos.',
+'store.items': '{count} artículos',
+'store.services': 'Servicios',
 
   },
 } as const;
