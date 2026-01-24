@@ -769,7 +769,7 @@ export default function HomePage() {
       {itemCount > 0 && (
         <Link
           href="/cart"
-          className="fixed bottom-30 left-4 right-4 lg:bottom-6 lg:left-auto lg:right-6 lg:w-auto bg-[var(--sb-primary)] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[var(--sb-primary)]/30 z-40 hover:bg-[var(--sb-primary-dark)] transition-colors lg:hidden"
+          className="fixed bottom-20 left-4 right-4 lg:bottom-6 lg:left-auto lg:right-6 lg:w-auto bg-[var(--sb-primary)] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[var(--sb-primary)]/30 z-40 hover:bg-[var(--sb-primary-dark)] transition-colors lg:hidden"
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center">
@@ -1228,22 +1228,10 @@ function DesktopHero({
                 </div>
               </div>
 
-              {/* Floating Card - Verified */}
-              <div className="absolute right-10 bottom-10 bg-white rounded-2xl p-4 shadow-xl animate-float" style={{ animationDelay: "-5s" }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                    <BadgeCheck className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">
-                      {language === "es" ? "Verificados" : "Verified"}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {language === "es" ? "Vendedores confiables" : "Trusted vendors"}
-                    </p>
-                  </div>
-                </div>
-              </div>
+          
+            
+             
+             
             </div>
           </div>
         </div>
@@ -1431,10 +1419,7 @@ function VendorCard({
             </div>
           )}
 
-          {/* Heart Button */}
-          <button className="absolute top-3 right-3 w-8 h-8 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white transition-colors">
-            <Heart className="w-4 h-4 text-gray-600" />
-          </button>
+
         </div>
 
         {/* Info */}

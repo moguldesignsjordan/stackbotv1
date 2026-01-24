@@ -26,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       {/* Added pt-[35px] to the class list below */}
       <body className="min-h-screen bg-sb-bg text-gray-900 antialiased pt-[0px] ">
         <LanguageProvider>

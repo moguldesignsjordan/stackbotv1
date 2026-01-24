@@ -34,6 +34,7 @@ interface LanguageContextType {
 
 const LANGUAGE_STORAGE_KEY = 'stackbot_language';
 const USD_TO_DOP_RATE = 60.5; // Update as needed - Dominican Peso rate
+const DEFAULT_LANGUAGE: Language = 'es'; // Default to Spanish
 
 // ============================================================================
 // Context
@@ -46,7 +47,7 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 // ============================================================================
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('en');
+  const [language, setLanguageState] = useState<Language>(DEFAULT_LANGUAGE);
   const [mounted, setMounted] = useState(false);
 
   // Derived currency from language
@@ -157,12 +158,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return (
       <LanguageContext.Provider
         value={{
-          language: 'en',
-          currency: 'USD',
+          language: 'es',
+          currency: 'DOP',
           setLanguage: () => {},
           t: (key) => key,
-          formatCurrency: (amount) => `$${amount.toFixed(2)}`,
-          formatCurrencyCompact: (amount) => `$${amount.toFixed(2)}`,
+          formatCurrency: (amount) => `RD$${Math.round(amount * USD_TO_DOP_RATE)}`,
+          formatCurrencyCompact: (amount) => `RD$${Math.round(amount * USD_TO_DOP_RATE)}`,
           exchangeRate: USD_TO_DOP_RATE,
         }}
       >
