@@ -208,7 +208,7 @@ function DeliveryDetailContent() {
           bounds.extend(order.deliveryAddress.coordinates);
         }
 
-        mapInstance.fitBounds(bounds, { padding: 80 });
+        mapInstance.fitBounds(bounds, 80);
       }
     },
     [order, driverLocation]

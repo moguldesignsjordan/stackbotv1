@@ -153,7 +153,7 @@ function DeliveryTrackerContent({
       if (driverLocation) bounds.extend(driverLocation);
 
       if (!bounds.isEmpty()) {
-        mapInstance.fitBounds(bounds, { padding: 60 });
+        mapInstance.fitBounds(bounds, 60);
       }
     },
     [vendorCoordinates, deliveryCoordinates, driverLocation]
@@ -168,7 +168,7 @@ function DeliveryTrackerContent({
     if (deliveryCoordinates) bounds.extend(deliveryCoordinates);
     bounds.extend(driverLocation);
 
-    map.fitBounds(bounds, { padding: 60 });
+    map.fitBounds(bounds, 60);
   }, [map, driverLocation, vendorCoordinates, deliveryCoordinates]);
 
   const getStatusInfo = () => {
