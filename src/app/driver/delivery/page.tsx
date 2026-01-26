@@ -382,6 +382,7 @@ export default function ActiveDeliveryPage() {
           </div>
         </div>
 
+        {/* Pickup Location */}
         <div className={`bg-white rounded-xl border ${isPickupPhase ? 'border-blue-200 ring-2 ring-blue-100' : 'border-gray-200'} overflow-hidden`}>
           <div className="p-4">
             <div className="flex items-start gap-3">
@@ -408,12 +409,9 @@ export default function ActiveDeliveryPage() {
               {delivery.vendorPhone && (
                 <>
                   <div className="w-px bg-gray-100" />
-                  <a
+                  
                     href={`tel:${delivery.vendorPhone}`}
-                  <a
-                    href={`tel:${delivery.vendorPhone}`}
-                  <a
-                    href={`tel:${delivery.vendorPhone}`}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"
                   >
                     <Phone className="w-4 h-4" />
                     <span className="text-sm font-medium">{t.call}</span>
@@ -424,6 +422,7 @@ export default function ActiveDeliveryPage() {
           )}
         </div>
 
+        {/* Delivery Location */}
         <div className={`bg-white rounded-xl border ${!isPickupPhase ? 'border-green-200 ring-2 ring-green-100' : 'border-gray-200'} overflow-hidden`}>
           <div className="p-4">
             <div className="flex items-start gap-3">
