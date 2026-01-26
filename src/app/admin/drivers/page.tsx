@@ -20,22 +20,18 @@ import {
   User,
   Mail,
   Phone,
-  MapPin,
-  CheckCircle,
-  XCircle,
-  Shield,
   AlertCircle,
   Loader2,
   Search,
   Filter,
   Plus,
-  MoreVertical,
   Star,
   Package,
-  Clock,
   Trash2,
+  CheckCircle,
 } from 'lucide-react';
-import { DriverProfile } from '@/lib/types/driver';
+import { Driver } from '@/lib/types/driver';
+import Image from 'next/image';
 
 type MessageState = {
   type: 'success' | 'error';
@@ -43,7 +39,7 @@ type MessageState = {
 } | null;
 
 export default function AdminDriversPage() {
-  const [drivers, setDrivers] = useState<DriverProfile[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'unverified'>('all');
@@ -67,12 +63,12 @@ export default function AdminDriversPage() {
     );
 
     const unsubscribe = onSnapshot(driversQuery, (snapshot) => {
-      const driversData: DriverProfile[] = [];
+      const driversData: Driver[] = [];
       snapshot.forEach((doc) => {
         driversData.push({
           id: doc.id,
           ...doc.data(),
-        } as DriverProfile);
+        } as Driver);
       });
       setDrivers(driversData);
       setLoading(false);
@@ -90,9 +86,9 @@ export default function AdminDriversPage() {
 
     const matchesStatus =
       statusFilter === 'all' ||
-      (statusFilter === 'online' && driver.isOnline) ||
-      (statusFilter === 'offline' && !driver.isOnline) ||
-      (statusFilter === 'unverified' && !driver.isVerified);
+      (statusFilter === 'online' && (driver.status === 'online' || driver.status === 'busy')) ||
+      (statusFilter === 'offline' && driver.status === 'offline') ||
+      (statusFilter === 'unverified' && !driver.verified);
 
     return matchesSearch && matchesStatus;
   });
@@ -100,16 +96,16 @@ export default function AdminDriversPage() {
   // Add new driver
   const handleAddDriver = async () => {
     if (!newDriverUid.trim()) {
-\      setMessage({ type: 'error', text: 'Firebase UID is required' });
+      setMessage({ type: 'error', text: 'Firebase UID is required' });
       return;
     }
 
- \   setAddingDriver(true);
+    setAddingDriver(true);
     setMessage(null);
 
     try {
       const user = auth.currentUser;
-    if (!user) throw new Error('Not authenticated');
+      if (!user) throw new Error('Not authenticated');
 
       const token = await user.getIdToken(true);
 
@@ -153,20 +149,19 @@ export default function AdminDriversPage() {
   };
 
   // Toggle driver verification
-  const toggleVerification = async (driver: DriverProfile) => {
+  const toggleVerification = async (driver: Driver) => {
     setProcessingId(driver.id);
 
     try {
       const driverRef = doc(db, 'drivers', driver.id);
       await updateDoc(driverRef, {
-        isVerified: !driver.isVerified,
-        verifiedAt: !driver.isVerified ? Timestamp.now() : null,
+        verified: !driver.verified,
         updatedAt: Timestamp.now(),
       });
 
       setMessage({
         type: 'success',
-        text: `Driver ${!driver.isVerified ? 'verified' : 'unverified'} successfully`,
+        text: `Driver ${!driver.verified ? 'verified' : 'unverified'} successfully`,
       });
     } catch (err) {
       console.error('Error updating driver:', err);
@@ -188,15 +183,13 @@ export default function AdminDriversPage() {
     } catch (err) {
       console.error('Error deleting driver:', err);
       setMessage({ type: 'error', text: 'Failed to delete driver' });
-
-
     } finally {
       setProcessingId(null);
     }
   };
 
-  const getStatusBadge = (driver: DriverProfile) => {
-    if (!driver.isVerified) {
+  const getStatusBadge = (driver: Driver) => {
+    if (!driver.verified) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
           <AlertCircle className="w-3 h-3" />
@@ -204,11 +197,11 @@ export default function AdminDriversPage() {
         </span>
       );
     }
-    if (driver.isOnline) {
+    if (driver.status === 'online' || driver.status === 'busy') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          {driver.currentOrderId ? 'On Delivery' : 'Online'}
+          {driver.status === 'busy' ? 'On Delivery' : 'Online'}
         </span>
       );
     }
@@ -239,7 +232,7 @@ export default function AdminDriversPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Drivers</h1>
             <p className="text-sm text-gray-500">
-              {drivers.length} total • {drivers.filter((d) => d.isOnline).length} online
+              {drivers.length} total • {drivers.filter((d) => d.status === 'online' || d.status === 'busy').length} online
             </p>
           </div>
         </div>
@@ -400,12 +393,13 @@ export default function AdminDriversPage() {
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
                   {/* Avatar */}
-                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0 relative overflow-hidden">
                     {driver.photoURL ? (
-                      <img
+                      <Image
                         src={driver.photoURL}
                         alt={driver.name}
-                        className="w-12 h-12 rounded-xl object-cover"
+                        fill
+                        className="object-cover"
                       />
                     ) : (
                       <User className="w-6 h-6 text-emerald-600" />
@@ -458,14 +452,14 @@ export default function AdminDriversPage() {
                     onClick={() => toggleVerification(driver)}
                     disabled={processingId === driver.id}
                     className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                      driver.isVerified
+                      driver.verified
                         ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                     }`}
                   >
                     {processingId === driver.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : driver.isVerified ? (
+                    ) : driver.verified ? (
                       'Unverify'
                     ) : (
                       'Verify'

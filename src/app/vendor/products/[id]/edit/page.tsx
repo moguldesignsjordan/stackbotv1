@@ -32,8 +32,10 @@ import {
   X,
   AlertTriangle,
   Loader2,
-  // NEW: Import icon for stock
-  BoxSelect, 
+  // NEW ICONS
+  BoxSelect,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { TranslationKey } from '@/lib/translations';
@@ -44,8 +46,7 @@ import type {
   ProductOptionItem,
 } from '@/lib/types/firestore';
 
-// NEW: Extend the Product type locally if needed to support new fields
-// in case your types/firestore.ts hasn't been updated yet.
+// Extend Product type locally to include stock fields
 interface ExtendedProduct extends Product {
   inStock?: boolean;
   manageStock?: boolean;
@@ -59,7 +60,6 @@ export default function EditProductPage() {
   const { t, language } = useLanguage();
 
   const [user, setUser] = useState<any>(null);
-  // Update state to use ExtendedProduct
   const [product, setProduct] = useState<ExtendedProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,12 +87,12 @@ export default function EditProductPage() {
       if (snap.exists()) {
         const data = snap.data() as ExtendedProduct;
         setProduct({ 
-            ...data, 
-            id: snap.id,
-            // Set defaults for existing products that might not have these fields yet
-            inStock: data.inStock ?? true,
-            manageStock: data.manageStock ?? false,
-            stockQuantity: data.stockQuantity ?? 0,
+          ...data, 
+          id: snap.id,
+          // Set defaults if fields don't exist yet
+          inStock: data.inStock ?? true,
+          manageStock: data.manageStock ?? false,
+          stockQuantity: data.stockQuantity ?? 0,
         });
         setExistingImages(data.images || []);
       }
@@ -226,11 +226,12 @@ export default function EditProductPage() {
         images: allImages,
         options: product.options || [],
         
-        // --- NEW: Save Stock Logic ---
-        inStock: product.inStock,
+        // --- STOCK LOGIC ---
+        // Save these fields so you can filter by `inStock == true` in your store query
+        inStock: product.inStock, 
         manageStock: product.manageStock,
         stockQuantity: product.manageStock ? Number(product.stockQuantity) : 0,
-        // -----------------------------
+        // -------------------
 
         updated_at: serverTimestamp(),
       });
@@ -367,7 +368,7 @@ export default function EditProductPage() {
           </div>
         </div>
 
-        {/* ---------------- NEW STOCK LOGIC SECTION ---------------- */}
+        {/* ---------------- STOCK / VISIBILITY SECTION ---------------- */}
         <hr className="border-gray-100 my-4" />
         
         <div className="space-y-4">
@@ -377,9 +378,23 @@ export default function EditProductPage() {
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-             {/* 1. Toggle: Available for Sale */}
-            <div className="flex items-center justify-between p-3 border border-gray-100 rounded-xl bg-gray-50/50">
-                <span className="text-sm font-medium text-gray-700">Available for Sale</span>
+             {/* 1. VISIBILITY TOGGLE (Originally In Stock) */}
+             <div className="flex items-center justify-between p-3 border border-gray-100 rounded-xl bg-gray-50/50">
+                <div className="flex items-center gap-2">
+                    {product.inStock ? (
+                      <Eye className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <EyeOff className="w-4 h-4 text-gray-400" />
+                    )}
+                    <div className="flex flex-col">
+                        <span className="text-sm font-medium text-gray-700">Show in Store</span>
+                        <span className="text-xs text-gray-500">
+                          {product.inStock 
+                            ? "Product is visible to customers" 
+                            : "Product is hidden (Out of Stock)"}
+                        </span>
+                    </div>
+                </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input 
                     type="checkbox" 
@@ -391,7 +406,7 @@ export default function EditProductPage() {
                 </label>
             </div>
 
-            {/* 2. Checkbox: Track Stock */}
+            {/* 2. TRACK STOCK CHECKBOX */}
             <div className="flex items-center p-3 border border-gray-100 rounded-xl bg-gray-50/50 h-full">
                <label className="flex items-center gap-3 cursor-pointer w-full">
                   <input
@@ -400,17 +415,22 @@ export default function EditProductPage() {
                     onChange={(e) => setProduct({...product, manageStock: e.target.checked})}
                     className="w-5 h-5 text-sb-primary border-gray-300 rounded focus:ring-sb-primary"
                   />
-                  <span className="text-sm font-medium text-gray-700">
-                    Track Stock Quantity
-                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-700">
+                        Track Quantity
+                    </span>
+                    <span className="text-xs text-gray-500">
+                        Enable stock counting
+                    </span>
+                  </div>
                </label>
             </div>
             
-            {/* 3. Input: Quantity (Only visible if manageStock is true) */}
+            {/* 3. QUANTITY INPUT (Conditionally Rendered) */}
             {product.manageStock && (
               <div className="sm:col-span-2 animate-in fade-in slide-in-from-top-2 duration-200">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                   Quantity in Stock
+                   Quantity Available
                 </label>
                 <input
                   type="number"
@@ -430,7 +450,7 @@ export default function EditProductPage() {
             )}
           </div>
         </div>
-        {/* ---------------- END STOCK LOGIC SECTION ---------------- */}
+        {/* ---------------- END STOCK SECTION ---------------- */}
       </div>
 
       {/* Images Card */}
