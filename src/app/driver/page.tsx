@@ -1,1017 +1,1478 @@
-// src/app/driver/page.tsx
+// src/app/admin/drivers/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { useState, useEffect } from 'react';
 import {
   collection,
   query,
-  where,
   orderBy,
   onSnapshot,
   doc,
-  getDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
-  runTransaction,
   Timestamp,
+  setDoc,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebase/config';
-import { signOut } from 'firebase/auth';
+import { db } from '@/lib/firebase/config';
 import {
-  Truck,
-  Package,
-  MapPin,
+  Users,
+  Search,
   Clock,
-  DollarSign,
-  Navigation,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Loader2,
   Phone,
-  ChevronRight,
+  Mail,
+  MapPin,
+  Car,
+  Bike,
+  Trash2,
+  Eye,
+  X,
+  Globe,
+  Shield,
+  UserPlus,
+  Package,
+  Star,
   Power,
   PowerOff,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle,
-  Loader2,
-  Menu,
-  X,
-  User,
-  LogOut,
-  History,
-  Settings,
-  Store,
-  Home,
-  ExternalLink,
-  Zap,
+  ClipboardList,
+  Truck,
+  FileText,
 } from 'lucide-react';
-import { DeliveryOrder, DriverProfile, DriverStatus } from '@/lib/types/driver';
 
-// Haversine distance calculation
-function calculateDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371; // Earth's radius in km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// ============================================================================
+// TYPES
+// ============================================================================
+interface DriverProfile {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone: string;
+  city?: string;
+  vehicleType: 'motorcycle' | 'car' | 'bicycle' | 'scooter';
+  vehiclePlate?: string;
+  vehicleColor?: string;
+  status: 'offline' | 'available' | 'busy' | 'break';
+  isOnline: boolean;
+  isVerified: boolean;
+  totalDeliveries: number;
+  rating: number;
+  ratingCount: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
-// Format time ago
-function timeAgo(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  
-  return `${Math.floor(diffHours / 24)}d ago`;
+interface DriverApplication {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  city: string;
+  vehicleType: 'motorcycle' | 'car' | 'bicycle' | 'scooter';
+  vehiclePlate: string;
+  vehicleColor: string;
+  experience: string;
+  whyJoin: string;
+  hasLicense: boolean;
+  hasPhone: boolean;
+  agreeTerms: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+  language: 'es' | 'en';
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  reviewedAt?: Timestamp;
+  rejectionReason?: string;
 }
 
-export default function DriverDashboard() {
-  const router = useRouter();
-  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
-  const [availableOrders, setAvailableOrders] = useState<DeliveryOrder[]>([]);
-  const [currentOrder, setCurrentOrder] = useState<DeliveryOrder | null>(null);
+// ============================================================================
+// TRANSLATIONS
+// ============================================================================
+const translations = {
+  es: {
+    title: 'Gestión de Conductores',
+    subtitle: 'Administra conductores y solicitudes',
+    
+    // Tabs
+    tabDrivers: 'Conductores',
+    tabApplications: 'Solicitudes',
+    
+    // Search
+    searchDrivers: 'Buscar conductores...',
+    searchApplications: 'Buscar solicitudes...',
+    
+    // Stats
+    totalDrivers: 'Total Conductores',
+    activeNow: 'Activos Ahora',
+    verified: 'Verificados',
+    totalDeliveries: 'Entregas Totales',
+    pendingApps: 'Solicitudes Pendientes',
+    
+    // Filters
+    all: 'Todos',
+    online: 'En Línea',
+    offline: 'Desconectados',
+    pending: 'Pendientes',
+    approved: 'Aprobadas',
+    rejected: 'Rechazadas',
+    
+    // Table Headers
+    driver: 'Conductor',
+    contact: 'Contacto',
+    vehicle: 'Vehículo',
+    stats: 'Estadísticas',
+    status: 'Estado',
+    actions: 'Acciones',
+    applicant: 'Solicitante',
+    location: 'Ubicación',
+    date: 'Fecha',
+    
+    // Vehicle Types
+    vehicles: {
+      motorcycle: 'Motocicleta',
+      car: 'Carro',
+      bicycle: 'Bicicleta',
+      scooter: 'Scooter',
+    },
+    
+    // Status
+    statusOnline: 'En Línea',
+    statusOffline: 'Desconectado',
+    statusBusy: 'Ocupado',
+    statusBreak: 'En Descanso',
+    statusPending: 'Pendiente',
+    statusApproved: 'Aprobado',
+    statusRejected: 'Rechazado',
+    statusVerified: 'Verificado',
+    statusUnverified: 'No Verificado',
+    
+    // Experience
+    experienceOptions: {
+      none: 'Sin experiencia',
+      lessThan1: 'Menos de 1 año',
+      oneToThree: '1-3 años',
+      moreThan3: 'Más de 3 años',
+    },
+    
+    // Actions
+    viewDetails: 'Ver Detalles',
+    approve: 'Aprobar',
+    reject: 'Rechazar',
+    delete: 'Eliminar',
+    verify: 'Verificar',
+    unverify: 'Quitar Verificación',
+    approving: 'Aprobando...',
+    
+    // Driver Modal
+    driverDetails: 'Detalles del Conductor',
+    personalInfo: 'Información Personal',
+    vehicleInfo: 'Información del Vehículo',
+    performance: 'Rendimiento',
+    deliveries: 'Entregas',
+    rating: 'Calificación',
+    memberSince: 'Miembro desde',
+    
+    // Application Modal
+    applicationDetails: 'Detalles de Solicitud',
+    additionalInfo: 'Información Adicional',
+    experience: 'Experiencia',
+    whyJoin: '¿Por qué quiere unirse?',
+    hasLicense: 'Tiene licencia de conducir',
+    hasSmartphone: 'Tiene smartphone con datos',
+    yes: 'Sí',
+    no: 'No',
+    submittedOn: 'Enviado el',
+    close: 'Cerrar',
+    
+    // Rejection Modal
+    rejectApplication: 'Rechazar Solicitud',
+    rejectionReason: 'Motivo del Rechazo (opcional)',
+    rejectionPlaceholder: 'Explica el motivo del rechazo...',
+    confirmReject: 'Confirmar Rechazo',
+    cancel: 'Cancelar',
+    
+    // Delete Confirmation
+    deleteConfirmTitle: '¿Eliminar?',
+    deleteConfirmMessage: 'Esta acción no se puede deshacer.',
+    confirmDelete: 'Sí, Eliminar',
+    
+    // Messages
+    approveSuccess: 'Solicitud aprobada. Conductor creado.',
+    approveError: 'Error al aprobar',
+    rejectSuccess: 'Solicitud rechazada',
+    rejectError: 'Error al rechazar',
+    deleteSuccess: 'Eliminado exitosamente',
+    deleteError: 'Error al eliminar',
+    verifySuccess: 'Estado de verificación actualizado',
+    verifyError: 'Error al actualizar verificación',
+    
+    // Empty State
+    noDrivers: 'No hay conductores',
+    noDriversDesc: 'Los conductores aparecerán aquí cuando se registren',
+    noApplications: 'No hay solicitudes',
+    noApplicationsDesc: 'Las nuevas solicitudes aparecerán aquí',
+    noResults: 'Sin resultados',
+    noResultsDesc: 'No se encontraron resultados con ese filtro',
+    
+    // Loading
+    loading: 'Cargando...',
+  },
+  en: {
+    title: 'Driver Management',
+    subtitle: 'Manage drivers and applications',
+    
+    // Tabs
+    tabDrivers: 'Drivers',
+    tabApplications: 'Applications',
+    
+    // Search
+    searchDrivers: 'Search drivers...',
+    searchApplications: 'Search applications...',
+    
+    // Stats
+    totalDrivers: 'Total Drivers',
+    activeNow: 'Active Now',
+    verified: 'Verified',
+    totalDeliveries: 'Total Deliveries',
+    pendingApps: 'Pending Applications',
+    
+    // Filters
+    all: 'All',
+    online: 'Online',
+    offline: 'Offline',
+    pending: 'Pending',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    
+    // Table Headers
+    driver: 'Driver',
+    contact: 'Contact',
+    vehicle: 'Vehicle',
+    stats: 'Stats',
+    status: 'Status',
+    actions: 'Actions',
+    applicant: 'Applicant',
+    location: 'Location',
+    date: 'Date',
+    
+    // Vehicle Types
+    vehicles: {
+      motorcycle: 'Motorcycle',
+      car: 'Car',
+      bicycle: 'Bicycle',
+      scooter: 'Scooter',
+    },
+    
+    // Status
+    statusOnline: 'Online',
+    statusOffline: 'Offline',
+    statusBusy: 'Busy',
+    statusBreak: 'On Break',
+    statusPending: 'Pending',
+    statusApproved: 'Approved',
+    statusRejected: 'Rejected',
+    statusVerified: 'Verified',
+    statusUnverified: 'Unverified',
+    
+    // Experience
+    experienceOptions: {
+      none: 'No experience',
+      lessThan1: 'Less than 1 year',
+      oneToThree: '1-3 years',
+      moreThan3: 'More than 3 years',
+    },
+    
+    // Actions
+    viewDetails: 'View Details',
+    approve: 'Approve',
+    reject: 'Reject',
+    delete: 'Delete',
+    verify: 'Verify',
+    unverify: 'Unverify',
+    approving: 'Approving...',
+    
+    // Driver Modal
+    driverDetails: 'Driver Details',
+    personalInfo: 'Personal Information',
+    vehicleInfo: 'Vehicle Information',
+    performance: 'Performance',
+    deliveries: 'Deliveries',
+    rating: 'Rating',
+    memberSince: 'Member since',
+    
+    // Application Modal
+    applicationDetails: 'Application Details',
+    additionalInfo: 'Additional Information',
+    experience: 'Experience',
+    whyJoin: 'Why do they want to join?',
+    hasLicense: 'Has driver\'s license',
+    hasSmartphone: 'Has smartphone with data',
+    yes: 'Yes',
+    no: 'No',
+    submittedOn: 'Submitted on',
+    close: 'Close',
+    
+    // Rejection Modal
+    rejectApplication: 'Reject Application',
+    rejectionReason: 'Rejection Reason (optional)',
+    rejectionPlaceholder: 'Explain the reason for rejection...',
+    confirmReject: 'Confirm Rejection',
+    cancel: 'Cancel',
+    
+    // Delete Confirmation
+    deleteConfirmTitle: 'Delete?',
+    deleteConfirmMessage: 'This action cannot be undone.',
+    confirmDelete: 'Yes, Delete',
+    
+    // Messages
+    approveSuccess: 'Application approved. Driver created.',
+    approveError: 'Error approving',
+    rejectSuccess: 'Application rejected',
+    rejectError: 'Error rejecting',
+    deleteSuccess: 'Deleted successfully',
+    deleteError: 'Error deleting',
+    verifySuccess: 'Verification status updated',
+    verifyError: 'Error updating verification',
+    
+    // Empty State
+    noDrivers: 'No drivers',
+    noDriversDesc: 'Drivers will appear here when they register',
+    noApplications: 'No applications',
+    noApplicationsDesc: 'New applications will appear here',
+    noResults: 'No results',
+    noResultsDesc: 'No results found with that filter',
+    
+    // Loading
+    loading: 'Loading...',
+  },
+};
+
+type Language = 'es' | 'en';
+type Tab = 'drivers' | 'applications';
+type DriverFilter = 'all' | 'online' | 'offline';
+type AppFilter = 'all' | 'pending' | 'approved' | 'rejected';
+
+export default function AdminDriversPage() {
+  const [language, setLanguage] = useState<Language>('es');
+  const [activeTab, setActiveTab] = useState<Tab>('drivers');
+  const [drivers, setDrivers] = useState<DriverProfile[]>([]);
+  const [applications, setApplications] = useState<DriverApplication[]>([]);
   const [loading, setLoading] = useState(true);
-  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
-  const [togglingStatus, setTogglingStatus] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
+  const [appFilter, setAppFilter] = useState<AppFilter>('all');
+  
+  // Modals
+  const [selectedDriver, setSelectedDriver] = useState<DriverProfile | null>(null);
+  const [selectedApp, setSelectedApp] = useState<DriverApplication | null>(null);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectingApp, setRejectingApp] = useState<DriverApplication | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ type: 'driver' | 'app'; id: string } | null>(null);
+  
+  // Processing state
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const userId = auth.currentUser?.uid;
+  const t = translations[language];
 
-  // Get driver's current location
+  // Load saved language preference
   useEffect(() => {
-    if (!navigator.geolocation) return;
-
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setDriverLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-      },
-      (err) => {
-        console.error('Geolocation error:', err);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 30000,
-        timeout: 10000,
-      }
-    );
-
-    return () => navigator.geolocation.clearWatch(watchId);
+    const savedLang = localStorage.getItem('stackbot-admin-lang') as Language;
+    if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
+      setLanguage(savedLang);
+    }
   }, []);
 
-  // Fetch driver profile
-  useEffect(() => {
-    if (!userId) return;
+  // Toggle language
+  const toggleLanguage = () => {
+    const newLang = language === 'es' ? 'en' : 'es';
+    setLanguage(newLang);
+    localStorage.setItem('stackbot-admin-lang', newLang);
+  };
 
-    const driverRef = doc(db, 'drivers', userId);
-    
-    const unsubscribe = onSnapshot(driverRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        setDriverProfile({ id: docSnap.id, ...docSnap.data() } as DriverProfile);
-      } else {
-        // Create driver profile if doesn't exist
-        const user = auth.currentUser;
-        if (user) {
-          const newProfile: Partial<DriverProfile> = {
-            userId: user.uid,
-            name: user.displayName || 'Driver',
-            email: user.email || '',
-            phone: '',
-            status: 'offline',
-            isOnline: false,
-            vehicleType: 'motorcycle',
-            totalDeliveries: 0,
-            rating: 5.0,
-            ratingCount: 0,
-            isVerified: false,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          };
-          
-          await updateDoc(driverRef, newProfile).catch(async () => {
-            // Document doesn't exist, need to set it
-            const { setDoc } = await import('firebase/firestore');
-            await setDoc(driverRef, newProfile);
-          });
-        }
-      }
+  // Fetch drivers
+  useEffect(() => {
+    const driversQuery = query(
+      collection(db, 'drivers'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(driversQuery, (snapshot) => {
+      const driverList: DriverProfile[] = [];
+      snapshot.forEach((doc) => {
+        driverList.push({ id: doc.id, ...doc.data() } as DriverProfile);
+      });
+      setDrivers(driverList);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [userId]);
+  }, []);
 
-  // Listen for available orders (delivery orders that are ready and not claimed)
+  // Fetch applications
   useEffect(() => {
-    if (!driverProfile?.isOnline) {
-      setAvailableOrders([]);
-      return;
-    }
-
-    // Query for orders that are ready for delivery and not yet claimed
-    const ordersQuery = query(
-      collection(db, 'orders'),
-      where('fulfillmentType', '==', 'delivery'),
-      where('status', 'in', ['ready', 'confirmed', 'preparing']),
+    const applicationsQuery = query(
+      collection(db, 'driver_applications'),
       orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
-      const orders: DeliveryOrder[] = [];
-      
+    const unsubscribe = onSnapshot(applicationsQuery, (snapshot) => {
+      const appList: DriverApplication[] = [];
       snapshot.forEach((doc) => {
-        const data = doc.data();
-        // Only show orders that haven't been claimed by a driver
-        if (!data.driverId) {
-          orders.push({
-            id: doc.id,
-            orderId: data.orderId || doc.id,
-            status: data.status,
-            deliveryStatus: 'available',
-            vendorId: data.vendorId,
-            vendorName: data.vendorName,
-            vendorPhone: data.vendorPhone,
-            vendorAddress: data.vendorAddress,
-            vendorCoordinates: data.vendorCoordinates,
-            customerId: data.customerId,
-            customerName: data.customerInfo?.name || 'Customer',
-            customerPhone: data.customerInfo?.phone || '',
-            customerEmail: data.customerInfo?.email,
-            deliveryAddress: data.deliveryAddress || {},
-            items: data.items || [],
-            subtotal: data.subtotal || 0,
-            deliveryFee: data.deliveryFee || 0,
-            total: data.total || 0,
-            trackingPin: data.trackingPin,
-            notes: data.notes,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-          } as DeliveryOrder);
-        }
+        appList.push({ id: doc.id, ...doc.data() } as DriverApplication);
       });
-
-      setAvailableOrders(orders);
+      setApplications(appList);
     });
 
     return () => unsubscribe();
-  }, [driverProfile?.isOnline]);
+  }, []);
 
-  // Listen for current active order (claimed by this driver)
-  useEffect(() => {
-    if (!userId) return;
+  // Filter drivers
+  const filteredDrivers = drivers.filter((driver) => {
+    if (driverFilter === 'online' && !driver.isOnline) return false;
+    if (driverFilter === 'offline' && driver.isOnline) return false;
 
-    const currentOrderQuery = query(
-      collection(db, 'orders'),
-      where('driverId', '==', userId),
-      where('status', 'in', ['claimed', 'picked_up', 'out_for_delivery'])
-    );
-
-    const unsubscribe = onSnapshot(currentOrderQuery, (snapshot) => {
-      if (!snapshot.empty) {
-        const doc = snapshot.docs[0];
-        const data = doc.data();
-        setCurrentOrder({
-          id: doc.id,
-          orderId: data.orderId || doc.id,
-          status: data.status,
-          deliveryStatus: data.deliveryStatus || 'claimed',
-          driverId: data.driverId,
-          driverName: data.driverName,
-          claimedAt: data.claimedAt,
-          pickedUpAt: data.pickedUpAt,
-          vendorId: data.vendorId,
-          vendorName: data.vendorName,
-          vendorPhone: data.vendorPhone,
-          vendorAddress: data.vendorAddress,
-          vendorCoordinates: data.vendorCoordinates,
-          customerId: data.customerId,
-          customerName: data.customerInfo?.name || 'Customer',
-          customerPhone: data.customerInfo?.phone || '',
-          customerEmail: data.customerInfo?.email,
-          deliveryAddress: data.deliveryAddress || {},
-          items: data.items || [],
-          subtotal: data.subtotal || 0,
-          deliveryFee: data.deliveryFee || 0,
-          total: data.total || 0,
-          trackingPin: data.trackingPin,
-          notes: data.notes,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt,
-        } as DeliveryOrder);
-      } else {
-        setCurrentOrder(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [userId]);
-
-  // Toggle online/offline status
-  const toggleOnlineStatus = async () => {
-    if (!userId || !driverProfile) return;
-    
-    setTogglingStatus(true);
-    setError(null);
-
-    try {
-      const driverRef = doc(db, 'drivers', userId);
-      const newStatus = driverProfile.isOnline ? 'offline' : 'available';
-      
-      await updateDoc(driverRef, {
-        isOnline: !driverProfile.isOnline,
-        status: newStatus,
-        lastActiveAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        ...(driverLocation && { currentLocation: driverLocation }),
-      });
-
-      setSuccessMessage(driverProfile.isOnline ? 'You are now offline' : 'You are now online!');
-      setTimeout(() => setSuccessMessage(null), 2000);
-    } catch (err) {
-      console.error('Error toggling status:', err);
-      setError('Failed to update status');
-    } finally {
-      setTogglingStatus(false);
-    }
-  };
-
-  // Claim an order with transaction (first-come-first-served)
-  const claimOrder = async (order: DeliveryOrder) => {
-    if (!userId || !driverProfile) return;
-    
-    setClaimingOrderId(order.id);
-    setError(null);
-
-    try {
-      const orderRef = doc(db, 'orders', order.id);
-      
-      // Use transaction to ensure atomic claim
-      await runTransaction(db, async (transaction) => {
-        const orderDoc = await transaction.get(orderRef);
-        
-        if (!orderDoc.exists()) {
-          throw new Error('Order no longer exists');
-        }
-
-        const orderData = orderDoc.data();
-        
-        // Check if already claimed
-        if (orderData.driverId) {
-          throw new Error('Order already claimed by another driver');
-        }
-
-        // Claim the order
-        transaction.update(orderRef, {
-          driverId: userId,
-          driverName: driverProfile.name,
-          driverPhone: driverProfile.phone,
-          status: 'claimed',
-          deliveryStatus: 'claimed',
-          claimedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        // Update vendor's subcollection
-        const vendorOrderRef = doc(db, 'vendors', order.vendorId, 'orders', order.id);
-        transaction.update(vendorOrderRef, {
-          driverId: userId,
-          driverName: driverProfile.name,
-          status: 'claimed',
-          claimedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        // Update customer's subcollection
-        const customerOrderRef = doc(db, 'customers', order.customerId, 'orders', order.id);
-        transaction.update(customerOrderRef, {
-          driverId: userId,
-          driverName: driverProfile.name,
-          status: 'claimed',
-          claimedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      });
-
-      // Update driver status to busy
-      const driverRef = doc(db, 'drivers', userId);
-      await updateDoc(driverRef, {
-        status: 'busy',
-        currentOrderId: order.id,
-        updatedAt: serverTimestamp(),
-      });
-
-      setSuccessMessage('Order claimed! Head to pickup location.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: unknown) {
-      console.error('Error claiming order:', err);
-      const message = err instanceof Error ? err.message : 'Failed to claim order';
-      setError(message);
-      setTimeout(() => setError(null), 3000);
-    } finally {
-      setClaimingOrderId(null);
-    }
-  };
-
-  // Update order status (picked up, delivered, etc.)
-  const updateOrderStatus = async (
-    newStatus: 'picked_up' | 'out_for_delivery' | 'delivered'
-  ) => {
-    if (!currentOrder || !userId) return;
-
-    try {
-      const orderRef = doc(db, 'orders', currentOrder.id);
-      
-      const updateData: Record<string, unknown> = {
-        status: newStatus,
-        deliveryStatus: newStatus === 'delivered' ? 'delivered' : 'in_transit',
-        updatedAt: serverTimestamp(),
-      };
-
-      if (newStatus === 'picked_up') {
-        updateData.pickedUpAt = serverTimestamp();
-        updateData.status = 'out_for_delivery';
-      } else if (newStatus === 'delivered') {
-        updateData.deliveredAt = serverTimestamp();
-      }
-
-      await updateDoc(orderRef, updateData);
-
-      // Update subcollections
-      const vendorOrderRef = doc(db, 'vendors', currentOrder.vendorId, 'orders', currentOrder.id);
-      await updateDoc(vendorOrderRef, updateData);
-
-      const customerOrderRef = doc(db, 'customers', currentOrder.customerId, 'orders', currentOrder.id);
-      await updateDoc(customerOrderRef, updateData);
-
-      // If delivered, free up the driver
-      if (newStatus === 'delivered') {
-        const driverRef = doc(db, 'drivers', userId);
-        await updateDoc(driverRef, {
-          status: 'available',
-          currentOrderId: null,
-          totalDeliveries: (driverProfile?.totalDeliveries || 0) + 1,
-          updatedAt: serverTimestamp(),
-        });
-
-        setSuccessMessage('Delivery completed! 🎉');
-        setTimeout(() => setSuccessMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error('Error updating order:', err);
-      setError('Failed to update order status');
-    }
-  };
-
-  // Open navigation app
-  const openNavigation = (lat: number, lng: number, label?: string) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-    window.open(url, '_blank');
-  };
-
-  // Call phone number
-  const callPhone = (phone: string) => {
-    window.location.href = `tel:${phone}`;
-  };
-
-  // Logout
-  const handleLogout = async () => {
-    if (driverProfile?.isOnline) {
-      const driverRef = doc(db, 'drivers', userId!);
-      await updateDoc(driverRef, {
-        isOnline: false,
-        status: 'offline',
-        updatedAt: serverTimestamp(),
-      });
-    }
-    await signOut(auth);
-    router.push('/driver/login');
-  };
-
-  // Calculate estimated distance to pickup
-  const getDistanceToPickup = useCallback(
-    (order: DeliveryOrder): string | null => {
-      if (!driverLocation || !order.vendorCoordinates) return null;
-      const dist = calculateDistance(
-        driverLocation.lat,
-        driverLocation.lng,
-        order.vendorCoordinates.lat,
-        order.vendorCoordinates.lng
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return (
+        driver.name?.toLowerCase().includes(query) ||
+        driver.email?.toLowerCase().includes(query) ||
+        driver.phone?.includes(query)
       );
-      return dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`;
-    },
-    [driverLocation]
-  );
+    }
+    return true;
+  });
+
+  // Filter applications
+  const filteredApplications = applications.filter((app) => {
+    if (appFilter !== 'all' && app.status !== appFilter) return false;
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return (
+        app.fullName.toLowerCase().includes(query) ||
+        app.email.toLowerCase().includes(query) ||
+        app.phone.includes(query)
+      );
+    }
+    return true;
+  });
+
+  // Stats
+  const stats = {
+    totalDrivers: drivers.length,
+    activeNow: drivers.filter((d) => d.isOnline).length,
+    verified: drivers.filter((d) => d.isVerified).length,
+    totalDeliveries: drivers.reduce((sum, d) => sum + (d.totalDeliveries || 0), 0),
+    pendingApps: applications.filter((a) => a.status === 'pending').length,
+  };
+
+  // Format date
+  const formatDate = (timestamp: Timestamp | undefined): string => {
+    if (!timestamp) return '-';
+    const date = timestamp.toDate();
+    return date.toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  // Approve application
+  const handleApprove = async (app: DriverApplication) => {
+    setProcessingId(app.id);
+    setMessage(null);
+
+    try {
+      // Create driver document
+      const driverRef = doc(db, 'drivers', app.id);
+      await setDoc(driverRef, {
+        userId: app.id,
+        applicationId: app.id,
+        name: app.fullName,
+        email: app.email,
+        phone: app.phone,
+        city: app.city,
+        vehicleType: app.vehicleType,
+        vehiclePlate: app.vehiclePlate,
+        vehicleColor: app.vehicleColor,
+        status: 'offline',
+        isOnline: false,
+        isVerified: true,
+        totalDeliveries: 0,
+        rating: 5.0,
+        ratingCount: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update application status
+      const appRef = doc(db, 'driver_applications', app.id);
+      await updateDoc(appRef, {
+        status: 'approved',
+        reviewedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setMessage({ type: 'success', text: t.approveSuccess });
+      setTimeout(() => setMessage(null), 5000);
+    } catch (err) {
+      console.error('Error approving:', err);
+      setMessage({ type: 'error', text: t.approveError });
+      setTimeout(() => setMessage(null), 5000);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Reject application
+  const handleReject = async () => {
+    if (!rejectingApp) return;
+
+    setProcessingId(rejectingApp.id);
+    setMessage(null);
+
+    try {
+      const appRef = doc(db, 'driver_applications', rejectingApp.id);
+      await updateDoc(appRef, {
+        status: 'rejected',
+        rejectionReason: rejectionReason || null,
+        reviewedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setMessage({ type: 'success', text: t.rejectSuccess });
+      setShowRejectModal(false);
+      setRejectingApp(null);
+      setRejectionReason('');
+      setTimeout(() => setMessage(null), 5000);
+    } catch (err) {
+      console.error('Error rejecting:', err);
+      setMessage({ type: 'error', text: t.rejectError });
+      setTimeout(() => setMessage(null), 5000);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Toggle driver verification
+  const handleToggleVerification = async (driver: DriverProfile) => {
+    setProcessingId(driver.id);
+    setMessage(null);
+
+    try {
+      const driverRef = doc(db, 'drivers', driver.id);
+      await updateDoc(driverRef, {
+        isVerified: !driver.isVerified,
+        updatedAt: serverTimestamp(),
+      });
+
+      setMessage({ type: 'success', text: t.verifySuccess });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error updating verification:', err);
+      setMessage({ type: 'error', text: t.verifyError });
+      setTimeout(() => setMessage(null), 5000);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Delete
+  const handleDelete = async () => {
+    if (!showDeleteConfirm) return;
+
+    setProcessingId(showDeleteConfirm.id);
+    setMessage(null);
+
+    try {
+      const collectionName = showDeleteConfirm.type === 'driver' ? 'drivers' : 'driver_applications';
+      await deleteDoc(doc(db, collectionName, showDeleteConfirm.id));
+      
+      setMessage({ type: 'success', text: t.deleteSuccess });
+      setShowDeleteConfirm(null);
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error deleting:', err);
+      setMessage({ type: 'error', text: t.deleteError });
+      setTimeout(() => setMessage(null), 5000);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Get vehicle icon
+  const getVehicleIcon = (type: string) => {
+    return type === 'car' ? <Car className="w-4 h-4" /> : <Bike className="w-4 h-4" />;
+  };
+
+  // Driver status badge
+  const DriverStatusBadge = ({ driver }: { driver: DriverProfile }) => {
+    if (driver.isOnline) {
+      if (driver.status === 'busy') {
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 text-amber-600 text-xs font-medium rounded-full">
+            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+            {t.statusBusy}
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-600 text-xs font-medium rounded-full">
+          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+          {t.statusOnline}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-500 text-xs font-medium rounded-full">
+        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+        {t.statusOffline}
+      </span>
+    );
+  };
+
+  // App status badge
+  const AppStatusBadge = ({ status }: { status: string }) => {
+    switch (status) {
+      case 'pending':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 text-amber-600 text-xs font-medium rounded-full">
+            <Clock className="w-3 h-3" />
+            {t.statusPending}
+          </span>
+        );
+      case 'approved':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-600 text-xs font-medium rounded-full">
+            <CheckCircle className="w-3 h-3" />
+            {t.statusApproved}
+          </span>
+        );
+      case 'rejected':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-600 text-xs font-medium rounded-full">
+            <XCircle className="w-3 h-3" />
+            {t.statusRejected}
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-emerald-400 mx-auto" />
-          <p className="text-gray-400 mt-3">Loading dashboard...</p>
+          <Loader2 className="w-8 h-8 animate-spin text-sb-primary mx-auto" />
+          <p className="text-gray-500 mt-2">{t.loading}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="space-y-6">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 safe-top">
-        <div className="px-4 py-3 pt-12 lg:pt-3">
-          <div className="flex items-center justify-between">
-            {/* Left: Logo + Status */}
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                <Truck className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-white">
-                  {driverProfile?.name || 'Driver'}
-                </p>
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      driverProfile?.isOnline
-                        ? currentOrder
-                          ? 'bg-yellow-400'
-                          : 'bg-emerald-400'
-                        : 'bg-gray-500'
-                    }`}
-                  />
-                  <span className="text-xs text-gray-400">
-                    {driverProfile?.isOnline
-                      ? currentOrder
-                        ? 'On delivery'
-                        : 'Online'
-                      : 'Offline'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Actions */}
-            <div className="flex items-center gap-2">
-              {/* Online Toggle */}
-              <button
-                onClick={toggleOnlineStatus}
-                disabled={togglingStatus || !!currentOrder}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${
-                  driverProfile?.isOnline
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-gray-700 text-gray-300 border border-gray-600'
-                } ${currentOrder ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {togglingStatus ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : driverProfile?.isOnline ? (
-                  <Power className="w-4 h-4" />
-                ) : (
-                  <PowerOff className="w-4 h-4" />
-                )}
-                <span className="hidden sm:inline">
-                  {driverProfile?.isOnline ? 'Online' : 'Go Online'}
-                </span>
-              </button>
-
-              {/* Menu Button */}
-              <button
-                onClick={() => setMenuOpen(true)}
-                className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-xl transition-colors"
-              >
-                <Menu className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t.title}</h1>
+          <p className="text-gray-500 mt-1">{t.subtitle}</p>
         </div>
-      </header>
+        <button
+          onClick={toggleLanguage}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors"
+        >
+          <Globe className="w-4 h-4" />
+          <span className="text-sm font-medium">{language === 'es' ? 'English' : 'Español'}</span>
+        </button>
+      </div>
 
-      {/* Toast Messages */}
-      {(error || successMessage) && (
-        <div className="fixed top-24 left-4 right-4 z-50 pointer-events-none">
-          <div
-            className={`max-w-md mx-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg pointer-events-auto ${
-              error
-                ? 'bg-red-500/90 text-white'
-                : 'bg-emerald-500/90 text-white'
-            }`}
-          >
-            {error ? (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <CheckCircle className="w-5 h-5 flex-shrink-0" />
-            )}
-            <p className="text-sm font-medium">{error || successMessage}</p>
-          </div>
+      {/* Message Toast */}
+      {message && (
+        <div
+          className={`flex items-start gap-3 p-4 rounded-xl ${
+            message.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200'
+              : 'bg-red-50 border border-red-200'
+          }`}
+        >
+          {message.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          )}
+          <p className={`text-sm ${message.type === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
+            {message.text}
+          </p>
         </div>
       )}
 
-      {/* Main Content */}
-      <main className="pb-8">
-        {/* Active Order Card */}
-        {currentOrder && (
-          <div className="p-4">
-            <ActiveOrderCard
-              order={currentOrder}
-              onUpdateStatus={updateOrderStatus}
-              onNavigate={openNavigation}
-              onCall={callPhone}
-            />
-          </div>
-        )}
-
-        {/* Not Online State */}
-        {!driverProfile?.isOnline && !currentOrder && (
-          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-            <div className="w-20 h-20 bg-gray-800 rounded-2xl flex items-center justify-center mb-4">
-              <PowerOff className="w-10 h-10 text-gray-600" />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+              <Users className="w-5 h-5 text-gray-600" />
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2">
-              You&apos;re Offline
-            </h2>
-            <p className="text-gray-400 mb-6 max-w-xs">
-              Go online to start receiving delivery requests
-            </p>
-            <button
-              onClick={toggleOnlineStatus}
-              disabled={togglingStatus}
-              className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-all"
-            >
-              {togglingStatus ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Zap className="w-5 h-5" />
-              )}
-              <span>Go Online</span>
-            </button>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{stats.totalDrivers}</p>
+              <p className="text-xs text-gray-500">{t.totalDrivers}</p>
+            </div>
           </div>
-        )}
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+              <Power className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-600">{stats.activeNow}</p>
+              <p className="text-xs text-gray-500">{t.activeNow}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+              <Shield className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-blue-600">{stats.verified}</p>
+              <p className="text-xs text-gray-500">{t.verified}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <Package className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-purple-600">{stats.totalDeliveries}</p>
+              <p className="text-xs text-gray-500">{t.totalDeliveries}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+              <ClipboardList className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-amber-600">{stats.pendingApps}</p>
+              <p className="text-xs text-gray-500">{t.pendingApps}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Available Orders */}
-        {driverProfile?.isOnline && !currentOrder && (
-          <div className="px-4 pt-2">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">
-                Available Orders
-              </h2>
-              <span className="text-sm text-gray-400">
-                {availableOrders.length} nearby
+      {/* Tabs */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="flex border-b border-gray-100">
+          <button
+            onClick={() => {
+              setActiveTab('drivers');
+              setSearchQuery('');
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 font-medium transition-colors ${
+              activeTab === 'drivers'
+                ? 'text-sb-primary border-b-2 border-sb-primary bg-sb-primary/5'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Truck className="w-5 h-5" />
+            {t.tabDrivers}
+            <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
+              {drivers.length}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('applications');
+              setSearchQuery('');
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 font-medium transition-colors ${
+              activeTab === 'applications'
+                ? 'text-sb-primary border-b-2 border-sb-primary bg-sb-primary/5'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <FileText className="w-5 h-5" />
+            {t.tabApplications}
+            {stats.pendingApps > 0 && (
+              <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-amber-500 text-white">
+                {stats.pendingApps}
               </span>
+            )}
+          </button>
+        </div>
+
+        {/* Search & Filters */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={activeTab === 'drivers' ? t.searchDrivers : t.searchApplications}
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-all"
+              />
             </div>
 
-            {availableOrders.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Package className="w-8 h-8 text-gray-600" />
-                </div>
-                <p className="text-gray-400 mb-2">No orders available</p>
-                <p className="text-sm text-gray-500">
-                  New orders will appear here
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {availableOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    distanceToPickup={getDistanceToPickup(order)}
-                    onClaim={() => claimOrder(order)}
-                    claiming={claimingOrderId === order.id}
-                  />
-                ))}
-              </div>
-            )}
+            {/* Filters */}
+            <div className="flex gap-2">
+              {activeTab === 'drivers' ? (
+                <>
+                  {(['all', 'online', 'offline'] as DriverFilter[]).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setDriverFilter(filter)}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                        driverFilter === filter
+                          ? 'bg-sb-primary text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {t[filter as keyof typeof t] as string}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {(['all', 'pending', 'approved', 'rejected'] as AppFilter[]).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setAppFilter(filter)}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                        appFilter === filter
+                          ? 'bg-sb-primary text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {t[filter as keyof typeof t] as string}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
           </div>
-        )}
-      </main>
+        </div>
 
-      {/* Slide-out Menu */}
-      <div
-        className={`fixed inset-0 z-50 transition-all duration-300 ${
-          menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-          onClick={() => setMenuOpen(false)}
-        />
-        <div
-          className={`absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-gray-800 shadow-2xl transition-transform duration-300 safe-top safe-bottom ${
-            menuOpen ? 'translate-x-0' : 'translate-x-full'
-          }`}
-        >
-          <div className="flex flex-col h-full pt-16">
-            {/* Menu Header */}
-            <div className="flex items-center justify-between px-4 pb-4 border-b border-gray-700">
-              <h2 className="text-lg font-semibold text-white">Menu</h2>
+        {/* Content */}
+        {activeTab === 'drivers' ? (
+          /* DRIVERS TABLE */
+          filteredDrivers.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Truck className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-1">
+                {searchQuery || driverFilter !== 'all' ? t.noResults : t.noDrivers}
+              </h3>
+              <p className="text-gray-500 text-sm">
+                {searchQuery || driverFilter !== 'all' ? t.noResultsDesc : t.noDriversDesc}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.driver}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">{t.contact}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">{t.vehicle}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden sm:table-cell">{t.stats}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.status}</th>
+                    <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.actions}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredDrivers.map((driver) => (
+                    <tr key={driver.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-sb-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-sm font-semibold text-sb-primary">
+                              {driver.name?.charAt(0).toUpperCase() || '?'}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-gray-900 truncate">{driver.name}</p>
+                              {driver.isVerified && (
+                                <Shield className="w-4 h-4 text-blue-500" />
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-500 truncate md:hidden">{driver.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden md:table-cell">
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-900 flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-gray-400" />
+                            {driver.email}
+                          </p>
+                          <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5 text-gray-400" />
+                            {driver.phone || '-'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden lg:table-cell">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                            {getVehicleIcon(driver.vehicleType)}
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-900">{t.vehicles[driver.vehicleType]}</p>
+                            {driver.vehiclePlate && (
+                              <p className="text-xs text-gray-500">{driver.vehiclePlate}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden sm:table-cell">
+                        <div className="flex items-center gap-4">
+                          <div className="text-center">
+                            <p className="font-semibold text-gray-900">{driver.totalDeliveries || 0}</p>
+                            <p className="text-xs text-gray-500">{t.deliveries}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="font-semibold text-amber-500">⭐ {driver.rating?.toFixed(1) || '5.0'}</p>
+                            <p className="text-xs text-gray-500">{t.rating}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <DriverStatusBadge driver={driver} />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedDriver(driver)}
+                            className="p-2 text-gray-500 hover:text-sb-primary hover:bg-sb-primary/10 rounded-lg transition-colors"
+                            title={t.viewDetails}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleVerification(driver)}
+                            disabled={processingId === driver.id}
+                            className={`p-2 rounded-lg transition-colors ${
+                              driver.isVerified
+                                ? 'text-blue-500 hover:bg-blue-50'
+                                : 'text-gray-400 hover:bg-gray-100'
+                            }`}
+                            title={driver.isVerified ? t.unverify : t.verify}
+                          >
+                            {processingId === driver.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Shield className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setShowDeleteConfirm({ type: 'driver', id: driver.id })}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title={t.delete}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          /* APPLICATIONS TABLE */
+          filteredApplications.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FileText className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-1">
+                {searchQuery || appFilter !== 'all' ? t.noResults : t.noApplications}
+              </h3>
+              <p className="text-gray-500 text-sm">
+                {searchQuery || appFilter !== 'all' ? t.noResultsDesc : t.noApplicationsDesc}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.applicant}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">{t.contact}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">{t.vehicle}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase hidden sm:table-cell">{t.location}</th>
+                    <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.status}</th>
+                    <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t.actions}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredApplications.map((app) => (
+                    <tr key={app.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-sm font-semibold text-amber-600">
+                              {app.fullName.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{app.fullName}</p>
+                            <p className="text-xs text-gray-500">{formatDate(app.createdAt)}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden md:table-cell">
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-900 flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-gray-400" />
+                            {app.email}
+                          </p>
+                          <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5 text-gray-400" />
+                            {app.phone}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden lg:table-cell">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                            {getVehicleIcon(app.vehicleType)}
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-900">{t.vehicles[app.vehicleType]}</p>
+                            {app.vehiclePlate && (
+                              <p className="text-xs text-gray-500">{app.vehiclePlate}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 hidden sm:table-cell">
+                        <p className="text-sm text-gray-600 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                          {app.city}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <AppStatusBadge status={app.status} />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedApp(app)}
+                            className="p-2 text-gray-500 hover:text-sb-primary hover:bg-sb-primary/10 rounded-lg transition-colors"
+                            title={t.viewDetails}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {app.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => handleApprove(app)}
+                                disabled={processingId === app.id}
+                                className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
+                                title={t.approve}
+                              >
+                                {processingId === app.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRejectingApp(app);
+                                  setShowRejectModal(true);
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                title={t.reject}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => setShowDeleteConfirm({ type: 'app', id: app.id })}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title={t.delete}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* Driver Details Modal */}
+      {selectedDriver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">{t.driverDetails}</h2>
               <button
-                onClick={() => setMenuOpen(false)}
-                className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg"
+                onClick={() => setSelectedDriver(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Profile Card */}
-            <div className="p-4 border-b border-gray-700">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                  <User className="w-6 h-6 text-emerald-400" />
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {/* Profile Header */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-sb-primary/10 rounded-full flex items-center justify-center">
+                  <span className="text-2xl font-bold text-sb-primary">
+                    {selectedDriver.name?.charAt(0).toUpperCase()}
+                  </span>
                 </div>
                 <div>
-                  <p className="font-medium text-white">
-                    {driverProfile?.name || 'Driver'}
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-semibold text-gray-900">{selectedDriver.name}</h3>
+                    {selectedDriver.isVerified && <Shield className="w-5 h-5 text-blue-500" />}
+                  </div>
+                  <DriverStatusBadge driver={selectedDriver} />
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.personalInfo}</h4>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                  <p className="text-sm flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-gray-400" />
+                    {selectedDriver.email}
                   </p>
-                  <p className="text-sm text-gray-400">
-                    {driverProfile?.totalDeliveries || 0} deliveries
+                  <p className="text-sm flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-gray-400" />
+                    {selectedDriver.phone || '-'}
                   </p>
+                  {selectedDriver.city && (
+                    <p className="text-sm flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-gray-400" />
+                      {selectedDriver.city}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Vehicle */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.vehicleInfo}</h4>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-500">{t.vehicle}</p>
+                      <p className="text-sm font-medium">{t.vehicles[selectedDriver.vehicleType]}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Placa</p>
+                      <p className="text-sm font-medium">{selectedDriver.vehiclePlate || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Color</p>
+                      <p className="text-sm font-medium">{selectedDriver.vehicleColor || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Performance */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.performance}</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-gray-900">{selectedDriver.totalDeliveries || 0}</p>
+                    <p className="text-xs text-gray-500">{t.deliveries}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-amber-500">⭐ {selectedDriver.rating?.toFixed(1) || '5.0'}</p>
+                    <p className="text-xs text-gray-500">{t.rating}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4 text-center">
+                    <p className="text-sm font-medium text-gray-900">{formatDate(selectedDriver.createdAt)}</p>
+                    <p className="text-xs text-gray-500">{t.memberSince}</p>
+                  </div>
                 </div>
               </div>
             </div>
-
-            {/* Menu Items */}
-            <nav className="flex-1 p-4 space-y-1">
+            <div className="flex justify-end px-6 py-4 border-t border-gray-100 bg-gray-50">
               <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  router.push('/driver/history');
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
+                onClick={() => setSelectedDriver(null)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-xl transition-colors"
               >
-                <History className="w-5 h-5" />
-                <span>Delivery History</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  router.push('/driver/earnings');
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-              >
-                <DollarSign className="w-5 h-5" />
-                <span>Earnings</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  router.push('/driver/settings');
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-              >
-                <Settings className="w-5 h-5" />
-                <span>Settings</span>
-              </button>
-
-              <a
-                href="/"
-                className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-              >
-                <Home className="w-5 h-5" />
-                <span>Back to StackBot</span>
-              </a>
-            </nav>
-
-            {/* Logout */}
-            <div className="p-4 border-t border-gray-700">
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-                <span>Logout</span>
+                {t.close}
               </button>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      )}
 
-// ============================================================================
-// Order Card Component
-// ============================================================================
-interface OrderCardProps {
-  order: DeliveryOrder;
-  distanceToPickup: string | null;
-  onClaim: () => void;
-  claiming: boolean;
-}
-
-function OrderCard({ order, distanceToPickup, onClaim, claiming }: OrderCardProps) {
-  const createdAt = order.createdAt instanceof Timestamp
-    ? order.createdAt.toDate()
-    : new Date();
-
-  return (
-    <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-700/50">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-              <Store className="w-5 h-5 text-emerald-400" />
+      {/* Application Details Modal */}
+      {selectedApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">{t.applicationDetails}</h2>
+              <button
+                onClick={() => setSelectedApp(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div>
-              <h3 className="font-semibold text-white">{order.vendorName}</h3>
-              <p className="text-sm text-gray-400">
-                {order.items?.length || 0} items • ${order.total?.toFixed(2)}
-              </p>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="flex items-center gap-1 text-emerald-400 font-semibold">
-              <DollarSign className="w-4 h-4" />
-              <span>{order.deliveryFee?.toFixed(2)}</span>
-            </div>
-            <p className="text-xs text-gray-500">delivery fee</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Locations */}
-      <div className="p-4 space-y-3">
-        {/* Pickup */}
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Store className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Pickup</p>
-            <p className="text-sm text-white truncate">
-              {order.vendorAddress || order.vendorName}
-            </p>
-            {distanceToPickup && (
-              <p className="text-xs text-emerald-400 mt-0.5">
-                ~{distanceToPickup} away
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Delivery */}
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-            <MapPin className="w-4 h-4 text-red-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Deliver to</p>
-            <p className="text-sm text-white truncate">
-              {order.deliveryAddress?.street}, {order.deliveryAddress?.city}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {order.customerName}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 pt-0 flex items-center justify-between">
-        <p className="text-xs text-gray-500">
-          <Clock className="w-3.5 h-3.5 inline mr-1" />
-          {timeAgo(createdAt)}
-        </p>
-        <button
-          onClick={onClaim}
-          disabled={claiming}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-600 text-white font-medium rounded-xl transition-all"
-        >
-          {claiming ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Zap className="w-4 h-4" />
-          )}
-          <span>{claiming ? 'Claiming...' : 'Claim Order'}</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Active Order Card Component
-// ============================================================================
-interface ActiveOrderCardProps {
-  order: DeliveryOrder;
-  onUpdateStatus: (status: 'picked_up' | 'out_for_delivery' | 'delivered') => void;
-  onNavigate: (lat: number, lng: number, label?: string) => void;
-  onCall: (phone: string) => void;
-}
-
-function ActiveOrderCard({
-  order,
-  onUpdateStatus,
-  onNavigate,
-  onCall,
-}: ActiveOrderCardProps) {
-  const isPickedUp = order.status === 'out_for_delivery' || order.status === 'picked_up';
-  const targetLocation = isPickedUp
-    ? order.deliveryAddress?.coordinates
-    : order.vendorCoordinates;
-  const targetLabel = isPickedUp ? 'Delivery' : 'Pickup';
-  const targetAddress = isPickedUp
-    ? `${order.deliveryAddress?.street}, ${order.deliveryAddress?.city}`
-    : order.vendorAddress || order.vendorName;
-
-  return (
-    <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 rounded-2xl border border-emerald-500/30 overflow-hidden">
-      {/* Status Banner */}
-      <div className="bg-emerald-500/20 px-4 py-2 border-b border-emerald-500/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Truck className="w-4 h-4 text-emerald-400" />
-            <span className="text-sm font-medium text-emerald-400">
-              {isPickedUp ? 'Delivering Order' : 'Head to Pickup'}
-            </span>
-          </div>
-          <span className="text-xs text-gray-400">
-            #{order.trackingPin || order.orderId.slice(-6)}
-          </span>
-        </div>
-      </div>
-
-      {/* Destination */}
-      <div className="p-4">
-        <div className="flex items-start gap-3 mb-4">
-          <div
-            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isPickedUp ? 'bg-red-500/20' : 'bg-blue-500/20'
-            }`}
-          >
-            {isPickedUp ? (
-              <MapPin className="w-5 h-5 text-red-400" />
-            ) : (
-              <Store className="w-5 h-5 text-blue-400" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">
-              {targetLabel}
-            </p>
-            <p className="text-white font-medium">{targetAddress}</p>
-            {isPickedUp && order.deliveryAddress?.instructions && (
-              <p className="text-sm text-gray-400 mt-1">
-                📝 {order.deliveryAddress.instructions}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Contact Info */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="flex-1 bg-gray-800/50 rounded-xl px-3 py-2">
-            <p className="text-xs text-gray-500">
-              {isPickedUp ? 'Customer' : 'Vendor'}
-            </p>
-            <p className="text-sm text-white">
-              {isPickedUp ? order.customerName : order.vendorName}
-            </p>
-          </div>
-          <button
-            onClick={() =>
-              onCall(isPickedUp ? order.customerPhone : order.vendorPhone || '')
-            }
-            className="p-3 bg-gray-800/50 hover:bg-gray-700 rounded-xl transition-colors"
-          >
-            <Phone className="w-5 h-5 text-emerald-400" />
-          </button>
-        </div>
-
-        {/* Navigation Button */}
-        {targetLocation && (
-          <button
-            onClick={() =>
-              onNavigate(targetLocation.lat, targetLocation.lng, targetLabel)
-            }
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl mb-3 transition-colors"
-          >
-            <Navigation className="w-5 h-5" />
-            <span>Navigate to {targetLabel}</span>
-            <ExternalLink className="w-4 h-4 ml-1 opacity-60" />
-          </button>
-        )}
-
-        {/* Order Items Summary */}
-        <div className="bg-gray-800/50 rounded-xl p-3 mb-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">
-            Order Summary
-          </p>
-          <div className="space-y-1">
-            {order.items?.slice(0, 3).map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between text-sm">
-                <span className="text-gray-300">
-                  {item.quantity}x {item.name}
-                </span>
-                <span className="text-gray-500">${item.price?.toFixed(2)}</span>
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {/* Status & Date */}
+              <div className="flex items-center justify-between">
+                <AppStatusBadge status={selectedApp.status} />
+                <p className="text-sm text-gray-500">
+                  {t.submittedOn}: {formatDate(selectedApp.createdAt)}
+                </p>
               </div>
-            ))}
-            {(order.items?.length || 0) > 3 && (
-              <p className="text-xs text-gray-500">
-                +{(order.items?.length || 0) - 3} more items
-              </p>
-            )}
-          </div>
-          <div className="border-t border-gray-700 mt-2 pt-2 flex justify-between">
-            <span className="text-sm text-gray-400">Total</span>
-            <span className="text-sm font-semibold text-white">
-              ${order.total?.toFixed(2)}
-            </span>
+
+              {/* Personal Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.personalInfo}</h4>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 bg-amber-500/10 rounded-full flex items-center justify-center">
+                      <span className="text-lg font-semibold text-amber-600">
+                        {selectedApp.fullName.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{selectedApp.fullName}</p>
+                      <p className="text-sm text-gray-500">{selectedApp.city}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <a href={`mailto:${selectedApp.email}`} className="text-sm text-gray-600 flex items-center gap-2 hover:text-sb-primary">
+                      <Mail className="w-4 h-4" />
+                      {selectedApp.email}
+                    </a>
+                    <a href={`tel:${selectedApp.phone}`} className="text-sm text-gray-600 flex items-center gap-2 hover:text-sb-primary">
+                      <Phone className="w-4 h-4" />
+                      {selectedApp.phone}
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Vehicle Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.vehicleInfo}</h4>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-500">{t.vehicle}</p>
+                      <div className="flex items-center gap-2">
+                        {getVehicleIcon(selectedApp.vehicleType)}
+                        <span className="text-sm font-medium">{t.vehicles[selectedApp.vehicleType]}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Placa</p>
+                      <p className="text-sm font-medium">{selectedApp.vehiclePlate || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Color</p>
+                      <p className="text-sm font-medium">{selectedApp.vehicleColor || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">{t.additionalInfo}</h4>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">{t.experience}</p>
+                    <p className="text-sm text-gray-900">
+                      {selectedApp.experience
+                        ? t.experienceOptions[selectedApp.experience as keyof typeof t.experienceOptions] || selectedApp.experience
+                        : '-'}
+                    </p>
+                  </div>
+                  {selectedApp.whyJoin && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">{t.whyJoin}</p>
+                      <p className="text-sm text-gray-900">{selectedApp.whyJoin}</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="flex items-center gap-2">
+                      {selectedApp.hasLicense ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
+                      <span className="text-sm text-gray-600">{t.hasLicense}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedApp.hasPhone ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
+                      <span className="text-sm text-gray-600">{t.hasSmartphone}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rejection Reason */}
+              {selectedApp.status === 'rejected' && selectedApp.rejectionReason && (
+                <div className="bg-red-50 rounded-xl p-4 border border-red-100">
+                  <p className="text-xs text-red-500 font-medium mb-1">{t.rejectionReason}</p>
+                  <p className="text-sm text-red-700">{selectedApp.rejectionReason}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
+              {selectedApp.status === 'pending' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setRejectingApp(selectedApp);
+                      setShowRejectModal(true);
+                      setSelectedApp(null);
+                    }}
+                    className="px-4 py-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                  >
+                    {t.reject}
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleApprove(selectedApp);
+                      setSelectedApp(null);
+                    }}
+                    disabled={processingId === selectedApp.id}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {processingId === selectedApp.id ? t.approving : t.approve}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setSelectedApp(null)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-xl transition-colors"
+              >
+                {t.close}
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Action Button */}
-        {!isPickedUp ? (
-          <button
-            onClick={() => onUpdateStatus('picked_up')}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-colors"
-          >
-            <Package className="w-5 h-5" />
-            <span>Confirm Pickup</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => onUpdateStatus('delivered')}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition-colors"
-          >
-            <CheckCircle className="w-5 h-5" />
-            <span>Complete Delivery</span>
-          </button>
-        )}
-
-        {/* Tracking PIN (show when delivering) */}
-        {isPickedUp && order.trackingPin && (
-          <div className="mt-3 text-center">
-            <p className="text-xs text-gray-500">
-              Delivery PIN: <span className="text-emerald-400 font-mono font-bold">{order.trackingPin}</span>
-            </p>
+      {/* Reject Modal */}
+      {showRejectModal && rejectingApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <XCircle className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">{t.rejectApplication}</h2>
+                  <p className="text-sm text-gray-500">{rejectingApp.fullName}</p>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {t.rejectionReason}
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder={t.rejectionPlaceholder}
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 resize-none transition-all"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <button
+                onClick={() => {
+                  setShowRejectModal(false);
+                  setRejectingApp(null);
+                  setRejectionReason('');
+                }}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                {t.cancel}
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={processingId === rejectingApp.id}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
+              >
+                {processingId === rejectingApp.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  t.confirmReject
+                )}
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-red-500" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">{t.deleteConfirmTitle}</h2>
+              <p className="text-gray-500 text-sm mb-6">{t.deleteConfirmMessage}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+              >
+                {t.cancel}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={processingId === showDeleteConfirm.id}
+                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
+              >
+                {processingId === showDeleteConfirm.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                ) : (
+                  t.confirmDelete
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

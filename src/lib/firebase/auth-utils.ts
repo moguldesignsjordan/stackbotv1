@@ -2,7 +2,7 @@
 import { auth } from "./config";
 import { getIdTokenResult, User } from "firebase/auth";
 
-export type UserRole = "admin" | "vendor" | "customer" | null;
+export type UserRole = "admin" | "vendor" | "customer" | "driver" | null;
 
 export interface UserRoleInfo {
   role: UserRole;

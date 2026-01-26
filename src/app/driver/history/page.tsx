@@ -9,284 +9,364 @@ import {
   query,
   where,
   orderBy,
-  limit,
-  onSnapshot,
+  getDocs,
   Timestamp,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
 import {
   ArrowLeft,
   Package,
-  MapPin,
   Clock,
   DollarSign,
-  CheckCircle,
-  XCircle,
-  Calendar,
-  ChevronRight,
-  Loader2,
+  MapPin,
   Store,
+  CheckCircle,
+  Calendar,
   Filter,
+  Loader2,
+  Globe,
+  TrendingUp,
 } from 'lucide-react';
+import { DeliveryOrder } from '@/lib/types/driver';
 
-interface DeliveryHistoryItem {
-  id: string;
-  orderId: string;
-  vendorName: string;
-  customerName: string;
-  deliveryAddress: {
-    street: string;
-    city: string;
-  };
-  deliveryFee: number;
-  total: number;
-  status: string;
-  claimedAt?: Timestamp;
-  deliveredAt?: Timestamp;
-  createdAt: Timestamp;
-}
+// ============================================================================
+// TRANSLATIONS
+// ============================================================================
+const translations = {
+  es: {
+    title: 'Historial de Entregas',
+    back: 'Volver',
+    
+    // Filters
+    all: 'Todas',
+    today: 'Hoy',
+    thisWeek: 'Esta Semana',
+    thisMonth: 'Este Mes',
+    
+    // Stats
+    totalDeliveries: 'Total Entregas',
+    completed: 'Completadas',
+    totalEarnings: 'Ganancias Totales',
+    
+    // Empty state
+    noDeliveries: 'Sin entregas',
+    noDeliveriesDesc: 'Tu historial de entregas aparecerá aquí',
+    
+    // Order details
+    deliveredTo: 'Entregado a',
+    pickedUpFrom: 'Recogido de',
+    deliveryFee: 'Tarifa',
+    duration: 'Duración',
+    mins: 'min',
+    
+    // Loading
+    loading: 'Cargando historial...',
+  },
+  en: {
+    title: 'Delivery History',
+    back: 'Back',
+    
+    // Filters
+    all: 'All',
+    today: 'Today',
+    thisWeek: 'This Week',
+    thisMonth: 'This Month',
+    
+    // Stats
+    totalDeliveries: 'Total Deliveries',
+    completed: 'Completed',
+    totalEarnings: 'Total Earnings',
+    
+    // Empty state
+    noDeliveries: 'No deliveries',
+    noDeliveriesDesc: 'Your delivery history will appear here',
+    
+    // Order details
+    deliveredTo: 'Delivered to',
+    pickedUpFrom: 'Picked up from',
+    deliveryFee: 'Fee',
+    duration: 'Duration',
+    mins: 'min',
+    
+    // Loading
+    loading: 'Loading history...',
+  },
+};
+
+type Language = 'es' | 'en';
+type FilterType = 'all' | 'today' | 'week' | 'month';
 
 export default function DriverHistoryPage() {
   const router = useRouter();
-  const [deliveries, setDeliveries] = useState<DeliveryHistoryItem[]>([]);
+  const [language, setLanguage] = useState<Language>('es');
+  const [deliveries, setDeliveries] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [filter, setFilter] = useState<FilterType>('all');
 
+  const t = translations[language];
   const userId = auth.currentUser?.uid;
 
+  // Load saved language preference
+  useEffect(() => {
+    const savedLang = localStorage.getItem('stackbot-driver-lang') as Language;
+    if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
+      setLanguage(savedLang);
+    }
+  }, []);
+
+  // Toggle language
+  const toggleLanguage = () => {
+    const newLang = language === 'es' ? 'en' : 'es';
+    setLanguage(newLang);
+    localStorage.setItem('stackbot-driver-lang', newLang);
+  };
+
+  // Fetch delivery history
   useEffect(() => {
     if (!userId) return;
 
-    // Calculate date filters
-    let dateFilter: Date | null = null;
-    const now = new Date();
-    
-    if (filter === 'today') {
-      dateFilter = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    } else if (filter === 'week') {
-      dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    } else if (filter === 'month') {
-      dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    }
+    const fetchHistory = async () => {
+      setLoading(true);
+      
+      try {
+        const historyQuery = query(
+          collection(db, 'orders'),
+          where('driverId', '==', userId),
+          where('status', '==', 'delivered'),
+          orderBy('deliveredAt', 'desc')
+        );
 
-    let deliveriesQuery = query(
-      collection(db, 'orders'),
-      where('driverId', '==', userId),
-      where('status', 'in', ['delivered', 'cancelled']),
-      orderBy('deliveredAt', 'desc'),
-      limit(50)
-    );
+        const snapshot = await getDocs(historyQuery);
+        const orders: DeliveryOrder[] = [];
 
-    const unsubscribe = onSnapshot(
-      deliveriesQuery,
-      (snapshot) => {
-        const items: DeliveryHistoryItem[] = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
-          
-          // Apply date filter client-side if needed
-          if (dateFilter) {
-            const deliveredAt = data.deliveredAt?.toDate?.();
-            if (deliveredAt && deliveredAt < dateFilter) return;
-          }
-
-          items.push({
+          orders.push({
             id: doc.id,
             orderId: data.orderId || doc.id,
+            status: data.status,
+            deliveryStatus: data.deliveryStatus,
+            vendorId: data.vendorId,
             vendorName: data.vendorName,
-            customerName: data.customerInfo?.name || 'Customer',
+            vendorAddress: data.vendorAddress,
+            customerId: data.customerId,
+            customerName: data.customerInfo?.name || 'Cliente',
             deliveryAddress: data.deliveryAddress || {},
             deliveryFee: data.deliveryFee || 0,
             total: data.total || 0,
-            status: data.status,
             claimedAt: data.claimedAt,
             deliveredAt: data.deliveredAt,
             createdAt: data.createdAt,
-          });
+          } as DeliveryOrder);
         });
-        setDeliveries(items);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Error fetching history:', error);
+
+        setDeliveries(orders);
+      } catch (err) {
+        console.error('Error fetching history:', err);
+      } finally {
         setLoading(false);
       }
-    );
+    };
 
-    return () => unsubscribe();
-  }, [userId, filter]);
+    fetchHistory();
+  }, [userId]);
 
-  const formatDate = (timestamp: Timestamp | undefined) => {
-    if (!timestamp) return 'N/A';
-    const date = timestamp.toDate();
-    return date.toLocaleDateString('en-US', {
+  // Filter deliveries
+  const filteredDeliveries = deliveries.filter((delivery) => {
+    if (filter === 'all') return true;
+
+    const deliveredAt = delivery.deliveredAt instanceof Timestamp
+      ? delivery.deliveredAt.toDate()
+      : new Date(delivery.deliveredAt as unknown as string);
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    switch (filter) {
+      case 'today':
+        return deliveredAt >= startOfDay;
+      case 'week':
+        return deliveredAt >= startOfWeek;
+      case 'month':
+        return deliveredAt >= startOfMonth;
+      default:
+        return true;
+    }
+  });
+
+  // Calculate stats
+  const totalEarnings = filteredDeliveries.reduce((sum, d) => sum + (d.deliveryFee || 0), 0);
+
+  // Format date
+  const formatDate = (timestamp: unknown): string => {
+    const date = timestamp instanceof Timestamp 
+      ? timestamp.toDate() 
+      : new Date(timestamp as string);
+    
+    return date.toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US', {
       month: 'short',
       day: 'numeric',
-      hour: 'numeric',
+      hour: '2-digit',
       minute: '2-digit',
     });
   };
 
-  const getDeliveryDuration = (claimed?: Timestamp, delivered?: Timestamp) => {
-    if (!claimed || !delivered) return null;
-    const diff = delivered.toDate().getTime() - claimed.toDate().getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins} min`;
-    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  // Calculate duration
+  const calculateDuration = (claimedAt: unknown, deliveredAt: unknown): number | null => {
+    if (!claimedAt || !deliveredAt) return null;
+    
+    const start = claimedAt instanceof Timestamp ? claimedAt.toDate() : new Date(claimedAt as string);
+    const end = deliveredAt instanceof Timestamp ? deliveredAt.toDate() : new Date(deliveredAt as string);
+    
+    return Math.round((end.getTime() - start.getTime()) / 60000);
   };
 
-  // Calculate stats
-  const stats = {
-    total: deliveries.length,
-    completed: deliveries.filter((d) => d.status === 'delivered').length,
-    totalEarnings: deliveries
-      .filter((d) => d.status === 'delivered')
-      .reduce((sum, d) => sum + (d.deliveryFee || 0), 0),
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-400 mx-auto" />
+          <p className="text-gray-400 mt-2">{t.loading}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-gray-800 border-b border-gray-700 safe-top">
-        <div className="px-4 py-3 pt-12 lg:pt-3">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/driver')}
-              className="p-2 -ml-2 text-gray-400 hover:text-white"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-semibold">Delivery History</h1>
-          </div>
+      <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-sm border-b border-gray-800 safe-top">
+        <div className="flex items-center justify-between px-4 py-3">
+          <button
+            onClick={() => router.push('/driver')}
+            className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          
+          <h1 className="text-lg font-semibold text-white">{t.title}</h1>
+          
+          <button
+            onClick={toggleLanguage}
+            className="p-2 -mr-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <Globe className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
-      {/* Stats Cards */}
-      <div className="px-4 py-4 grid grid-cols-3 gap-3">
-        <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
-          <p className="text-2xl font-bold text-white">{stats.total}</p>
-          <p className="text-xs text-gray-400">Total</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
-          <p className="text-2xl font-bold text-emerald-400">{stats.completed}</p>
-          <p className="text-xs text-gray-400">Completed</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
-          <p className="text-2xl font-bold text-emerald-400">
-            ${stats.totalEarnings.toFixed(2)}
-          </p>
-          <p className="text-xs text-gray-400">Earned</p>
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div className="px-4 pb-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          {[
-            { value: 'all', label: 'All Time' },
-            { value: 'today', label: 'Today' },
-            { value: 'week', label: 'This Week' },
-            { value: 'month', label: 'This Month' },
-          ].map((option) => (
-            <button
-              key={option.value}
-              onClick={() => setFilter(option.value as typeof filter)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                filter === option.value
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-gray-800 text-gray-400 border border-gray-700'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Deliveries List */}
-      <div className="px-4 pb-8">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
+      <main className="pb-8">
+        {/* Stats Cards */}
+        <div className="px-4 py-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-gray-800/50 rounded-xl p-4 text-center">
+              <Package className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
+              <p className="text-2xl font-bold text-white">{filteredDeliveries.length}</p>
+              <p className="text-xs text-gray-500">{t.totalDeliveries}</p>
+            </div>
+            <div className="bg-gray-800/50 rounded-xl p-4 text-center">
+              <CheckCircle className="w-6 h-6 text-blue-400 mx-auto mb-2" />
+              <p className="text-2xl font-bold text-white">{filteredDeliveries.length}</p>
+              <p className="text-xs text-gray-500">{t.completed}</p>
+            </div>
+            <div className="bg-gray-800/50 rounded-xl p-4 text-center">
+              <DollarSign className="w-6 h-6 text-amber-400 mx-auto mb-2" />
+              <p className="text-2xl font-bold text-emerald-400">${totalEarnings.toFixed(2)}</p>
+              <p className="text-xs text-gray-500">{t.totalEarnings}</p>
+            </div>
           </div>
-        ) : deliveries.length === 0 ? (
-          <div className="text-center py-12">
-            <Package className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400">No deliveries found</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {deliveries.map((delivery) => (
-              <div
-                key={delivery.id}
-                className="bg-gray-800 rounded-xl border border-gray-700 p-4"
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="px-4 mb-4">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+            {[
+              { key: 'all', label: t.all },
+              { key: 'today', label: t.today },
+              { key: 'week', label: t.thisWeek },
+              { key: 'month', label: t.thisMonth },
+            ].map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setFilter(item.key as FilterType)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
+                  filter === item.key
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700'
+                }`}
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        delivery.status === 'delivered'
-                          ? 'bg-emerald-500/20'
-                          : 'bg-red-500/20'
-                      }`}
-                    >
-                      {delivery.status === 'delivered' ? (
-                        <CheckCircle className="w-5 h-5 text-emerald-400" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-red-400" />
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="font-medium text-white">
-                        {delivery.vendorName}
-                      </h3>
-                      <p className="text-sm text-gray-400">
-                        #{delivery.orderId.slice(-6)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-emerald-400 font-semibold">
-                      +${delivery.deliveryFee?.toFixed(2)}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      ${delivery.total?.toFixed(2)} order
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <MapPin className="w-4 h-4" />
-                    <span className="truncate">
-                      {delivery.deliveryAddress?.street},{' '}
-                      {delivery.deliveryAddress?.city}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      {formatDate(delivery.deliveredAt || delivery.createdAt)}
-                    </span>
-                    {getDeliveryDuration(
-                      delivery.claimedAt,
-                      delivery.deliveredAt
-                    ) && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {getDeliveryDuration(
-                          delivery.claimedAt,
-                          delivery.deliveredAt
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+                {item.label}
+              </button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+
+        {/* Delivery List */}
+        <div className="px-4">
+          {filteredDeliveries.length === 0 ? (
+            <div className="bg-gray-800/30 rounded-2xl p-8 text-center">
+              <div className="w-16 h-16 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Package className="w-8 h-8 text-gray-500" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-300 mb-1">{t.noDeliveries}</h3>
+              <p className="text-sm text-gray-500">{t.noDeliveriesDesc}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredDeliveries.map((delivery) => {
+                const duration = calculateDuration(delivery.claimedAt, delivery.deliveredAt);
+                
+                return (
+                  <div
+                    key={delivery.id}
+                    className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center">
+                          <CheckCircle className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-white">{delivery.vendorName}</p>
+                          <p className="text-xs text-gray-500">
+                            {formatDate(delivery.deliveredAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-emerald-400">
+                          +${delivery.deliveryFee?.toFixed(2)}
+                        </p>
+                        {duration && (
+                          <p className="text-xs text-gray-500">
+                            {duration} {t.mins}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <Store className="w-4 h-4 text-blue-400" />
+                        <span className="truncate">{delivery.vendorAddress || delivery.vendorName}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <MapPin className="w-4 h-4 text-red-400" />
+                        <span className="truncate">
+                          {delivery.deliveryAddress?.street}, {delivery.deliveryAddress?.city}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { signOut } from "firebase/auth";
-import { Shield } from "lucide-react";
+import { Shield, Truck } from "lucide-react";
 
 import {
   LayoutDashboard,
@@ -39,6 +39,11 @@ const navItems = [
     href: "/admin/customers",
     icon: Users,
     label: "Customers",
+  },
+  {
+    href: "/admin/drivers",
+    icon: Truck,
+    label: "Drivers",
   },
   {
     href: "/admin/categories",
@@ -103,7 +108,7 @@ export default function AdminSidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const active = isActive(item.href, item.exact);
           const Icon = item.icon;
