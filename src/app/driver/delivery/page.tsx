@@ -408,9 +408,12 @@ export default function ActiveDeliveryPage() {
               {delivery.vendorPhone && (
                 <>
                   <div className="w-px bg-gray-100" />
-                  
+                  <a
                     href={`tel:${delivery.vendorPhone}`}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"
+                  <a
+                    href={`tel:${delivery.vendorPhone}`}
+                  <a
+                    href={`tel:${delivery.vendorPhone}`}
                   >
                     <Phone className="w-4 h-4" />
                     <span className="text-sm font-medium">{t.call}</span>
