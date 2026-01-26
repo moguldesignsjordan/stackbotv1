@@ -38,6 +38,7 @@ export default function RootLayout({
             </CartProvider>
           </ToastProvider>
         </LanguageProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
