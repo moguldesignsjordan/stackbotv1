@@ -4,25 +4,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  doc,
-  onSnapshot,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  increment,
-} from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, deleteDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
-import {
-  Package,
-  MapPin,
-  Phone,
-  Navigation,
-  Store,
-  CheckCircle,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
+import { Package, MapPin, Phone, Navigation, Store, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 
 interface ActiveDelivery {
   orderId: string;
@@ -149,47 +133,27 @@ export default function ActiveDeliveryPage() {
   }, []);
 
   useEffect(() => {
-    if (!userId) {
+    if (!userId) { setLoading(false); return; }
+    const unsubscribe = onSnapshot(doc(db, 'driver_active_deliveries', userId), (docSnap) => {
+      setDelivery(docSnap.exists() ? (docSnap.data() as ActiveDelivery) : null);
       setLoading(false);
-      return;
-    }
-
-    const unsubscribe = onSnapshot(
-      doc(db, 'driver_active_deliveries', userId),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setDelivery(docSnap.data() as ActiveDelivery);
-        } else {
-          setDelivery(null);
-        }
-        setLoading(false);
-      }
-    );
-
+    });
     return () => unsubscribe();
   }, [userId]);
 
   const getStatusInfo = (status: DeliveryStatus) => {
     const titles: Record<DeliveryStatus, string> = {
-      heading_to_pickup: t.headingToPickup,
-      at_pickup: t.atPickup,
-      picked_up: t.pickedUp,
-      heading_to_customer: t.headingToCustomer,
-      at_customer: t.atCustomer,
-      delivered: t.delivered,
+      heading_to_pickup: t.headingToPickup, at_pickup: t.atPickup, picked_up: t.pickedUp,
+      heading_to_customer: t.headingToCustomer, at_customer: t.atCustomer, delivered: t.delivered,
     };
     const descriptions: Record<DeliveryStatus, string> = {
-      heading_to_pickup: t.headingToPickupDesc,
-      at_pickup: t.atPickupDesc,
-      picked_up: t.pickedUpDesc,
-      heading_to_customer: t.headingToCustomerDesc,
-      at_customer: t.atCustomerDesc,
-      delivered: t.deliveredDesc,
+      heading_to_pickup: t.headingToPickupDesc, at_pickup: t.atPickupDesc, picked_up: t.pickedUpDesc,
+      heading_to_customer: t.headingToCustomerDesc, at_customer: t.atCustomerDesc, delivered: t.deliveredDesc,
     };
     return { title: titles[status], description: descriptions[status], ...STATUS_CONFIG[status] };
   };
 
-  const getNextAction = (status: DeliveryStatus): { label: string; nextStatus: DeliveryStatus | 'complete' } | null => {
+  const getNextAction = (status: DeliveryStatus) => {
     const actions: Record<DeliveryStatus, { label: string; nextStatus: DeliveryStatus | 'complete' }> = {
       heading_to_pickup: { label: t.arrivedAtPickup, nextStatus: 'at_pickup' },
       at_pickup: { label: t.confirmPickup, nextStatus: 'picked_up' },
@@ -203,134 +167,63 @@ export default function ActiveDeliveryPage() {
 
   const updateStatus = async () => {
     if (!userId || !delivery || actionLoading) return;
-
     const action = getNextAction(delivery.status);
     if (!action) return;
-
     setActionLoading(true);
     try {
       if (action.nextStatus === 'complete') {
         await completeDelivery();
       } else {
         const updates: any = { status: action.nextStatus };
-        if (action.nextStatus === 'picked_up') {
-          updates.pickedUpAt = serverTimestamp();
-        }
-
+        if (action.nextStatus === 'picked_up') updates.pickedUpAt = serverTimestamp();
         await updateDoc(doc(db, 'driver_active_deliveries', userId), updates);
-
-        if (delivery.queueId) {
-          await updateDoc(doc(db, 'delivery_queue', delivery.queueId), {
-            status: action.nextStatus,
-          });
-        }
-
-        if (delivery.orderId) {
-          await updateDoc(doc(db, 'orders', delivery.orderId), {
-            delivery_status: action.nextStatus,
-          });
-        }
+        if (delivery.queueId) await updateDoc(doc(db, 'delivery_queue', delivery.queueId), { status: action.nextStatus });
+        if (delivery.orderId) await updateDoc(doc(db, 'orders', delivery.orderId), { delivery_status: action.nextStatus });
       }
-    } catch (error) {
-      console.error('Error updating status:', error);
-    } finally {
-      setActionLoading(false);
-    }
+    } catch (error) { console.error('Error updating status:', error); }
+    finally { setActionLoading(false); }
   };
 
   const completeDelivery = async () => {
     if (!userId || !delivery) return;
-
     try {
       await updateDoc(doc(db, 'driver_stats', userId), {
-        todayDeliveries: increment(1),
-        todayEarnings: increment(delivery.deliveryFee),
-        weekDeliveries: increment(1),
-        weekEarnings: increment(delivery.deliveryFee),
-        totalDeliveries: increment(1),
+        todayDeliveries: increment(1), todayEarnings: increment(delivery.deliveryFee),
+        weekDeliveries: increment(1), weekEarnings: increment(delivery.deliveryFee), totalDeliveries: increment(1),
       });
-
       await updateDoc(doc(db, 'drivers', userId), { status: 'online' });
-
-      if (delivery.queueId) {
-        await updateDoc(doc(db, 'delivery_queue', delivery.queueId), {
-          status: 'delivered',
-          deliveredAt: serverTimestamp(),
-        });
-      }
-
-      if (delivery.orderId) {
-        await updateDoc(doc(db, 'orders', delivery.orderId), {
-          status: 'delivered',
-          delivery_status: 'delivered',
-          deliveredAt: serverTimestamp(),
-        });
-      }
-
+      if (delivery.queueId) await updateDoc(doc(db, 'delivery_queue', delivery.queueId), { status: 'delivered', deliveredAt: serverTimestamp() });
+      if (delivery.orderId) await updateDoc(doc(db, 'orders', delivery.orderId), { status: 'delivered', delivery_status: 'delivered', deliveredAt: serverTimestamp() });
       await deleteDoc(doc(db, 'driver_active_deliveries', userId));
       router.push('/driver/dashboard');
-    } catch (error) {
-      console.error('Error completing delivery:', error);
-    }
+    } catch (error) { console.error('Error completing delivery:', error); }
   };
 
   const cancelDelivery = async () => {
     if (!userId || !delivery) return;
-
     setActionLoading(true);
     try {
-      if (delivery.queueId) {
-        await updateDoc(doc(db, 'delivery_queue', delivery.queueId), {
-          status: 'pending',
-          driverId: null,
-          cancelledBy: userId,
-          cancelledAt: serverTimestamp(),
-        });
-      }
-
+      if (delivery.queueId) await updateDoc(doc(db, 'delivery_queue', delivery.queueId), { status: 'pending', driverId: null, cancelledBy: userId, cancelledAt: serverTimestamp() });
       await updateDoc(doc(db, 'drivers', userId), { status: 'online' });
       await deleteDoc(doc(db, 'driver_active_deliveries', userId));
       router.push('/driver/dashboard');
-    } catch (error) {
-      console.error('Error cancelling delivery:', error);
-    } finally {
-      setActionLoading(false);
-      setShowCancelModal(false);
-    }
+    } catch (error) { console.error('Error cancelling delivery:', error); }
+    finally { setActionLoading(false); setShowCancelModal(false); }
   };
 
-  const openNavigation = (address: string) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
-    window.open(url, '_blank');
-  };
+  const openNavigation = (address: string) => window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address), '_blank');
+  const formatCurrency = (amount: number) => 'RD$' + amount.toLocaleString();
 
-  const formatCurrency = (amount: number) => `RD$${amount.toLocaleString()}`;
+  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-[#55529d]" /></div>;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
-      </div>
-    );
-  }
-
-  if (!delivery) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-          <Package className="w-10 h-10 text-gray-400" />
-        </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">{t.noActiveDelivery}</h2>
-        <p className="text-gray-600 mb-6">{t.noActiveDeliveryDesc}</p>
-        <Link
-          href="/driver/dashboard"
-          className="px-6 py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] transition-colors"
-        >
-          {t.goToDashboard}
-        </Link>
-      </div>
-    );
-  }
+  if (!delivery) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
+      <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4"><Package className="w-10 h-10 text-gray-400" /></div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">{t.noActiveDelivery}</h2>
+      <p className="text-gray-600 mb-6">{t.noActiveDeliveryDesc}</p>
+      <Link href="/driver/dashboard" className="px-6 py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] transition-colors">{t.goToDashboard}</Link>
+    </div>
+  );
 
   const statusInfo = getStatusInfo(delivery.status);
   const nextAction = getNextAction(delivery.status);
@@ -338,182 +231,72 @@ export default function ActiveDeliveryPage() {
 
   return (
     <div className="pb-32">
-      <div className={`${statusInfo.bgColor} px-4 py-6`}>
+      <div className={statusInfo.bgColor + ' px-4 py-6'}>
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center shadow-sm">
-            {delivery.status === 'delivered' ? (
-              <CheckCircle className={`w-7 h-7 ${statusInfo.color}`} />
-            ) : (
-              <Package className={`w-7 h-7 ${statusInfo.color}`} />
-            )}
+            {delivery.status === 'delivered' ? <CheckCircle className={'w-7 h-7 ' + statusInfo.color} /> : <Package className={'w-7 h-7 ' + statusInfo.color} />}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{statusInfo.title}</h1>
-            <p className="text-sm text-gray-600">{statusInfo.description}</p>
-          </div>
+          <div><h1 className="text-xl font-bold text-gray-900">{statusInfo.title}</h1><p className="text-sm text-gray-600">{statusInfo.description}</p></div>
         </div>
-
         <div className="flex items-center justify-center gap-2 mt-4">
-          {[1, 2, 3, 4, 5, 6].map((step) => (
-            <div
-              key={step}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                step <= statusInfo.step ? 'bg-[#55529d]' : 'bg-gray-300'
-              }`}
-            />
-          ))}
+          {[1,2,3,4,5,6].map((step) => <div key={step} className={'w-2 h-2 rounded-full transition-colors ' + (step <= statusInfo.step ? 'bg-[#55529d]' : 'bg-gray-300')} />)}
         </div>
       </div>
 
       <div className="px-4 py-4 space-y-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500">{t.orderId}</p>
-              <p className="font-mono font-semibold text-gray-900">#{delivery.orderId?.slice(-8)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500">{t.fee}</p>
-              <p className="font-bold text-green-600 text-lg">{formatCurrency(delivery.deliveryFee)}</p>
-            </div>
+            <div><p className="text-xs text-gray-500">{t.orderId}</p><p className="font-mono font-semibold text-gray-900">#{delivery.orderId?.slice(-8)}</p></div>
+            <div className="text-right"><p className="text-xs text-gray-500">{t.fee}</p><p className="font-bold text-green-600 text-lg">{formatCurrency(delivery.deliveryFee)}</p></div>
           </div>
-          <div className="text-sm text-gray-600">
-            {delivery.itemCount} {delivery.itemCount === 1 ? t.item : t.items}
-          </div>
+          <div className="text-sm text-gray-600">{delivery.itemCount} {delivery.itemCount === 1 ? t.item : t.items}</div>
         </div>
 
-        {/* Pickup Location */}
-        <div className={`bg-white rounded-xl border ${isPickupPhase ? 'border-blue-200 ring-2 ring-blue-100' : 'border-gray-200'} overflow-hidden`}>
+        <div className={'bg-white rounded-xl border overflow-hidden ' + (isPickupPhase ? 'border-blue-200 ring-2 ring-blue-100' : 'border-gray-200')}>
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isPickupPhase ? 'bg-blue-100' : 'bg-gray-100'}`}>
-                <Store className={`w-5 h-5 ${isPickupPhase ? 'text-blue-600' : 'text-gray-400'}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 font-medium">{t.pickup}</p>
-                <p className="font-semibold text-gray-900">{delivery.vendorName}</p>
-                <p className="text-sm text-gray-600 mt-0.5">{delivery.vendorAddress}</p>
-              </div>
+              <div className={'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ' + (isPickupPhase ? 'bg-blue-100' : 'bg-gray-100')}><Store className={'w-5 h-5 ' + (isPickupPhase ? 'text-blue-600' : 'text-gray-400')} /></div>
+              <div className="flex-1 min-w-0"><p className="text-xs text-gray-500 font-medium">{t.pickup}</p><p className="font-semibold text-gray-900">{delivery.vendorName}</p><p className="text-sm text-gray-600 mt-0.5">{delivery.vendorAddress}</p></div>
             </div>
           </div>
-          
           {isPickupPhase && (
             <div className="border-t border-gray-100 flex">
-              <button
-                onClick={() => openNavigation(delivery.vendorAddress)}
-                className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"
-              >
-                <Navigation className="w-4 h-4" />
-                <span className="text-sm font-medium">{t.navigate}</span>
-              </button>
-              {delivery.vendorPhone && (
-                <>
-                  <div className="w-px bg-gray-100" />
-                  
-                    href={`tel:${delivery.vendorPhone}`}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span className="text-sm font-medium">{t.call}</span>
-                  </a>
-                </>
-              )}
+              <button onClick={() => openNavigation(delivery.vendorAddress)} className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"><Navigation className="w-4 h-4" /><span className="text-sm font-medium">{t.navigate}</span></button>
+              {delivery.vendorPhone && <><div className="w-px bg-gray-100" /><a href={'tel:' + delivery.vendorPhone} className="flex-1 flex items-center justify-center gap-2 py-3 text-blue-600 hover:bg-blue-50 transition-colors"><Phone className="w-4 h-4" /><span className="text-sm font-medium">{t.call}</span></a></>}
             </div>
           )}
         </div>
 
-        {/* Delivery Location */}
-        <div className={`bg-white rounded-xl border ${!isPickupPhase ? 'border-green-200 ring-2 ring-green-100' : 'border-gray-200'} overflow-hidden`}>
+        <div className={'bg-white rounded-xl border overflow-hidden ' + (!isPickupPhase ? 'border-green-200 ring-2 ring-green-100' : 'border-gray-200')}>
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${!isPickupPhase ? 'bg-green-100' : 'bg-gray-100'}`}>
-                <MapPin className={`w-5 h-5 ${!isPickupPhase ? 'text-green-600' : 'text-gray-400'}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 font-medium">{t.deliver}</p>
-                {delivery.customerName && (
-                  <p className="font-semibold text-gray-900">{delivery.customerName}</p>
-                )}
-                <p className="text-sm text-gray-600 mt-0.5">{delivery.customerAddress}</p>
-              </div>
+              <div className={'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ' + (!isPickupPhase ? 'bg-green-100' : 'bg-gray-100')}><MapPin className={'w-5 h-5 ' + (!isPickupPhase ? 'text-green-600' : 'text-gray-400')} /></div>
+              <div className="flex-1 min-w-0"><p className="text-xs text-gray-500 font-medium">{t.deliver}</p>{delivery.customerName && <p className="font-semibold text-gray-900">{delivery.customerName}</p>}<p className="text-sm text-gray-600 mt-0.5">{delivery.customerAddress}</p></div>
             </div>
           </div>
-          
           {!isPickupPhase && delivery.status !== 'delivered' && (
             <div className="border-t border-gray-100 flex">
-              <button
-                onClick={() => openNavigation(delivery.customerAddress)}
-                className="flex-1 flex items-center justify-center gap-2 py-3 text-green-600 hover:bg-green-50 transition-colors"
-              >
-                <Navigation className="w-4 h-4" />
-                <span className="text-sm font-medium">{t.navigate}</span>
-              </button>
-              {delivery.customerPhone && (
-                <>
-                  <div className="w-px bg-gray-100" />
-                  
-                    href={`tel:${delivery.customerPhone}`}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 text-green-600 hover:bg-green-50 transition-colors"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span className="text-sm font-medium">{t.call}</span>
-                  </a>
-                </>
-              )}
+              <button onClick={() => openNavigation(delivery.customerAddress)} className="flex-1 flex items-center justify-center gap-2 py-3 text-green-600 hover:bg-green-50 transition-colors"><Navigation className="w-4 h-4" /><span className="text-sm font-medium">{t.navigate}</span></button>
+              {delivery.customerPhone && <><div className="w-px bg-gray-100" /><a href={'tel:' + delivery.customerPhone} className="flex-1 flex items-center justify-center gap-2 py-3 text-green-600 hover:bg-green-50 transition-colors"><Phone className="w-4 h-4" /><span className="text-sm font-medium">{t.call}</span></a></>}
             </div>
           )}
         </div>
 
-        {isPickupPhase && delivery.status !== 'picked_up' && (
-          <button
-            onClick={() => setShowCancelModal(true)}
-            className="w-full text-center py-3 text-red-600 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors"
-          >
-            {t.cancelDelivery}
-          </button>
-        )}
+        {isPickupPhase && delivery.status !== 'picked_up' && <button onClick={() => setShowCancelModal(true)} className="w-full text-center py-3 text-red-600 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors">{t.cancelDelivery}</button>}
       </div>
 
       {nextAction && delivery.status !== 'delivered' && (
         <div className="fixed bottom-20 left-0 right-0 p-4 bg-white border-t border-gray-200 safe-area-bottom">
-          <button
-            onClick={updateStatus}
-            disabled={actionLoading}
-            className="w-full py-4 bg-[#55529d] text-white font-bold rounded-xl hover:bg-[#444280] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-lg"
-          >
-            {actionLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {t.updating}
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-5 h-5" />
-                {nextAction.label}
-              </>
-            )}
+          <button onClick={updateStatus} disabled={actionLoading} className="w-full py-4 bg-[#55529d] text-white font-bold rounded-xl hover:bg-[#444280] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-lg">
+            {actionLoading ? <><Loader2 className="w-5 h-5 animate-spin" />{t.updating}</> : <><CheckCircle className="w-5 h-5" />{nextAction.label}</>}
           </button>
         </div>
       )}
 
       {delivery.status === 'delivered' && (
         <div className="fixed bottom-20 left-0 right-0 p-4 bg-white border-t border-gray-200 safe-area-bottom">
-          <button
-            onClick={updateStatus}
-            disabled={actionLoading}
-            className="w-full py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-lg"
-          >
-            {actionLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {t.updating}
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-5 h-5" />
-                {t.completeDelivery}
-              </>
-            )}
+          <button onClick={updateStatus} disabled={actionLoading} className="w-full py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-lg">
+            {actionLoading ? <><Loader2 className="w-5 h-5 animate-spin" />{t.updating}</> : <><CheckCircle className="w-5 h-5" />{t.completeDelivery}</>}
           </button>
         </div>
       )}
@@ -521,26 +304,12 @@ export default function ActiveDeliveryPage() {
       {showCancelModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6">
-            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle className="w-6 h-6 text-red-600" />
-            </div>
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-6 h-6 text-red-600" /></div>
             <h3 className="text-lg font-bold text-gray-900 text-center mb-2">{t.cancelConfirm}</h3>
             <p className="text-sm text-gray-600 text-center mb-6">{t.cancelWarning}</p>
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="flex-1 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {t.keepDelivery}
-              </button>
-              <button
-                onClick={cancelDelivery}
-                disabled={actionLoading}
-                className="flex-1 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-              >
-                {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {t.confirmCancel}
-              </button>
+              <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors">{t.keepDelivery}</button>
+              <button onClick={cancelDelivery} disabled={actionLoading} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">{actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}{t.confirmCancel}</button>
             </div>
           </div>
         </div>
