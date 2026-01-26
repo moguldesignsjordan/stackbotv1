@@ -300,7 +300,7 @@ export default function Footer() {
             {/* Social Links */}
             <div className="flex items-center gap-4">
               <a
-                href="https://facebook.com/stackbot"
+                href="https://facebook.com/StackbotGlobal"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
@@ -311,7 +311,7 @@ export default function Footer() {
                 </svg>
               </a>
               <a
-                href="https://instagram.com/stackbot"
+                href="https://instagram.com/stackbot_"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
@@ -322,7 +322,7 @@ export default function Footer() {
                 </svg>
               </a>
               <a
-                href="https://twitter.com/stackbot"
+                href="https://x.com/stackbotglobal"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-all"
