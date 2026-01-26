@@ -100,16 +100,16 @@ export default function AdminDriversPage() {
   // Add new driver
   const handleAddDriver = async () => {
     if (!newDriverUid.trim()) {
-      setMessage({ type: 'error', text: 'Firebase UID is required' });
+\      setMessage({ type: 'error', text: 'Firebase UID is required' });
       return;
     }
 
-    setAddingDriver(true);
+ \   setAddingDriver(true);
     setMessage(null);
 
     try {
       const user = auth.currentUser;
-      if (!user) throw new Error('Not authenticated');
+    if (!user) throw new Error('Not authenticated');
 
       const token = await user.getIdToken(true);
 
@@ -188,6 +188,8 @@ export default function AdminDriversPage() {
     } catch (err) {
       console.error('Error deleting driver:', err);
       setMessage({ type: 'error', text: 'Failed to delete driver' });
+
+
     } finally {
       setProcessingId(null);
     }

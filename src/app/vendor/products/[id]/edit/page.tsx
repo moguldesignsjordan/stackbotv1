@@ -32,6 +32,8 @@ import {
   X,
   AlertTriangle,
   Loader2,
+  // NEW: Import icon for stock
+  BoxSelect, 
 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { TranslationKey } from '@/lib/translations';
@@ -42,6 +44,14 @@ import type {
   ProductOptionItem,
 } from '@/lib/types/firestore';
 
+// NEW: Extend the Product type locally if needed to support new fields
+// in case your types/firestore.ts hasn't been updated yet.
+interface ExtendedProduct extends Product {
+  inStock?: boolean;
+  manageStock?: boolean;
+  stockQuantity?: number;
+}
+
 export default function EditProductPage() {
   const { id: productId } = useParams<{ id: string }>();
   const router = useRouter();
@@ -49,7 +59,8 @@ export default function EditProductPage() {
   const { t, language } = useLanguage();
 
   const [user, setUser] = useState<any>(null);
-  const [product, setProduct] = useState<Product | null>(null);
+  // Update state to use ExtendedProduct
+  const [product, setProduct] = useState<ExtendedProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -74,8 +85,15 @@ export default function EditProductPage() {
         doc(db, 'vendors', u.uid, 'products', productId!)
       );
       if (snap.exists()) {
-        const data = snap.data() as Product;
-        setProduct({ ...data, id: snap.id });
+        const data = snap.data() as ExtendedProduct;
+        setProduct({ 
+            ...data, 
+            id: snap.id,
+            // Set defaults for existing products that might not have these fields yet
+            inStock: data.inStock ?? true,
+            manageStock: data.manageStock ?? false,
+            stockQuantity: data.stockQuantity ?? 0,
+        });
         setExistingImages(data.images || []);
       }
       setLoading(false);
@@ -207,6 +225,13 @@ export default function EditProductPage() {
         price: Number(product.price),
         images: allImages,
         options: product.options || [],
+        
+        // --- NEW: Save Stock Logic ---
+        inStock: product.inStock,
+        manageStock: product.manageStock,
+        stockQuantity: product.manageStock ? Number(product.stockQuantity) : 0,
+        // -----------------------------
+
         updated_at: serverTimestamp(),
       });
 
@@ -341,6 +366,71 @@ export default function EditProductPage() {
             />
           </div>
         </div>
+
+        {/* ---------------- NEW STOCK LOGIC SECTION ---------------- */}
+        <hr className="border-gray-100 my-4" />
+        
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <BoxSelect className="w-4 h-4 text-sb-primary" />
+            Inventory & Availability
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+             {/* 1. Toggle: Available for Sale */}
+            <div className="flex items-center justify-between p-3 border border-gray-100 rounded-xl bg-gray-50/50">
+                <span className="text-sm font-medium text-gray-700">Available for Sale</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only peer"
+                    checked={product.inStock}
+                    onChange={(e) => setProduct({...product, inStock: e.target.checked})}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-sb-primary/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sb-primary"></div>
+                </label>
+            </div>
+
+            {/* 2. Checkbox: Track Stock */}
+            <div className="flex items-center p-3 border border-gray-100 rounded-xl bg-gray-50/50 h-full">
+               <label className="flex items-center gap-3 cursor-pointer w-full">
+                  <input
+                    type="checkbox"
+                    checked={product.manageStock}
+                    onChange={(e) => setProduct({...product, manageStock: e.target.checked})}
+                    className="w-5 h-5 text-sb-primary border-gray-300 rounded focus:ring-sb-primary"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Track Stock Quantity
+                  </span>
+               </label>
+            </div>
+            
+            {/* 3. Input: Quantity (Only visible if manageStock is true) */}
+            {product.manageStock && (
+              <div className="sm:col-span-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                   Quantity in Stock
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
+                  value={product.stockQuantity ?? 0}
+                  onChange={(e) =>
+                    setProduct({
+                      ...product,
+                      stockQuantity: e.target.value ? parseInt(e.target.value) : 0,
+                    })
+                  }
+                  placeholder="0"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        {/* ---------------- END STOCK LOGIC SECTION ---------------- */}
       </div>
 
       {/* Images Card */}
