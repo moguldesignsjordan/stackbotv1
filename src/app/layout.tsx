@@ -1,6 +1,7 @@
 // src/app/layout.tsx
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -38,6 +39,7 @@ export default function RootLayout({
             </CartProvider>
           </ToastProvider>
         </LanguageProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
