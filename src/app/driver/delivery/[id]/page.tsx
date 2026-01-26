@@ -8,6 +8,7 @@ import {
   onSnapshot,
   updateDoc,
   serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
 import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
@@ -15,23 +16,54 @@ import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
 import {
   ArrowLeft,
   Phone,
-  MessageSquare,
   Navigation,
   Package,
   CheckCircle,
   Store,
   MapPin,
   Clock,
-  DollarSign,
   AlertCircle,
   Loader2,
-  ExternalLink,
   ChevronUp,
   ChevronDown,
   Copy,
   Check,
 } from 'lucide-react';
-import { DeliveryOrder } from '@/lib/types/driver';
+
+// Local interface to match the full order details used in this view
+interface DriverOrderDetail {
+  id: string;
+  orderId: string;
+  status: string;
+  deliveryStatus: string;
+  driverId?: string;
+  driverName?: string;
+  claimedAt?: Timestamp;
+  pickedUpAt?: Timestamp;
+  vendorId: string;
+  vendorName: string;
+  vendorPhone?: string;
+  vendorAddress: string;
+  vendorCoordinates?: { lat: number; lng: number };
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  deliveryAddress: {
+    street?: string;
+    city?: string;
+    coordinates?: { lat: number; lng: number };
+    instructions?: string;
+  };
+  items: Array<{ quantity: number; name: string; price: number }>;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  trackingPin?: string;
+  notes?: string;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+}
 
 const mapContainerStyle = {
   width: '100%',
@@ -80,7 +112,7 @@ function DeliveryDetailContent() {
   const router = useRouter();
   const orderId = params.id as string;
 
-  const [order, setOrder] = useState<DeliveryOrder | null>(null);
+  const [order, setOrder] = useState<DriverOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -145,7 +177,7 @@ function DeliveryDetailContent() {
             notes: data.notes,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
-          } as DeliveryOrder);
+          } as DriverOrderDetail);
         } else {
           setError('Order not found');
         }
