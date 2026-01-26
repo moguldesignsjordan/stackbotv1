@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
+      // ========================================================================
+      // CHECKOUT SESSION FLOW (legacy redirect flow)
+      // ========================================================================
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         await handleCheckoutComplete(session, db);
@@ -55,9 +58,19 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      // ========================================================================
+      // PAYMENT INTENT FLOW (in-app payments)
+      // ========================================================================
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        await handlePaymentIntentSucceeded(paymentIntent, db);
+        break;
+      }
+
       case 'payment_intent.payment_failed': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
         console.log(`Payment failed: ${paymentIntent.id}`);
+        // Optionally update any pending order status here
         break;
       }
 
@@ -74,6 +87,10 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// ============================================================================
+// HANDLE CHECKOUT SESSION COMPLETE (Legacy flow)
+// ============================================================================
 
 async function handleCheckoutComplete(
   session: Stripe.Checkout.Session,
@@ -102,6 +119,57 @@ async function handleCheckoutComplete(
     return;
   }
 
+  await createOrderFromMetadata(metadata, db, {
+    stripeSessionId: session.id,
+    stripePaymentIntentId: session.payment_intent as string,
+  });
+}
+
+// ============================================================================
+// HANDLE PAYMENT INTENT SUCCEEDED (In-app payments)
+// ============================================================================
+
+async function handlePaymentIntentSucceeded(
+  paymentIntent: Stripe.PaymentIntent,
+  db: admin.firestore.Firestore
+) {
+  const metadata = paymentIntent.metadata;
+  
+  // Check if this is an order payment (has orderId in metadata)
+  if (!metadata?.orderId || !metadata?.customerId || !metadata?.vendorId) {
+    console.log(`PaymentIntent ${paymentIntent.id} is not an order payment, skipping`);
+    return;
+  }
+
+  // Check if order already exists (idempotency)
+  const existingOrder = await db
+    .collection('orders')
+    .where('stripePaymentIntentId', '==', paymentIntent.id)
+    .limit(1)
+    .get();
+
+  if (!existingOrder.empty) {
+    console.log(`Order already exists for PaymentIntent: ${paymentIntent.id}`);
+    return;
+  }
+
+  await createOrderFromMetadata(metadata, db, {
+    stripePaymentIntentId: paymentIntent.id,
+  });
+}
+
+// ============================================================================
+// SHARED ORDER CREATION LOGIC
+// ============================================================================
+
+async function createOrderFromMetadata(
+  metadata: Stripe.Metadata,
+  db: admin.firestore.Firestore,
+  stripeIds: {
+    stripeSessionId?: string;
+    stripePaymentIntentId?: string;
+  }
+) {
   // Parse metadata
   const items = JSON.parse(metadata.itemsJson || '[]');
   const fulfillmentType = (metadata.fulfillmentType || 'delivery') as 'delivery' | 'pickup';
@@ -133,12 +201,13 @@ async function handleCheckoutComplete(
     vendorId: metadata.vendorId,
     vendorName: metadata.vendorName,
     fulfillmentType,
-    items: items.map((item: { productId: string; name: string; price: number; quantity: number }) => ({
+    items: items.map((item: { productId: string; name: string; price: number; quantity: number; notes?: string }) => ({
       productId: item.productId,
       name: item.name,
       price: item.price,
       quantity: item.quantity,
       subtotal: item.price * item.quantity,
+      notes: item.notes || '',
     })),
     subtotal: parseFloat(metadata.subtotal || '0'),
     deliveryFee: parseFloat(metadata.deliveryFee || '0'),
@@ -148,13 +217,12 @@ async function handleCheckoutComplete(
     status: 'pending',
     paymentStatus: 'paid',
     paymentMethod: 'stripe',
-    stripeSessionId: session.id,
-    stripePaymentIntentId: session.payment_intent as string,
     customerInfo,
     trackingPin: metadata.trackingPin,
     notes: metadata.notes || null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...stripeIds,
   };
 
   // Only include deliveryAddress for delivery orders
@@ -203,80 +271,32 @@ async function handleCheckoutComplete(
     const vendorNotification = {
       userId: metadata.vendorId,
       type: 'order_placed',
-      title: 'New Order Received! 🎉',
-      message: `${customerInfo.name} placed an order for $${totalAmount.toFixed(2)} (${itemCount} item${itemCount !== 1 ? 's' : ''})`,
+      title: 'New Order Received!',
+      message: `Order #${metadata.orderId} - ${itemCount} item${itemCount > 1 ? 's' : ''} - $${totalAmount.toFixed(2)}`,
+      orderId: metadata.orderId,
       read: false,
-      priority: 'high',
-      data: {
-        orderId: metadata.orderId,
-        vendorId: metadata.vendorId,
-        customerId: metadata.customerId,
-        customerName: customerInfo.name,
-        amount: totalAmount,
-        itemCount,
-        url: `/vendor/orders/${metadata.orderId}`,
-      },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     await db.collection('notifications').add(vendorNotification);
-    console.log(`✅ Vendor notification created for order ${metadata.orderId}`);
+    console.log(`📬 Vendor notification created for order ${metadata.orderId}`);
 
     // 2. Notify CUSTOMER of order confirmation
     const customerNotification = {
       userId: metadata.customerId,
-      type: 'order_placed',
-      title: 'Order Placed Successfully! ✓',
-      message: `Your order from ${metadata.vendorName} for $${totalAmount.toFixed(2)} has been placed`,
+      type: 'order_confirmed',
+      title: 'Order Confirmed!',
+      message: `Your order #${metadata.orderId} from ${metadata.vendorName} has been placed`,
+      orderId: metadata.orderId,
       read: false,
-      priority: 'normal',
-      data: {
-        orderId: metadata.orderId,
-        vendorId: metadata.vendorId,
-        vendorName: metadata.vendorName,
-        amount: totalAmount,
-        url: `/account/orders/${metadata.orderId}`,
-      },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     await db.collection('notifications').add(customerNotification);
-    console.log(`✅ Customer notification created for order ${metadata.orderId}`);
-
-    // 3. Notify ADMINS of new order (optional - for monitoring)
-    // Get all admin users
-    const adminsSnapshot = await admin.auth().listUsers();
-    const adminUsers = adminsSnapshot.users.filter(async (user) => {
-      const claims = user.customClaims;
-      return claims?.role === 'admin';
-    });
-
-    // For simplicity, we'll create admin notifications if needed
-    // You can enable this by uncommenting:
-    /*
-    for (const adminUser of adminUsers) {
-      const adminNotification = {
-        userId: adminUser.uid,
-        type: 'order_placed',
-        title: 'New Platform Order',
-        message: `Order ${metadata.orderId} placed: $${totalAmount.toFixed(2)} at ${metadata.vendorName}`,
-        read: false,
-        priority: 'normal',
-        data: {
-          orderId: metadata.orderId,
-          vendorId: metadata.vendorId,
-          vendorName: metadata.vendorName,
-          amount: totalAmount,
-          url: `/admin/orders/${metadata.orderId}`,
-        },
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      await db.collection('notifications').add(adminNotification);
-    }
-    */
+    console.log(`📬 Customer notification created for order ${metadata.orderId}`);
 
   } catch (notifError) {
-    // Don't fail the order if notifications fail
-    console.error('❌ Error creating notifications:', notifError);
+    // Log but don't fail the order creation
+    console.error('Failed to create notifications:', notifError);
   }
 }

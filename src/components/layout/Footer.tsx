@@ -38,7 +38,7 @@ export default function Footer() {
         { labelKey: 'footer.trackOrder', href: "/track" },
       ],
       [t('footer.doBusinessWithUs')]: [
-        { labelKey: 'footer.becomeDriver', href: "/driver-signup" },
+        { labelKey: 'footer.becomeDriver', href: "/driver/apply" },
         { labelKey: 'footer.becomeVendor', href: "/vendor-signup" },
         { labelKey: 'footer.becomeAffiliate', href: "/affiliate-signup" },
         { labelKey: 'footer.partnerWithUs', href: "/partners" },

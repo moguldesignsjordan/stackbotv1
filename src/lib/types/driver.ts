@@ -1,137 +1,180 @@
 // src/lib/types/driver.ts
+import { Timestamp } from 'firebase/firestore';
 
-import { Timestamp, FieldValue } from 'firebase/firestore';
+export type DriverStatus = 'online' | 'offline' | 'busy' | 'break';
 
-export type DriverStatus = 'offline' | 'available' | 'busy' | 'returning';
-
-export interface Coordinates {
-  lat: number;
-  lng: number;
-}
-
-export interface DriverProfile {
+export interface Driver {
   id: string;
-  userId: string;
   name: string;
   email: string;
   phone: string;
   photoURL?: string;
-  
-  // Status
-  status: DriverStatus;
-  isOnline: boolean;
-  currentOrderId?: string;
-  
-  // Location
-  currentLocation?: Coordinates;
-  lastLocationUpdate?: Timestamp;
-  
-  // Vehicle info
   vehicleType: 'motorcycle' | 'car' | 'bicycle' | 'scooter';
-  vehiclePlate?: string;
+  vehiclePlate: string;
   vehicleColor?: string;
-  
-  // Stats
-  totalDeliveries: number;
-  rating: number;
-  ratingCount: number;
-  
-  // Timestamps
-  createdAt: Timestamp | FieldValue;
-  updatedAt: Timestamp | FieldValue;
-  lastActiveAt?: Timestamp;
-  
-  // Verification
-  isVerified: boolean;
-  verifiedAt?: Timestamp;
-  documents?: {
-    license?: string;
-    insurance?: string;
-    vehiclePhoto?: string;
+  city?: string;
+  currentLocation?: {
+    lat: number;
+    lng: number;
+    updatedAt: Timestamp;
   };
+  status: DriverStatus;
+  lastStatusChange?: Timestamp;
+  verified: boolean;
+  rating: number;
+  totalDeliveries: number;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface DriverStats {
+  driverId: string;
+  todayDeliveries: number;
+  todayEarnings: number;
+  todayTips: number;
+  todayDate: string;
+  weekDeliveries: number;
+  weekEarnings: number;
+  weekTips: number;
+  weekStartDate: string;
+  monthDeliveries: number;
+  monthEarnings: number;
+  monthTips: number;
+  totalDeliveries: number;
+  totalEarnings: number;
+  totalTips: number;
+  rating: number;
+  totalRatings: number;
+  acceptanceRate: number;
+  completionRate: number;
+  lastDeliveryAt?: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type DeliveryQueueStatus =
+  | 'pending'
+  | 'assigned'
+  | 'heading_to_pickup'
+  | 'at_pickup'
+  | 'picked_up'
+  | 'heading_to_customer'
+  | 'at_customer'
+  | 'delivered'
+  | 'cancelled';
+
+export interface DeliveryQueueItem {
+  id: string;
+  orderId: string;
+  vendorId: string;
+  vendorName: string;
+  vendorAddress: string;
+  vendorPhone?: string;
+  vendorLocation?: { lat: number; lng: number };
+  customerId: string;
+  customerName?: string;
+  customerAddress: string;
+  customerPhone?: string;
+  customerLocation?: { lat: number; lng: number };
+  itemCount: number;
+  orderTotal: number;
+  deliveryFee: number;
+  tip?: number;
+  estimatedDistance?: number;
+  estimatedTime?: number;
+  status: DeliveryQueueStatus;
+  priority: 'normal' | 'high';
+  driverId?: string;
+  driverName?: string;
+  createdAt: Timestamp;
+  assignedAt?: Timestamp;
+  pickedUpAt?: Timestamp;
+  deliveredAt?: Timestamp;
+  cancelledAt?: Timestamp;
+  cancelledBy?: string;
+  cancellationReason?: string;
+}
+
+export type ActiveDeliveryStatus =
+  | 'heading_to_pickup'
+  | 'at_pickup'
+  | 'picked_up'
+  | 'heading_to_customer'
+  | 'at_customer'
+  | 'delivered';
+
+export interface ActiveDelivery {
+  orderId: string;
+  queueId: string;
+  vendorId: string;
+  vendorName: string;
+  vendorAddress: string;
+  vendorPhone?: string;
+  vendorLocation?: { lat: number; lng: number };
+  customerId?: string;
+  customerName?: string;
+  customerAddress: string;
+  customerPhone?: string;
+  customerLocation?: { lat: number; lng: number };
+  itemCount: number;
+  deliveryFee: number;
+  tip?: number;
+  orderItems?: Array<{ name: string; quantity: number }>;
+  status: ActiveDeliveryStatus;
+  acceptedAt: Timestamp;
+  pickedUpAt?: Timestamp;
+  deliveredAt?: Timestamp;
+}
+
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface DriverApplication {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  city: string;
+  vehicleType: 'motorcycle' | 'car' | 'bicycle' | 'scooter';
+  vehiclePlate: string;
+  vehicleColor?: string;
+  experience: 'none' | 'lessThan1' | 'oneToThree' | 'moreThan3';
+  whyJoin?: string;
+  hasLicense: boolean;
+  hasSmartphone: boolean;
+  agreedToTerms: boolean;
+  status: ApplicationStatus;
+  reviewedAt?: Timestamp;
+  reviewedBy?: string;
+  rejectionReason?: string;
+  driverId?: string;
+  language: 'es' | 'en';
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 export interface DeliveryOrder {
   id: string;
   orderId: string;
-  
-  // Status
-  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'claimed' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled';
-  deliveryStatus: 'available' | 'claimed' | 'picked_up' | 'in_transit' | 'delivered';
-  
-  // Assignment
-  driverId?: string;
-  driverName?: string;
-  claimedAt?: Timestamp;
-  pickedUpAt?: Timestamp;
-  deliveredAt?: Timestamp;
-  
-  // Vendor info
+  driverId: string;
   vendorId: string;
   vendorName: string;
-  vendorPhone?: string;
-  vendorAddress?: string;
-  vendorCoordinates?: Coordinates;
-  
-  // Customer info
+  vendorAddress: string;
   customerId: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string;
-  
-  // Delivery details
-  deliveryAddress: {
-    street: string;
-    city: string;
-    state?: string;
-    postalCode?: string;
-    country: string;
-    instructions?: string;
-    coordinates?: Coordinates;
-  };
-  
-  // Order details
-  items: Array<{
-    productId: string;
-    name: string;
-    quantity: number;
-    price: number;
-  }>;
-  subtotal: number;
+  customerName?: string;
+  customerAddress: string;
+  itemCount: number;
+  orderTotal: number;
   deliveryFee: number;
-  total: number;
-  
-  // Distance & time
-  estimatedDistance?: number; // km
-  estimatedDuration?: number; // minutes
-  
-  // Timestamps
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  
-  // Tracking PIN
-  trackingPin?: string;
-  
-  // Notes
-  notes?: string;
-}
-
-export interface DriverEarnings {
-  driverId: string;
-  date: string; // YYYY-MM-DD
-  deliveries: number;
+  tip: number;
+  bonus: number;
   totalEarnings: number;
-  tips: number;
-  bonuses: number;
-  deductions: number;
-  netEarnings: number;
-}
-
-export interface DriverLocation {
-  driverId: string;
-  coordinates: Coordinates;
-  heading?: number;
-  speed?: number;
-  accuracy?: number;
-  timestamp: Timestamp;
+  acceptedAt: Timestamp;
+  pickedUpAt?: Timestamp;
+  deliveredAt?: Timestamp;
+  duration?: number;
+  rating?: number;
+  customerFeedback?: string;
+  status: 'delivered' | 'cancelled';
+  cancelledAt?: Timestamp;
+  cancellationReason?: string;
+  createdAt: Timestamp;
 }

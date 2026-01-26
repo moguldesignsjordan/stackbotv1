@@ -107,7 +107,7 @@ export default function ReturnsPage() {
                   1
                 </span>
                 <p className="text-gray-600">
-                  Contact support@stackbot.com with your order number and reason for return.
+                  Contact support@stackbotglobal.com with your order number and reason for return.
                 </p>
               </div>
               <div className="flex items-start gap-3">
