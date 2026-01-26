@@ -179,7 +179,7 @@ export default function DriverSettingsPage() {
     const unsubscribe = onSnapshot(driverRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as DriverProfile;
-        setProfile({ id: docSnap.id, ...data });
+        setProfile({ ...data, id: docSnap.id });
         
         // Populate form
         setName(data.name || '');
