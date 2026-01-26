@@ -1248,3 +1248,408 @@ exports.sendPushNotification = functions.firestore
       console.error("Error sending push notification:", error);
     }
   });
+  // Add these to your existing functions/index.js file
+
+/* ============================================================
+    🚗 SET DRIVER ROLE (Admin Only)
+============================================================ */
+exports.setDriverRole = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      if (req.method === "OPTIONS") {
+        return res.status(204).send("");
+      }
+
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      // Verify admin token
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : null;
+
+      if (!idToken) {
+        return res.status(401).json({ error: "Missing Authorization token" });
+      }
+
+      const decoded = await admin.auth().verifyIdToken(idToken);
+
+      const isAdmin =
+        decoded.role === "admin" ||
+        ADMIN_EMAILS.includes(decoded.email);
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Only admins can assign driver role" });
+      }
+
+      // Parse body
+      let body = req.body;
+      if (typeof body === "string") {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          return res.status(400).json({ error: "Invalid JSON body" });
+        }
+      }
+
+      const { uid, email, name, phone, vehicleType } = body;
+
+      if (!uid) {
+        return res.status(400).json({ error: "Missing uid" });
+      }
+
+      // Set driver custom claim
+      await admin.auth().setCustomUserClaims(uid, { role: "driver" });
+
+      // Create or update driver profile in Firestore
+      const driverRef = admin.firestore().collection("drivers").doc(uid);
+      const driverDoc = await driverRef.get();
+
+      if (!driverDoc.exists) {
+        await driverRef.set({
+          userId: uid,
+          email: email || "",
+          name: name || "Driver",
+          phone: phone || "",
+          status: "offline",
+          isOnline: false,
+          vehicleType: vehicleType || "motorcycle",
+          totalDeliveries: 0,
+          rating: 5.0,
+          ratingCount: 0,
+          isVerified: true,
+          verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        await driverRef.update({
+          isVerified: true,
+          verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      console.log(`✅ Driver role assigned to ${uid}`);
+
+      return res.json({
+        success: true,
+        message: `Driver role assigned to ${uid}`,
+        uid,
+      });
+    } catch (err) {
+      console.error("setDriverRole error:", err);
+      return res.status(500).json({
+        error: "Internal server error",
+      });
+    }
+  });
+});
+
+/* ============================================================
+    📍 UPDATE DRIVER LOCATION (Callable)
+============================================================ */
+exports.updateDriverLocation = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { latitude, longitude, heading, speed } = data;
+
+  if (typeof latitude !== "number" || typeof longitude !== "number") {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Valid coordinates required."
+    );
+  }
+
+  const driverRef = admin.firestore().collection("drivers").doc(userId);
+  const driverDoc = await driverRef.get();
+
+  if (!driverDoc.exists) {
+    throw new functions.https.HttpsError("not-found", "Driver not found.");
+  }
+
+  // Update driver location
+  await driverRef.update({
+    currentLocation: {
+      lat: latitude,
+      lng: longitude,
+    },
+    lastLocationUpdate: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Also store in location history for tracking
+  const locationRef = admin
+    .firestore()
+    .collection("drivers")
+    .doc(userId)
+    .collection("locationHistory")
+    .doc();
+
+  await locationRef.set({
+    coordinates: { lat: latitude, lng: longitude },
+    heading: heading || null,
+    speed: speed || null,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // If driver has active order, update order with driver location
+  const driverData = driverDoc.data();
+  if (driverData.currentOrderId) {
+    const orderRef = admin
+      .firestore()
+      .collection("orders")
+      .doc(driverData.currentOrderId);
+
+    await orderRef.update({
+      driverLocation: {
+        lat: latitude,
+        lng: longitude,
+      },
+      driverLocationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  return { success: true };
+});
+
+/* ============================================================
+    🎯 CLAIM ORDER (Callable with Transaction)
+============================================================ */
+exports.claimOrder = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { orderId } = data;
+
+  if (!orderId) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Order ID required."
+    );
+  }
+
+  // Verify user is a driver
+  const driverRef = admin.firestore().collection("drivers").doc(userId);
+  const driverDoc = await driverRef.get();
+
+  if (!driverDoc.exists) {
+    throw new functions.https.HttpsError("permission-denied", "Not a driver.");
+  }
+
+  const driverData = driverDoc.data();
+
+  if (!driverData.isVerified) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Driver not verified."
+    );
+  }
+
+  if (driverData.currentOrderId) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "You already have an active order."
+    );
+  }
+
+  // Use transaction to claim order atomically
+  const result = await admin.firestore().runTransaction(async (transaction) => {
+    const orderRef = admin.firestore().collection("orders").doc(orderId);
+    const orderDoc = await transaction.get(orderRef);
+
+    if (!orderDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Order not found.");
+    }
+
+    const orderData = orderDoc.data();
+
+    // Check if already claimed
+    if (orderData.driverId) {
+      throw new functions.https.HttpsError(
+        "already-exists",
+        "Order already claimed by another driver."
+      );
+    }
+
+    // Check order is in claimable status
+    const claimableStatuses = ["ready", "confirmed", "preparing"];
+    if (!claimableStatuses.includes(orderData.status)) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `Order cannot be claimed. Status: ${orderData.status}`
+      );
+    }
+
+    // Claim the order
+    const updateData = {
+      driverId: userId,
+      driverName: driverData.name,
+      driverPhone: driverData.phone || null,
+      status: "claimed",
+      deliveryStatus: "claimed",
+      claimedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    transaction.update(orderRef, updateData);
+
+    // Update vendor subcollection
+    const vendorOrderRef = admin
+      .firestore()
+      .collection("vendors")
+      .doc(orderData.vendorId)
+      .collection("orders")
+      .doc(orderId);
+    transaction.update(vendorOrderRef, updateData);
+
+    // Update customer subcollection
+    const customerOrderRef = admin
+      .firestore()
+      .collection("customers")
+      .doc(orderData.customerId)
+      .collection("orders")
+      .doc(orderId);
+    transaction.update(customerOrderRef, updateData);
+
+    // Update driver status
+    transaction.update(driverRef, {
+      status: "busy",
+      currentOrderId: orderId,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      orderId,
+      vendorId: orderData.vendorId,
+      vendorName: orderData.vendorName,
+    };
+  });
+
+  // Create notification for customer
+  await createNotification({
+    userId: result.vendorId,
+    type: "driver_assigned",
+    title: "Driver Assigned 🚗",
+    message: `${driverData.name} has been assigned to deliver order #${orderId.slice(-6)}`,
+    data: {
+      orderId,
+      driverId: userId,
+      driverName: driverData.name,
+    },
+  });
+
+  return {
+    success: true,
+    orderId,
+    message: "Order claimed successfully",
+  };
+});
+
+/* ============================================================
+    ✅ COMPLETE DELIVERY (Callable)
+============================================================ */
+exports.completeDelivery = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required.");
+  }
+
+  const userId = context.auth.uid;
+  const { orderId, deliveryPin } = data;
+
+  if (!orderId) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Order ID required."
+    );
+  }
+
+  const orderRef = admin.firestore().collection("orders").doc(orderId);
+  const orderDoc = await orderRef.get();
+
+  if (!orderDoc.exists) {
+    throw new functions.https.HttpsError("not-found", "Order not found.");
+  }
+
+  const orderData = orderDoc.data();
+
+  // Verify driver owns this order
+  if (orderData.driverId !== userId) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "You are not assigned to this order."
+    );
+  }
+
+  // Optional: Verify delivery PIN
+  if (deliveryPin && orderData.trackingPin !== deliveryPin) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Invalid delivery PIN."
+    );
+  }
+
+  const updateData = {
+    status: "delivered",
+    deliveryStatus: "delivered",
+    deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Update all collections
+  await orderRef.update(updateData);
+
+  const vendorOrderRef = admin
+    .firestore()
+    .collection("vendors")
+    .doc(orderData.vendorId)
+    .collection("orders")
+    .doc(orderId);
+  await vendorOrderRef.update(updateData);
+
+  const customerOrderRef = admin
+    .firestore()
+    .collection("customers")
+    .doc(orderData.customerId)
+    .collection("orders")
+    .doc(orderId);
+  await customerOrderRef.update(updateData);
+
+  // Update driver stats
+  const driverRef = admin.firestore().collection("drivers").doc(userId);
+  const driverDoc = await driverRef.get();
+  const driverData = driverDoc.data();
+
+  await driverRef.update({
+    status: "available",
+    currentOrderId: null,
+    totalDeliveries: (driverData.totalDeliveries || 0) + 1,
+    lastDeliveryAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Notify customer
+  await createNotification({
+    userId: orderData.customerId,
+    type: "order_delivered",
+    title: "Order Delivered! ✅",
+    message: `Your order from ${orderData.vendorName} has been delivered. Enjoy!`,
+    data: {
+      orderId,
+      vendorId: orderData.vendorId,
+      vendorName: orderData.vendorName,
+    },
+  });
+
+  return {
+    success: true,
+    message: "Delivery completed",
+  };
+});

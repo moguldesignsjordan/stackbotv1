@@ -1,4 +1,5 @@
 // src/contexts/LanguageContext.tsx
+// UPDATED: Default language changed from 'en' to 'es'
 'use client';
 
 import React, {
@@ -34,7 +35,7 @@ interface LanguageContextType {
 
 const LANGUAGE_STORAGE_KEY = 'stackbot_language';
 const USD_TO_DOP_RATE = 60.5; // Update as needed - Dominican Peso rate
-const DEFAULT_LANGUAGE: Language = 'es'; // Default to Spanish
+const DEFAULT_LANGUAGE: Language = 'es'; // Changed from 'en' to 'es'
 
 // ============================================================================
 // Context
@@ -60,6 +61,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       if (saved && (saved === 'en' || saved === 'es')) {
         setLanguageState(saved);
       }
+      // If no saved preference, keep the default (Spanish)
     } catch (error) {
       console.error('[Language] Failed to load language preference:', error);
     }
@@ -81,7 +83,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     (key: TranslationKey, replacements?: Record<string, string | number>): string => {
       const dict = translations[language];
       
-      // FIX APPLIED HERE: Explicitly typed as string to allow .replace()
+      // Explicitly typed as string to allow .replace()
       let text: string = dict[key] || translations.en[key] || key;
 
       // Replace placeholders like {count}, {name}, etc.
@@ -158,12 +160,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return (
       <LanguageContext.Provider
         value={{
-          language: 'es',
+          language: DEFAULT_LANGUAGE,
           currency: 'DOP',
           setLanguage: () => {},
           t: (key) => key,
-          formatCurrency: (amount) => `RD$${Math.round(amount * USD_TO_DOP_RATE)}`,
-          formatCurrencyCompact: (amount) => `RD$${Math.round(amount * USD_TO_DOP_RATE)}`,
+          formatCurrency: (amount) => `RD$${amount}`,
+          formatCurrencyCompact: (amount) => `RD$${amount}`,
           exchangeRate: USD_TO_DOP_RATE,
         }}
       >

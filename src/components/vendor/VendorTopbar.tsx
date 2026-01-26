@@ -18,6 +18,7 @@ import {
   updateDoc,
   getDoc,
   Timestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   Bell,
@@ -27,7 +28,10 @@ import {
   ChevronDown,
   Eye,
   ExternalLink,
+  Globe,
 } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { TranslationKey } from '@/lib/translations';
 
 interface Notification {
   id: string;
@@ -45,19 +49,29 @@ interface VendorData {
   logoUrl?: string;
 }
 
-function formatTimeAgo(date: Date) {
+function formatTimeAgo(date: Date, t: (key: TranslationKey, replacements?: Record<string, string | number>) => string) {
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+  if (diffInSeconds < 60) return t('vendor.orders.justNow' as TranslationKey);
+  if (diffInSeconds < 3600) {
+    const mins = Math.floor(diffInSeconds / 60);
+    return t('vendor.orders.minutesAgo' as TranslationKey, { count: mins });
+  }
+  if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600);
+    return t('vendor.orders.hoursAgo' as TranslationKey, { count: hours });
+  }
+  if (diffInSeconds < 604800) {
+    const days = Math.floor(diffInSeconds / 86400);
+    return t('vendor.orders.daysAgo' as TranslationKey, { count: days });
+  }
   return date.toLocaleDateString();
 }
 
 export default function VendorTopbar() {
   const router = useRouter();
+  const { t, language, setLanguage } = useLanguage();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -96,104 +110,99 @@ export default function VendorTopbar() {
     fetchVendor();
   }, [currentUser]);
 
-  // Fetch notifications from MAIN notifications collection
+  // Subscribe to notifications
   useEffect(() => {
     if (!currentUser) return;
 
     const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', currentUser.uid),
+      collection(db, 'vendors', currentUser.uid, 'notifications'),
       orderBy('createdAt', 'desc'),
       limit(20)
     );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const notifs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Notification[];
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifs: Notification[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Notification[];
 
-        const newUnread = notifs.filter((n) => !n.read).length;
-        
-        // Trigger animation only when count increases
-        if (newUnread > prevUnreadCount.current) {
-          setIsNew(true);
-          setTimeout(() => setIsNew(false), 1000);
-        }
-        prevUnreadCount.current = newUnread;
+      setNotifications(notifs);
 
-        setNotifications(notifs);
-        setUnreadCount(newUnread);
-      },
-      (error) => {
-        console.error('Notification listener error:', error);
+      const unread = notifs.filter((n) => !n.read).length;
+      if (unread > prevUnreadCount.current && prevUnreadCount.current !== 0) {
+        setIsNew(true);
+        setTimeout(() => setIsNew(false), 3000);
       }
-    );
+      setUnreadCount(unread);
+      prevUnreadCount.current = unread;
+    });
 
     return () => unsubscribe();
   }, [currentUser]);
 
-  // Click outside handlers
+  // Click outside handler
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(e.target as Node)) {
         setShowNotifications(false);
       }
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
       }
     };
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const markAsRead = async (id: string, notification: Notification) => {
-    try {
-      await updateDoc(doc(db, 'notifications', id), { read: true });
-      if (notification.data?.url) {
-        router.push(notification.data.url);
-      } else if (notification.data?.orderId) {
-        router.push(`/vendor/orders/${notification.data.orderId}`);
-      }
-      setShowNotifications(false);
-    } catch (error) {
-      console.error('Error marking read:', error);
-    }
+  const markAllAsRead = async () => {
+    if (!currentUser || notifications.length === 0) return;
+
+    const batch = writeBatch(db);
+    notifications
+      .filter((n) => !n.read)
+      .forEach((n) => {
+        const ref = doc(db, 'vendors', currentUser.uid, 'notifications', n.id);
+        batch.update(ref, { read: true });
+      });
+
+    await batch.commit();
   };
 
-  const markAllAsRead = async () => {
-    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
-    for (const id of unreadIds) {
-      await updateDoc(doc(db, 'notifications', id), { read: true });
+  const handleNotificationClick = async (notification: Notification) => {
+    if (!currentUser) return;
+
+    // Mark as read
+    if (!notification.read) {
+      await updateDoc(
+        doc(db, 'vendors', currentUser.uid, 'notifications', notification.id),
+        { read: true }
+      );
     }
+
+    // Navigate if URL provided
+    if (notification.data?.url) {
+      router.push(notification.data.url);
+    } else if (notification.data?.orderId) {
+      router.push(`/vendor/orders/${notification.data.orderId}`);
+    }
+
+    setShowNotifications(false);
   };
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.push('/login');
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
+    await signOut(auth);
+    router.replace('/login');
   };
 
-  const getTimestamp = (createdAt: Notification['createdAt']): Date | null => {
-    if (!createdAt) return null;
-    if ('toDate' in createdAt && typeof createdAt.toDate === 'function') {
-      return createdAt.toDate();
-    }
-    if ('seconds' in createdAt) {
-      return new Date(createdAt.seconds * 1000);
-    }
-    return null;
+  const toggleLanguage = () => {
+    setLanguage(language === 'en' ? 'es' : 'en');
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-gray-100 pt-20 pb-5 lg:pt-0">
-      <div className="flex items-center justify-between h-16 px-4 lg:px-8">
-        {/* Left: Logo on Mobile */}
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 py-3 lg:px-6">
+        {/* Mobile Logo */}
         <Link href="/vendor" className="lg:hidden">
           <Image
             src="/stackbot-logo-purp.png"
@@ -216,13 +225,27 @@ export default function VendorTopbar() {
             />
           )}
           <div>
-            <p className="text-xs text-gray-500 font-medium">Vendor Portal</p>
-            <p className="font-semibold text-gray-900">{vendor?.name || 'Dashboard'}</p>
+            <p className="text-xs text-gray-500 font-medium">
+              {t('vendor.portal' as TranslationKey)}
+            </p>
+            <p className="font-semibold text-gray-900">
+              {vendor?.name || t('vendor.nav.dashboard' as TranslationKey)}
+            </p>
           </div>
         </div>
 
-        {/* Right: View Store, Notifications & Menu */}
+        {/* Right: Language, View Store, Notifications & Menu */}
         <div className="flex items-center gap-2">
+          {/* Language Toggle - Visible on all screen sizes */}
+          <button
+            onClick={toggleLanguage}
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-xl font-medium text-sm transition-colors"
+            title={language === 'en' ? 'Cambiar a Español' : 'Switch to English'}
+          >
+            <Globe className="h-4 w-4" />
+            <span className="uppercase">{language}</span>
+          </button>
+
           {/* View Store Button */}
           {vendor?.slug && (
             <Link
@@ -231,7 +254,9 @@ export default function VendorTopbar() {
               className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-sb-primary/10 text-sb-primary rounded-xl font-medium text-sm hover:bg-sb-primary/20 transition-colors"
             >
               <Eye className="h-4 w-4" />
-              <span className="hidden md:inline">View Store</span>
+              <span className="hidden md:inline">
+                {t('vendor.nav.viewStore' as TranslationKey)}
+              </span>
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           )}
@@ -267,11 +292,13 @@ export default function VendorTopbar() {
               <div className="absolute right-0 mt-3 w-[calc(100vw-2rem)] sm:w-80 md:w-96 max-w-[400px] bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-4 duration-200">
                 <div className="px-4 py-3 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
                   <div>
-                    <h3 className="font-semibold text-gray-900">Notifications</h3>
+                    <h3 className="font-semibold text-gray-900">
+                      {t('vendor.notifications.title' as TranslationKey)}
+                    </h3>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {unreadCount > 0
-                        ? `You have ${unreadCount} unread`
-                        : 'All caught up!'}
+                        ? t('vendor.notifications.unread' as TranslationKey, { count: unreadCount })
+                        : t('vendor.notifications.allCaughtUp' as TranslationKey)}
                     </p>
                   </div>
                   {unreadCount > 0 && (
@@ -280,7 +307,7 @@ export default function VendorTopbar() {
                       className="text-xs flex items-center gap-1 text-sb-primary hover:text-sb-primary/80 font-medium px-2 py-1 hover:bg-purple-50 rounded-lg transition"
                     >
                       <Check className="w-3 h-3" />
-                      Mark all read
+                      {t('vendor.notifications.markAllRead' as TranslationKey)}
                     </button>
                   )}
                 </div>
@@ -291,37 +318,42 @@ export default function VendorTopbar() {
                       <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
                         <Bell className="h-6 w-6 text-gray-300" />
                       </div>
-                      <p className="text-gray-900 font-medium">No notifications</p>
+                      <p className="text-gray-900 font-medium">
+                        {t('vendor.notifications.empty' as TranslationKey)}
+                      </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        We&apos;ll notify you when orders come in.
+                        {t('vendor.notifications.emptyDesc' as TranslationKey)}
                       </p>
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {notifications.map((notification) => {
-                        const timestamp = getTimestamp(notification.createdAt);
+                        const timestamp = notification.createdAt
+                          ? 'seconds' in notification.createdAt
+                            ? new Date(notification.createdAt.seconds * 1000)
+                            : notification.createdAt instanceof Timestamp
+                            ? notification.createdAt.toDate()
+                            : null
+                          : null;
+
                         return (
                           <div
                             key={notification.id}
-                            onClick={() => markAsRead(notification.id, notification)}
-                            className={`group p-4 hover:bg-gray-50 transition-all cursor-pointer relative ${
-                              !notification.read
-                                ? 'bg-purple-50/40 hover:bg-purple-50/70'
-                                : ''
+                            onClick={() => handleNotificationClick(notification)}
+                            className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition ${
+                              !notification.read ? 'bg-purple-50/30' : ''
                             }`}
                           >
                             <div className="flex gap-3">
                               <div
-                                className={`mt-1.5 h-2.5 w-2.5 rounded-full flex-shrink-0 transition-transform ${
-                                  !notification.read
-                                    ? 'bg-sb-primary scale-100'
-                                    : 'bg-gray-200 scale-75'
+                                className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                                  !notification.read ? 'bg-sb-primary' : 'bg-transparent'
                                 }`}
                               />
-                              <div className="flex-1 space-y-1 min-w-0">
-                                <div className="flex justify-between items-start gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
                                   <p
-                                    className={`text-sm truncate ${
+                                    className={`text-sm line-clamp-1 ${
                                       !notification.read
                                         ? 'font-semibold text-gray-900'
                                         : 'text-gray-700'
@@ -330,7 +362,7 @@ export default function VendorTopbar() {
                                     {notification.title}
                                   </p>
                                   <span className="text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
-                                    {timestamp ? formatTimeAgo(timestamp) : 'Just now'}
+                                    {timestamp ? formatTimeAgo(timestamp, t) : t('vendor.orders.justNow' as TranslationKey)}
                                   </span>
                                 </div>
                                 <p className="text-sm text-gray-500 line-clamp-2">
@@ -372,24 +404,27 @@ export default function VendorTopbar() {
                       onClick={() => setShowMenu(false)}
                     >
                       <Eye className="h-4 w-4" />
-                      View Store
+                      {t('vendor.nav.viewStore' as TranslationKey)}
                     </Link>
                   )}
+
                   <Link
                     href="/vendor/settings"
                     className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
                     onClick={() => setShowMenu(false)}
                   >
                     <Settings className="h-4 w-4" />
-                    Settings
+                    {t('vendor.nav.settings' as TranslationKey)}
                   </Link>
+
                   <div className="border-t border-gray-100 my-1" />
+
                   <button
                     onClick={handleLogout}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
                   >
                     <LogOut className="h-4 w-4" />
-                    Logout
+                    {t('vendor.nav.logout' as TranslationKey)}
                   </button>
                 </div>
               </>

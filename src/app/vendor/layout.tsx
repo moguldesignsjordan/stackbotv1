@@ -15,17 +15,26 @@ import {
 } from 'lucide-react';
 import VendorMobileNav from '@/components/vendor/VendorMobileNav';
 import VendorTopbar from '@/components/vendor/VendorTopbar';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { LanguageToggle } from '@/components/ui/LanguageToggle';
+import { TranslationKey } from '@/lib/translations';
 
-const navItems = [
-  { href: '/vendor', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-  { href: '/vendor/products', icon: Package, label: 'Products' },
-  { href: '/vendor/orders', icon: ShoppingCart, label: 'Orders' },
-  { href: '/vendor/settings', icon: Settings, label: 'Settings' },
+const navItems: {
+  href: string;
+  icon: typeof LayoutDashboard;
+  labelKey: TranslationKey;
+  exact?: boolean;
+}[] = [
+  { href: '/vendor', icon: LayoutDashboard, labelKey: 'vendor.nav.dashboard', exact: true },
+  { href: '/vendor/products', icon: Package, labelKey: 'vendor.nav.products' },
+  { href: '/vendor/orders', icon: ShoppingCart, labelKey: 'vendor.nav.orders' },
+  { href: '/vendor/settings', icon: Settings, labelKey: 'vendor.nav.settings' },
 ];
 
 export default function VendorLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname.startsWith(href);
@@ -50,7 +59,9 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
                 height={40}
                 priority
               />
-              <p className="text-sm font-semibold text-gray-600">Vendor Portal</p>
+              <p className="text-sm font-semibold text-gray-600">
+                {t('vendor.portal' as TranslationKey)}
+              </p>
             </Link>
           </div>
 
@@ -71,20 +82,26 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
                   }`}
                 >
                   <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}
           </nav>
 
-          {/* Logout */}
-          <div className="p-4 border-t border-gray-50">
+          {/* Language Toggle & Logout */}
+          <div className="p-4 border-t border-gray-50 space-y-3">
+            {/* Language Toggle */}
+            <div className="flex justify-center">
+              <LanguageToggle variant="pill" />
+            </div>
+
+            {/* Logout Button */}
             <button
               onClick={logout}
               className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-red-500 hover:bg-red-50 transition-all w-full"
             >
               <LogOut className="h-5 w-5" />
-              Logout
+              {t('vendor.nav.logout' as TranslationKey)}
             </button>
           </div>
         </div>

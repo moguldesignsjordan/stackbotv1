@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import {
   Package,
-  Clock,
   CheckCircle,
   Truck,
   XCircle,
@@ -15,6 +14,8 @@ import {
   RefreshCw,
   Bell,
 } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { TranslationKey } from '@/lib/translations';
 
 interface Order {
   id: string;
@@ -26,52 +27,75 @@ interface Order {
   createdAt: string;
 }
 
-const statusConfig: Record<string, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
-  pending: { label: 'New Order', color: 'text-yellow-700', bgColor: 'bg-yellow-100', icon: Bell },
-  confirmed: { label: 'Confirmed', color: 'text-blue-700', bgColor: 'bg-blue-100', icon: CheckCircle },
-  preparing: { label: 'Preparing', color: 'text-orange-700', bgColor: 'bg-orange-100', icon: Package },
-  ready_for_pickup: { label: 'Ready', color: 'text-purple-700', bgColor: 'bg-purple-100', icon: Package },
-  out_for_delivery: { label: 'Out for Delivery', color: 'text-indigo-700', bgColor: 'bg-indigo-100', icon: Truck },
-  delivered: { label: 'Delivered', color: 'text-green-700', bgColor: 'bg-green-100', icon: CheckCircle },
-  cancelled: { label: 'Cancelled', color: 'text-red-700', bgColor: 'bg-red-100', icon: XCircle },
+type StatusKey =
+  | 'pending'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready_for_pickup'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'cancelled';
+
+const statusIcons: Record<StatusKey, React.ElementType> = {
+  pending: Bell,
+  confirmed: CheckCircle,
+  preparing: Package,
+  ready_for_pickup: Package,
+  out_for_delivery: Truck,
+  delivered: CheckCircle,
+  cancelled: XCircle,
 };
 
-const tabs = [
-  { key: 'active', label: 'Active Orders' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'all', label: 'All Orders' },
-];
+const statusColors: Record<StatusKey, { color: string; bgColor: string }> = {
+  pending: { color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
+  confirmed: { color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  preparing: { color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  ready_for_pickup: { color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  out_for_delivery: { color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
+  delivered: { color: 'text-green-700', bgColor: 'bg-green-100' },
+  cancelled: { color: 'text-red-700', bgColor: 'bg-red-100' },
+};
 
 export default function VendorOrdersPage() {
   const { user } = useAuth();
+  const { t, formatCurrency, language } = useLanguage();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('active');
 
-  const fetchOrders = useCallback(async (showRefresh = false) => {
-    if (!user) return;
+  const tabs = [
+    { key: 'active', labelKey: 'vendor.orders.tabs.active' as TranslationKey },
+    { key: 'completed', labelKey: 'vendor.orders.tabs.completed' as TranslationKey },
+    { key: 'all', labelKey: 'vendor.orders.tabs.all' as TranslationKey },
+  ];
 
-    if (showRefresh) setRefreshing(true);
+  const fetchOrders = useCallback(
+    async (showRefresh = false) => {
+      if (!user) return;
 
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/orders', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setOrders(data.orders || []);
-    } catch (error) {
-      console.error('Failed to fetch orders:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user]);
+      if (showRefresh) setRefreshing(true);
+
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/orders', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setOrders(data.orders || []);
+      } catch (error) {
+        console.error('Failed to fetch orders:', error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [user]
+  );
 
   useEffect(() => {
     fetchOrders();
-    
+
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => fetchOrders(), 30000);
     return () => clearInterval(interval);
@@ -93,10 +117,19 @@ export default function VendorOrdersPage() {
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-    return date.toLocaleDateString();
+    if (diffMins < 1) return t('vendor.orders.justNow' as TranslationKey);
+    if (diffMins < 60)
+      return t('vendor.orders.minutesAgo' as TranslationKey, { count: diffMins });
+    if (diffMins < 1440)
+      return t('vendor.orders.hoursAgo' as TranslationKey, {
+        count: Math.floor(diffMins / 60),
+      });
+    return date.toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US');
+  };
+
+  const getStatusLabel = (status: string): string => {
+    const key = `vendor.status.${status}` as TranslationKey;
+    return t(key);
   };
 
   const newOrdersCount = orders.filter((o) => o.status === 'pending').length;
@@ -114,10 +147,18 @@ export default function VendorOrdersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {t('vendor.orders.title' as TranslationKey)}
+          </h1>
           {newOrdersCount > 0 && (
             <p className="text-sm text-orange-600 font-medium">
-              {newOrdersCount} new order{newOrdersCount > 1 ? 's' : ''} waiting
+              {newOrdersCount > 1
+                ? t('vendor.orders.newOrdersWaitingPlural' as TranslationKey, {
+                    count: newOrdersCount,
+                  })
+                : t('vendor.orders.newOrdersWaiting' as TranslationKey, {
+                    count: newOrdersCount,
+                  })}
             </p>
           )}
         </div>
@@ -128,23 +169,23 @@ export default function VendorOrdersPage() {
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
+          {t('vendor.orders.refresh' as TranslationKey)}
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200">
+      <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'border-[#55529d] text-[#55529d]'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tab.label}
+            {t(tab.labelKey)}
             {tab.key === 'active' && newOrdersCount > 0 && (
               <span className="ml-2 px-2 py-0.5 bg-orange-500 text-white text-xs rounded-full">
                 {newOrdersCount}
@@ -158,18 +199,21 @@ export default function VendorOrdersPage() {
       {filteredOrders.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No orders</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            {t('vendor.orders.noOrders' as TranslationKey)}
+          </h3>
           <p className="text-gray-600">
             {activeTab === 'active'
-              ? 'No active orders right now'
-              : 'No orders to show'}
+              ? t('vendor.orders.noActiveOrders' as TranslationKey)
+              : t('vendor.orders.noOrdersToShow' as TranslationKey)}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
           {filteredOrders.map((order) => {
-            const status = statusConfig[order.status] || statusConfig.pending;
-            const StatusIcon = status.icon;
+            const statusKey = (order.status || 'pending') as StatusKey;
+            const StatusIcon = statusIcons[statusKey] || Bell;
+            const colors = statusColors[statusKey] || statusColors.pending;
             const isNew = order.status === 'pending';
 
             return (
@@ -189,14 +233,14 @@ export default function VendorOrdersPage() {
                           {order.orderId}
                         </span>
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${status.bgColor} ${status.color}`}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${colors.bgColor} ${colors.color}`}
                         >
                           <StatusIcon className="w-3 h-3" />
-                          {status.label}
+                          {getStatusLabel(order.status)}
                         </span>
                         {isNew && (
                           <span className="px-2 py-1 bg-orange-500 text-white text-xs font-bold rounded animate-pulse">
-                            NEW
+                            {t('vendor.orders.new' as TranslationKey)}
                           </span>
                         )}
                       </div>
@@ -210,15 +254,17 @@ export default function VendorOrdersPage() {
                       </p>
 
                       {/* Items summary */}
-                      <p className="text-sm text-gray-600 mt-2">
-                        {order.items.map((item) => `${item.quantity}x ${item.name}`).join(', ')}
+                      <p className="text-sm text-gray-600 mt-2 line-clamp-1">
+                        {order.items
+                          .map((item) => `${item.quantity}x ${item.name}`)
+                          .join(', ')}
                       </p>
                     </div>
 
                     {/* Right side */}
                     <div className="text-right flex flex-col items-end">
                       <span className="font-bold text-lg text-gray-900">
-                        ${order.total.toFixed(2)}
+                        {formatCurrency(order.total)}
                       </span>
                       <span className="text-xs text-gray-500 mt-1">
                         {formatDate(order.createdAt)}

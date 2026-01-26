@@ -1,26 +1,26 @@
 // src/app/vendor/products/[id]/edit/page.tsx
-"use client";
+'use client';
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase/config";
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase/config';
 import {
   doc,
   getDoc,
   updateDoc,
   deleteDoc,
   serverTimestamp,
-} from "firebase/firestore";
+} from 'firebase/firestore';
 import {
   getStorage,
   ref,
   uploadBytes,
   getDownloadURL,
-} from "firebase/storage";
-import { nanoid } from "nanoid";
+} from 'firebase/storage';
+import { nanoid } from 'nanoid';
 import {
   ArrowLeft,
   Trash2,
@@ -32,18 +32,21 @@ import {
   X,
   AlertTriangle,
   Loader2,
-} from "lucide-react";
+} from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { TranslationKey } from '@/lib/translations';
 
 import type {
   Product,
   ProductOptionGroup,
   ProductOptionItem,
-} from "@/lib/types/firestore";
+} from '@/lib/types/firestore';
 
 export default function EditProductPage() {
   const { id: productId } = useParams<{ id: string }>();
   const router = useRouter();
   const storage = getStorage();
+  const { t, language } = useLanguage();
 
   const [user, setUser] = useState<any>(null);
   const [product, setProduct] = useState<Product | null>(null);
@@ -61,41 +64,37 @@ export default function EditProductPage() {
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       if (!u) {
-        router.push("/login");
+        router.push('/login');
         return;
       }
       setUser(u);
 
       // Fetch product
       const snap = await getDoc(
-        doc(db, "vendors", u.uid, "products", productId!)
+        doc(db, 'vendors', u.uid, 'products', productId!)
       );
-
-      if (!snap.exists()) {
-        router.push("/vendor/products");
-        return;
+      if (snap.exists()) {
+        const data = snap.data() as Product;
+        setProduct({ ...data, id: snap.id });
+        setExistingImages(data.images || []);
       }
-
-      const data = snap.data() as Product;
-      setProduct({ ...data, id: snap.id });
-      setExistingImages(data.images || []);
       setLoading(false);
     });
-  }, [productId, router]);
+  }, [router, productId]);
 
-  /* ---------------- NEW IMAGE PREVIEWS ---------------- */
+  /* ---------------- NEW IMAGE PREVIEW ---------------- */
   useEffect(() => {
     if (newImages.length === 0) {
       setNewImagePreviews([]);
       return;
     }
-    const urls = newImages.map((file) => URL.createObjectURL(file));
+    const urls = newImages.map((f) => URL.createObjectURL(f));
     setNewImagePreviews(urls);
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
   }, [newImages]);
 
   /* ---------------- IMAGE HANDLERS ---------------- */
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setNewImages([...newImages, ...Array.from(e.target.files)]);
     }
@@ -113,7 +112,7 @@ export default function EditProductPage() {
     if (!user) return [];
     const urls: string[] = [];
     for (const file of newImages) {
-      const path = `products/${user.uid}/${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+      const path = `products/${user.uid}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, path);
       await uploadBytes(storageRef, file);
       urls.push(await getDownloadURL(storageRef));
@@ -130,8 +129,8 @@ export default function EditProductPage() {
         ...(product.options || []),
         {
           id: nanoid(),
-          title: "",
-          type: "single",
+          title: '',
+          type: 'single',
           required: false,
           options: [],
         },
@@ -141,10 +140,9 @@ export default function EditProductPage() {
 
   const removeOptionGroup = (groupIndex: number) => {
     if (!product) return;
-    setProduct({
-      ...product,
-      options: (product.options || []).filter((_, i) => i !== groupIndex),
-    });
+    const updated = structuredClone(product.options || []);
+    updated.splice(groupIndex, 1);
+    setProduct({ ...product, options: updated });
   };
 
   const updateOptionGroup = (
@@ -164,7 +162,7 @@ export default function EditProductPage() {
     const updated = structuredClone(product.options || []);
     updated[groupIndex].options.push({
       id: nanoid(),
-      label: "",
+      label: '',
       priceDelta: 0,
     });
     setProduct({ ...product, options: updated });
@@ -203,19 +201,19 @@ export default function EditProductPage() {
       // Combine existing + new images
       const allImages = [...existingImages, ...uploadedUrls];
 
-      await updateDoc(doc(db, "vendors", user.uid, "products", product.id), {
+      await updateDoc(doc(db, 'vendors', user.uid, 'products', product.id), {
         name: product.name,
-        description: product.description || "",
+        description: product.description || '',
         price: Number(product.price),
         images: allImages,
         options: product.options || [],
         updated_at: serverTimestamp(),
       });
 
-      router.push("/vendor/products");
+      router.push('/vendor/products');
     } catch (error) {
-      console.error("Error saving product:", error);
-      alert("Failed to save product. Please try again.");
+      console.error('Error saving product:', error);
+      alert(t('vendor.productForm.saveFailed' as TranslationKey));
     } finally {
       setSaving(false);
     }
@@ -227,11 +225,11 @@ export default function EditProductPage() {
 
     setDeleting(true);
     try {
-      await deleteDoc(doc(db, "vendors", user.uid, "products", product.id));
-      router.push("/vendor/products");
+      await deleteDoc(doc(db, 'vendors', user.uid, 'products', product.id));
+      router.push('/vendor/products');
     } catch (error) {
-      console.error("Error deleting product:", error);
-      alert("Failed to delete product. Please try again.");
+      console.error('Error deleting product:', error);
+      alert(t('vendor.productForm.deleteFailed' as TranslationKey));
     } finally {
       setDeleting(false);
     }
@@ -250,15 +248,16 @@ export default function EditProductPage() {
     return (
       <div className="text-center py-12">
         <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">Product not found</p>
+        <p className="text-gray-500">{t('vendor.productForm.productNotFound' as TranslationKey)}</p>
       </div>
     );
   }
 
   const totalImages = existingImages.length + newImages.length;
+  const currencySymbol = language === 'es' ? 'RD$' : '$';
 
   return (
-    <form onSubmit={saveProduct} className="space-y-6 p-4 md:p-6 max-w-3xl pb-32">
+    <form onSubmit={saveProduct} className="space-y-6 max-w-3xl pb-32">
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -267,7 +266,7 @@ export default function EditProductPage() {
           className="inline-flex items-center gap-2 text-sb-primary hover:underline font-medium"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back
+          {t('vendor.productForm.back' as TranslationKey)}
         </button>
 
         <button
@@ -276,44 +275,46 @@ export default function EditProductPage() {
           className="inline-flex items-center gap-2 text-red-600 hover:text-red-700 font-medium"
         >
           <Trash2 className="w-4 h-4" />
-          Delete
+          {t('vendor.productForm.delete' as TranslationKey)}
         </button>
       </div>
 
-      <h1 className="text-2xl sm:text-3xl font-bold">Edit Product</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold">
+        {t('vendor.productForm.editProduct' as TranslationKey)}
+      </h1>
 
       {/* Basic Info Card */}
       <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           <Package className="w-5 h-5 text-sb-primary" />
-          Product Details
+          {t('vendor.productForm.productDetails' as TranslationKey)}
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Product Name *
+              {t('vendor.productForm.productName' as TranslationKey)} *
             </label>
             <input
               type="text"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
-              value={product.name || ""}
+              value={product.name || ''}
               onChange={(e) => setProduct({ ...product, name: e.target.value })}
-              placeholder="Product name"
+              placeholder={t('vendor.productForm.productNamePlaceholder' as TranslationKey)}
               required
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Price (RD$) *
+              {t('vendor.productForm.price' as TranslationKey)} ({currencySymbol}) *
             </label>
             <input
               type="number"
               step="0.01"
               min="0"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors"
-              value={product.price ?? ""}
+              value={product.price ?? ''}
               onChange={(e) =>
                 setProduct({
                   ...product,
@@ -327,37 +328,33 @@ export default function EditProductPage() {
 
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Description
+              {t('vendor.productForm.description' as TranslationKey)}
             </label>
             <textarea
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-colors resize-none"
               rows={3}
-              value={product.description || ""}
+              value={product.description || ''}
               onChange={(e) =>
                 setProduct({ ...product, description: e.target.value })
               }
-              placeholder="Describe your product..."
+              placeholder={t('vendor.productForm.descriptionPlaceholder' as TranslationKey)}
             />
           </div>
         </div>
       </div>
 
-      {/* Image Card - Multi Upload */}
+      {/* Images Card */}
       <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           <ImageIcon className="w-5 h-5 text-sb-primary" />
-          Product Images
-          <span className="text-sm font-normal text-gray-500">
-            ({totalImages} image{totalImages !== 1 ? "s" : ""})
-          </span>
+          {t('vendor.productForm.productImages' as TranslationKey)} ({totalImages})
         </h2>
 
-        {/* Image Previews Grid */}
-        {(existingImages.length > 0 || newImagePreviews.length > 0) && (
+        {/* Existing Images */}
+        {existingImages.length > 0 && (
           <div className="flex flex-wrap gap-3">
-            {/* Existing Images */}
             {existingImages.map((url, index) => (
-              <div key={`existing-${index}`} className="relative group">
+              <div key={url} className="relative group">
                 <img
                   src={url}
                   alt={`Product ${index + 1}`}
@@ -370,22 +367,24 @@ export default function EditProductPage() {
                 >
                   <X className="w-3 h-3" />
                 </button>
-                {index === 0 && (
-                  <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded">
-                    Main
-                  </span>
-                )}
               </div>
             ))}
+          </div>
+        )}
 
-            {/* New Image Previews */}
+        {/* New Image Previews */}
+        {newImagePreviews.length > 0 && (
+          <div className="flex flex-wrap gap-3">
             {newImagePreviews.map((url, index) => (
-              <div key={`new-${index}`} className="relative group">
+              <div key={url} className="relative group">
                 <img
                   src={url}
                   alt={`New ${index + 1}`}
                   className="w-24 h-24 object-cover rounded-lg border border-green-300"
                 />
+                <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded">
+                  NEW
+                </div>
                 <button
                   type="button"
                   onClick={() => removeNewImage(index)}
@@ -393,9 +392,6 @@ export default function EditProductPage() {
                 >
                   <X className="w-3 h-3" />
                 </button>
-                <span className="absolute bottom-1 left-1 text-[10px] bg-green-500 text-white px-1.5 py-0.5 rounded">
-                  New
-                </span>
               </div>
             ))}
           </div>
@@ -407,17 +403,19 @@ export default function EditProductPage() {
             type="file"
             accept="image/*"
             multiple
-            onChange={handleImageSelect}
+            onChange={handleNewImageSelect}
             className="hidden"
           />
           <div className="text-center">
             <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="text-sm text-gray-600">
-              <span className="text-sb-primary font-medium">Click to upload</span>{" "}
-              or drag and drop
+              <span className="text-sb-primary font-medium">
+                {t('vendor.productForm.clickToUpload' as TranslationKey)}
+              </span>{' '}
+              {t('vendor.productForm.orDragDrop' as TranslationKey)}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              PNG, JPG up to 10MB each • First image is the main image
+              {t('vendor.productForm.imageFormats' as TranslationKey)}
             </p>
           </div>
         </label>
@@ -426,14 +424,16 @@ export default function EditProductPage() {
       {/* Product Options Card */}
       <div className="bg-white rounded-xl shadow-sm border p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Product Options</h2>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {t('vendor.productForm.productOptions' as TranslationKey)}
+          </h2>
           <button
             type="button"
             onClick={addOptionGroup}
             className="flex items-center gap-1.5 text-sm font-medium text-sb-primary hover:text-sb-primary/80 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Add Group
+            {t('vendor.productForm.addGroup' as TranslationKey)}
           </button>
         </div>
 
@@ -441,109 +441,151 @@ export default function EditProductPage() {
           <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
             <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">
-              No option groups yet. Add groups like &quot;Size&quot;,
-              &quot;Color&quot;, or &quot;Add-ons&quot;.
+              {t('vendor.productForm.noOptionsYet' as TranslationKey)}
             </p>
+            <button
+              type="button"
+              onClick={addOptionGroup}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-sb-primary text-white rounded-lg text-sm font-medium hover:bg-sb-primary/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              {t('vendor.productForm.addOptionGroup' as TranslationKey)}
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
-            {product.options.map((group, groupIndex) => (
+            {product.options.map((group, gi) => (
               <div
                 key={group.id}
-                className="border rounded-xl p-4 space-y-4 bg-gray-50"
+                className="border border-gray-200 rounded-xl overflow-hidden"
               >
                 {/* Group Header */}
-                <div className="flex items-start gap-3">
-                  <GripVertical className="w-5 h-5 text-gray-400 mt-2.5 cursor-grab" />
-
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-gray-50 px-4 py-3 flex items-center gap-3 border-b">
+                  <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
+                  <div className="flex-1 min-w-0">
                     <input
-                      type="text"
+                      className="w-full bg-transparent font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                      placeholder={t('vendor.productForm.groupTitlePlaceholder' as TranslationKey)}
                       value={group.title}
                       onChange={(e) =>
-                        updateOptionGroup(groupIndex, "title", e.target.value)
+                        updateOptionGroup(gi, 'title', e.target.value)
                       }
-                      placeholder="Group name (e.g., Size)"
-                      className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
                     />
-
-                    <select
-                      value={group.type || "single"}
-                      onChange={(e) =>
-                        updateOptionGroup(groupIndex, "type", e.target.value)
-                      }
-                      className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                    >
-                      <option value="single">Single choice</option>
-                      <option value="multiple">Multiple choices</option>
-                    </select>
                   </div>
-
                   <button
                     type="button"
-                    onClick={() => removeOptionGroup(groupIndex)}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    onClick={() => removeOptionGroup(gi)}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    title={t('vendor.productForm.delete' as TranslationKey)}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Options List */}
-                <div className="pl-8 space-y-2">
-                  {group.options.map((option, optionIndex) => (
-                    <div key={option.id} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={option.label}
+                {/* Group Body */}
+                <div className="p-4 space-y-4">
+                  {/* Group Settings */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        {t('vendor.productForm.selectionType' as TranslationKey)}
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                        value={group.type}
                         onChange={(e) =>
-                          updateOptionItem(
-                            groupIndex,
-                            optionIndex,
-                            "label",
-                            e.target.value
-                          )
+                          updateOptionGroup(gi, 'type', e.target.value)
                         }
-                        placeholder="Option label"
-                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                      />
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                          +RD$
-                        </span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={option.priceDelta || ""}
-                          onChange={(e) =>
-                            updateOptionItem(
-                              groupIndex,
-                              optionIndex,
-                              "priceDelta",
-                              e.target.value ? Number(e.target.value) : 0
-                            )
-                          }
-                          placeholder="0"
-                          className="w-28 pl-12 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeOptionItem(groupIndex, optionIndex)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                       >
-                        <X className="w-4 h-4" />
-                      </button>
+                        <option value="single">{t('vendor.productForm.singleSelect' as TranslationKey)}</option>
+                        <option value="multiple">{t('vendor.productForm.multipleSelect' as TranslationKey)}</option>
+                      </select>
                     </div>
-                  ))}
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={group.required}
+                          onChange={(e) =>
+                            updateOptionGroup(gi, 'required', e.target.checked)
+                          }
+                          className="w-4 h-4 text-sb-primary border-gray-300 rounded focus:ring-sb-primary"
+                        />
+                        <span className="text-sm text-gray-700">
+                          {t('vendor.productForm.required' as TranslationKey)}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => addOptionItem(groupIndex)}
-                    className="text-sm text-sb-primary hover:underline flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    Add option
-                  </button>
+                  {/* Options List */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-gray-500">
+                      {t('vendor.productForm.options' as TranslationKey)}
+                    </label>
+
+                    {group.options.length === 0 ? (
+                      <p className="text-sm text-gray-400 italic">
+                        {t('vendor.productForm.noOptionsAdded' as TranslationKey)}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {group.options.map((opt, oi) => (
+                          <div
+                            key={opt.id}
+                            className="flex items-center gap-2 group"
+                          >
+                            <GripVertical className="w-4 h-4 text-gray-300 cursor-grab flex-shrink-0" />
+                            <input
+                              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                              placeholder={t('vendor.productForm.optionLabelPlaceholder' as TranslationKey)}
+                              value={opt.label}
+                              onChange={(e) =>
+                                updateOptionItem(gi, oi, 'label', e.target.value)
+                              }
+                            />
+                            <div className="relative w-24 flex-shrink-0">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                                +{currencySymbol}
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="w-full pl-10 pr-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary"
+                                placeholder="0"
+                                value={opt.priceDelta || ''}
+                                onChange={(e) =>
+                                  updateOptionItem(
+                                    gi,
+                                    oi,
+                                    'priceDelta',
+                                    Number(e.target.value)
+                                  )
+                                }
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeOptionItem(gi, oi)}
+                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              title={t('vendor.productForm.delete' as TranslationKey)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => addOptionItem(gi)}
+                      className="flex items-center gap-1.5 text-sm text-sb-primary hover:text-sb-primary/80 font-medium mt-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t('vendor.productForm.addOption' as TranslationKey)}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -551,22 +593,22 @@ export default function EditProductPage() {
         )}
       </div>
 
-      {/* Save Button */}
-      <div className="fixed bottom-0 left-0 right-0 lg:static bg-white lg:bg-transparent border-t lg:border-0 p-4 lg:p-0 z-40">
+      {/* Sticky Save Button */}
+      <div className="sticky bottom-4 bg-white rounded-xl shadow-lg border p-4">
         <button
           type="submit"
-          disabled={saving}
-          className="w-full lg:w-auto inline-flex items-center justify-center gap-2 bg-sb-primary text-white px-8 py-3.5 rounded-xl font-semibold hover:bg-sb-primary/90 disabled:opacity-50 transition-colors"
+          disabled={saving || !product.name || !product.price}
+          className="w-full bg-sb-primary text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-sb-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Saving...
+              {t('vendor.productForm.saving' as TranslationKey)}
             </>
           ) : (
             <>
               <Save className="w-5 h-5" />
-              Save Changes
+              {t('vendor.productForm.saveChanges' as TranslationKey)}
             </>
           )}
         </button>
@@ -575,14 +617,15 @@ export default function EditProductPage() {
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-3 text-red-600">
               <AlertTriangle className="w-6 h-6" />
-              <h3 className="text-lg font-semibold">Delete Product?</h3>
+              <h3 className="text-lg font-semibold">
+                {t('vendor.productForm.deleteConfirmTitle' as TranslationKey)}
+              </h3>
             </div>
             <p className="text-gray-600">
-              This will permanently delete &quot;{product.name}&quot;. This action cannot
-              be undone.
+              {t('vendor.productForm.deleteConfirmMessage' as TranslationKey)}
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -590,15 +633,25 @@ export default function EditProductPage() {
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
               >
-                Cancel
+                {t('vendor.productForm.cancel' as TranslationKey)}
               </button>
               <button
                 type="button"
                 onClick={confirmDelete}
                 disabled={deleting}
-                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
               >
-                {deleting ? "Deleting..." : "Delete"}
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('vendor.productForm.deleting' as TranslationKey)}
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    {t('vendor.productForm.deleteProduct' as TranslationKey)}
+                  </>
+                )}
               </button>
             </div>
           </div>
