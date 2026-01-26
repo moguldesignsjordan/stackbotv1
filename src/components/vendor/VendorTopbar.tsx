@@ -331,8 +331,8 @@ export default function VendorTopbar() {
                         const timestamp = notification.createdAt
                           ? 'seconds' in notification.createdAt
                             ? new Date(notification.createdAt.seconds * 1000)
-                            : notification.createdAt instanceof Timestamp
-                            ? notification.createdAt.toDate()
+                            : (notification.createdAt as unknown) instanceof Timestamp
+                            ? (notification.createdAt as Timestamp).toDate()
                             : null
                           : null;
 
