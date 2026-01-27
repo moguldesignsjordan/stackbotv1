@@ -7,7 +7,7 @@ import { doc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase/config';
 import { signOut } from 'firebase/auth';
 import { ArrowLeft, User, Phone, Mail, Car, Bike, Star, Package, Shield, CheckCircle, AlertCircle, Loader2, Globe, LogOut, Save } from 'lucide-react';
-interface DriverProfile { id: string; isOnline?: boolean; name: string; email: string; phone?: string; photoURL?: string; vehicleType?: string; vehiclePlate?: string; vehicleColor?: string; city?: string; status: string; verified?: boolean; rating?: number; totalDeliveries?: number; createdAt?: any; }
+interface DriverProfile { id: string; isOnline?: boolean; name: string; email: string; phone?: string; photoURL?: string; vehicleType?: string; vehiclePlate?: string; vehicleColor?: string; city?: string; status: string; verified?: boolean; isVerified?: boolean; rating?: number; totalDeliveries?: number; createdAt?: any; }
 
 const translations = {
   es: {
