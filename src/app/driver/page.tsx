@@ -51,7 +51,7 @@ import {
   MapPinned,
 } from 'lucide-react';
 type DriverStatus = 'online' | 'offline' | 'busy' | 'break';
-interface DriverProfile { id: string; userId?: string; isOnline?: boolean; name: string; email: string; phone?: string; photoURL?: string; vehicleType?: string; vehiclePlate?: string; status: DriverStatus; verified?: boolean; rating?: number; totalDeliveries?: number; currentLocation?: { lat: number; lng: number }; }
+interface DriverProfile { id: string; userId?: string; isOnline?: boolean; ratingCount?: number; isVerified?: boolean; createdAt?: any; updatedAt?: any; name: string; email: string; phone?: string; photoURL?: string; vehicleType?: string; vehiclePlate?: string; status: DriverStatus; verified?: boolean; rating?: number; totalDeliveries?: number; currentLocation?: { lat: number; lng: number }; }
 interface DeliveryOrder { id: string; orderId: string; status: string; deliveryStatus?: string; vendorId: string; vendorName: string; vendorAddress: string; customerId: string; customerName?: string; customerAddress?: string; deliveryAddress?: any; deliveryFee: number; total?: number; itemCount?: number; orderTotal?: number; claimedAt?: any; deliveredAt?: any; createdAt?: any; }
 
 // ============================================================================
