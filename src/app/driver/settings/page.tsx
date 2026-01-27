@@ -113,7 +113,7 @@ export default function DriverSettingsPage() {
         setProfile({ ...data, id: docSnap.id });
         setName(data.name || '');
         setPhone(data.phone || '');
-        setVehicleType(data.vehicleType || 'motorcycle');
+        setVehicleType((data.vehicleType || 'motorcycle') as VehicleType);
         setVehiclePlate(data.vehiclePlate || '');
         setVehicleColor(data.vehicleColor || '');
       }
