@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
 import { ArrowLeft, Package, Clock, DollarSign, MapPin, Store, CheckCircle, Loader2, Globe } from 'lucide-react';
-import { DeliveryOrder } from '@/lib/types/driver';
+interface DeliveryOrder { id: string; orderId: string; status: string; deliveryStatus: string; vendorId: string; vendorName: string; vendorAddress: string; customerId: string; customerName: string; deliveryAddress: any; deliveryFee: number; total: number; claimedAt?: any; deliveredAt?: any; createdAt?: any; }
 
 const translations = {
   es: {
