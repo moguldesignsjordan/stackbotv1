@@ -8,7 +8,7 @@ import {
   useElements,
 } from '@stripe/react-stripe-js';
 import { X, Loader2, Lock, CreditCard, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useLanguage } from '@/lib/context/LanguageContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface PaymentSheetProps {
   orderId: string;
