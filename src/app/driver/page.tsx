@@ -1074,7 +1074,7 @@ function ActiveOrderCard({
           </div>
           <button
             onClick={() =>
-              onCall(isPickedUp ? order.customerPhone : order.vendorPhone || '')
+              onCall((isPickedUp ? order.customerPhone : order.vendorPhone) || '')
             }
             className="p-3 bg-gray-800/50 hover:bg-gray-700 rounded-xl transition-colors"
           >
