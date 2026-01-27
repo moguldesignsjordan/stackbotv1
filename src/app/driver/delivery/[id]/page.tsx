@@ -345,7 +345,7 @@ function DeliveryDetailContent() {
     ? `${order.deliveryAddress?.street}, ${order.deliveryAddress?.city}`
     : order.vendorAddress || order.vendorName;
   const targetName = isPickedUp ? order.customerName : order.vendorName;
-  const targetPhone = isPickedUp ? order.customerPhone : order.vendorPhone || '';
+  const targetPhone = (isPickedUp ? order.customerPhone : order.vendorPhone) || '';
 
   // Get ETA from directions
   const eta = directions?.routes?.[0]?.legs?.[0]?.duration?.text || null;
