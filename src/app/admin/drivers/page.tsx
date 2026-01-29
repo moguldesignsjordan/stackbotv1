@@ -2,480 +2,526 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-  Timestamp,
-} from 'firebase/firestore';
-import { db, auth } from '@/lib/firebase/config';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import {
-  Truck,
-  User,
-  Mail,
-  Phone,
-  AlertCircle,
-  Loader2,
-  Search,
-  Filter,
-  Plus,
-  Star,
-  Package,
-  Trash2,
-  CheckCircle,
-} from 'lucide-react';
-import { Driver } from '@/lib/types/driver';
-import Image from 'next/image';
+import Link from 'next/link';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
+import { Car, Clock, CheckCircle, XCircle, User, Phone, Mail, MapPin, FileText, Loader2, AlertCircle, ChevronDown, ChevronUp, Bell, ExternalLink } from 'lucide-react';
 
-type MessageState = {
-  type: 'success' | 'error';
-  text: string;
-} | null;
+interface DriverApplication {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  city: string;
+  vehicleType: string;
+  vehiclePlate: string;
+  vehicleColor?: string;
+  experience: string;
+  whyJoin?: string;
+  hasLicense: boolean;
+  hasPhone: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: any;
+  reviewedAt?: any;
+  reviewedBy?: string;
+  rejectionReason?: string;
+}
+
+interface Driver {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  vehicleType: string;
+  totalDeliveries: number;
+  rating: number;
+  verified: boolean;
+  createdAt: any;
+}
+
+const vehicleLabels: Record<string, string> = {
+  motorcycle: 'Motocicleta',
+  car: 'Carro',
+  bicycle: 'Bicicleta',
+  scooter: 'Scooter',
+};
+
+const experienceLabels: Record<string, string> = {
+  none: 'Sin experiencia',
+  lessThan1: 'Menos de 1 año',
+  oneToThree: '1-3 años',
+  moreThan3: 'Más de 3 años',
+};
 
 export default function AdminDriversPage() {
+  const [applications, setApplications] = useState<DriverApplication[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'unverified'>('all');
-  const [message, setMessage] = useState<MessageState>(null);
+  const [activeTab, setActiveTab] = useState<'applications' | 'drivers'>('applications');
+  const [expandedApp, setExpandedApp] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
 
-  // New driver form
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newDriverUid, setNewDriverUid] = useState('');
-  const [newDriverEmail, setNewDriverEmail] = useState('');
-  const [newDriverName, setNewDriverName] = useState('');
-  const [newDriverPhone, setNewDriverPhone] = useState('');
-  const [newDriverVehicle, setNewDriverVehicle] = useState<'motorcycle' | 'car' | 'bicycle' | 'scooter'>('motorcycle');
-  const [addingDriver, setAddingDriver] = useState(false);
-
-  // Fetch all drivers
   useEffect(() => {
+    // Listen to driver applications
+    const appsQuery = query(
+      collection(db, 'driver_applications'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubApps = onSnapshot(appsQuery, (snapshot) => {
+      const apps = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as DriverApplication[];
+      setApplications(apps);
+      setLoading(false);
+    });
+
+    // Listen to approved drivers
     const driversQuery = query(
       collection(db, 'drivers'),
       orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(driversQuery, (snapshot) => {
-      const driversData: Driver[] = [];
-      snapshot.forEach((doc) => {
-        driversData.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Driver);
-      });
-      setDrivers(driversData);
-      setLoading(false);
+    const unsubDrivers = onSnapshot(driversQuery, (snapshot) => {
+      const driverList = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Driver[];
+      setDrivers(driverList);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubApps();
+      unsubDrivers();
+    };
   }, []);
 
-  // Filter drivers
-  const filteredDrivers = drivers.filter((driver) => {
-    const matchesSearch =
-      driver.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.phone?.includes(searchQuery);
+  const approveApplication = async (app: DriverApplication) => {
+    setProcessingId(app.id);
+    try {
+      // Update application status
+      await updateDoc(doc(db, 'driver_applications', app.id), {
+        status: 'approved',
+        reviewedAt: serverTimestamp(),
+      });
 
-    const matchesStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'online' && (driver.status === 'online' || driver.status === 'busy')) ||
-      (statusFilter === 'offline' && driver.status === 'offline') ||
-      (statusFilter === 'unverified' && !driver.verified);
+      // Create driver profile (using email as temp ID - will be linked when driver logs in)
+      const driverData = {
+        name: app.fullName,
+        email: app.email,
+        phone: app.phone,
+        city: app.city,
+        vehicleType: app.vehicleType,
+        vehiclePlate: app.vehiclePlate,
+        vehicleColor: app.vehicleColor || '',
+        status: 'offline',
+        isOnline: false,
+        verified: true,
+        isVerified: true,
+        rating: 5.0,
+        ratingCount: 0,
+        totalDeliveries: 0,
+        applicationId: app.id,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
 
-    return matchesSearch && matchesStatus;
-  });
+      // Store pending driver (will be moved to drivers/{uid} when they sign up)
+      await setDoc(doc(db, 'approved_drivers', app.email.replace(/[.]/g, '_')), driverData);
 
-  // Add new driver
-  const handleAddDriver = async () => {
-    if (!newDriverUid.trim()) {
-      setMessage({ type: 'error', text: 'Firebase UID is required' });
+      alert(`✅ ${app.fullName} ha sido aprobado como conductor`);
+    } catch (error) {
+      console.error('Error approving application:', error);
+      alert('Error al aprobar la aplicación');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const rejectApplication = async (appId: string) => {
+    if (!rejectionReason.trim()) {
+      alert('Por favor ingresa una razón para el rechazo');
       return;
     }
 
-    setAddingDriver(true);
-    setMessage(null);
-
+    setProcessingId(appId);
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('Not authenticated');
-
-      const token = await user.getIdToken(true);
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL}/setDriverRole`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            uid: newDriverUid.trim(),
-            email: newDriverEmail.trim(),
-            name: newDriverName.trim() || 'Driver',
-            phone: newDriverPhone.trim(),
-            vehicleType: newDriverVehicle,
-          }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to add driver');
-      }
-
-      setMessage({ type: 'success', text: 'Driver added successfully!' });
-      setShowAddForm(false);
-      setNewDriverUid('');
-      setNewDriverEmail('');
-      setNewDriverName('');
-      setNewDriverPhone('');
-      setNewDriverVehicle('motorcycle');
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to add driver';
-      setMessage({ type: 'error', text: errorMessage });
-    } finally {
-      setAddingDriver(false);
-    }
-  };
-
-  // Toggle driver verification
-  const toggleVerification = async (driver: Driver) => {
-    setProcessingId(driver.id);
-
-    try {
-      const driverRef = doc(db, 'drivers', driver.id);
-      await updateDoc(driverRef, {
-        verified: !driver.verified,
-        updatedAt: Timestamp.now(),
+      await updateDoc(doc(db, 'driver_applications', appId), {
+        status: 'rejected',
+        rejectionReason: rejectionReason.trim(),
+        reviewedAt: serverTimestamp(),
       });
 
-      setMessage({
-        type: 'success',
-        text: `Driver ${!driver.verified ? 'verified' : 'unverified'} successfully`,
-      });
-    } catch (err) {
-      console.error('Error updating driver:', err);
-      setMessage({ type: 'error', text: 'Failed to update driver' });
+      setShowRejectModal(null);
+      setRejectionReason('');
+    } catch (error) {
+      console.error('Error rejecting application:', error);
+      alert('Error al rechazar la aplicación');
     } finally {
       setProcessingId(null);
     }
   };
 
-  // Delete driver
-  const deleteDriver = async (driverId: string) => {
-    if (!confirm('Are you sure you want to delete this driver?')) return;
-
-    setProcessingId(driverId);
-
-    try {
-      await deleteDoc(doc(db, 'drivers', driverId));
-      setMessage({ type: 'success', text: 'Driver deleted successfully' });
-    } catch (err) {
-      console.error('Error deleting driver:', err);
-      setMessage({ type: 'error', text: 'Failed to delete driver' });
-    } finally {
-      setProcessingId(null);
-    }
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '-';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('es-DO', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
-  const getStatusBadge = (driver: Driver) => {
-    if (!driver.verified) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-          <AlertCircle className="w-3 h-3" />
-          Unverified
-        </span>
-      );
-    }
-    if (driver.status === 'online' || driver.status === 'busy') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          {driver.status === 'busy' ? 'On Delivery' : 'Online'}
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
-        <span className="w-2 h-2 bg-gray-400 rounded-full" />
-        Offline
-      </span>
-    );
-  };
+  const pendingApps = applications.filter((a) => a.status === 'pending');
+  const reviewedApps = applications.filter((a) => a.status !== 'pending');
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600">
-            <Truck className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Drivers</h1>
-            <p className="text-sm text-gray-500">
-              {drivers.length} total • {drivers.filter((d) => d.status === 'online' || d.status === 'busy').length} online
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Driver
-        </Button>
-      </div>
-
-      {/* Messages */}
-      {message && (
-        <div
-          className={`flex items-center gap-2 p-4 rounded-xl ${
-            message.type === 'success'
-              ? 'bg-green-50 text-green-800 border border-green-200'
-              : 'bg-red-50 text-red-800 border border-red-200'
-          }`}
-        >
-          {message.type === 'success' ? (
-            <CheckCircle className="w-5 h-5" />
-          ) : (
-            <AlertCircle className="w-5 h-5" />
-          )}
-          <p className="text-sm">{message.text}</p>
-        </div>
-      )}
-
-      {/* Add Driver Form */}
-      {showAddForm && (
-        <Card padding="lg">
-          <h3 className="font-semibold text-gray-900 mb-4">Add New Driver</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Firebase UID *
-              </label>
-              <input
-                type="text"
-                value={newDriverUid}
-                onChange={(e) => setNewDriverUid(e.target.value)}
-                placeholder="e.g. abc123xyz..."
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={newDriverEmail}
-                onChange={(e) => setNewDriverEmail(e.target.value)}
-                placeholder="driver@example.com"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Name
-              </label>
-              <input
-                type="text"
-                value={newDriverName}
-                onChange={(e) => setNewDriverName(e.target.value)}
-                placeholder="John Doe"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone
-              </label>
-              <input
-                type="tel"
-                value={newDriverPhone}
-                onChange={(e) => setNewDriverPhone(e.target.value)}
-                placeholder="+1 809 555 1234"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Vehicle Type
-              </label>
-              <select
-                value={newDriverVehicle}
-                onChange={(e) => setNewDriverVehicle(e.target.value as typeof newDriverVehicle)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white"
-              >
-                <option value="motorcycle">Motorcycle</option>
-                <option value="car">Car</option>
-                <option value="bicycle">Bicycle</option>
-                <option value="scooter">Scooter</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mt-4">
-            <Button onClick={handleAddDriver} disabled={addingDriver}>
-              {addingDriver ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : (
-                'Add Driver'
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setShowAddForm(false)}
-              disabled={addingDriver}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search drivers..."
-            className="w-full pl-11 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-5 h-5 text-gray-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent bg-white"
+    <div className="p-4 md:p-6 space-y-6">
+      {/* Header with Link to Driver Applications */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-900">Gestión de Conductores</h1>
+          <Link
+            href="/admin/driver-applications"
+            className="relative flex items-center gap-2 px-3 py-1.5 bg-[#55529d] text-white text-sm font-medium rounded-lg hover:bg-[#444280] transition-colors"
           >
-            <option value="all">All Drivers</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-            <option value="unverified">Unverified</option>
-          </select>
+            <Bell className="w-4 h-4" />
+            <span className="hidden sm:inline">Ver Solicitudes</span>
+            <ExternalLink className="w-3 h-3" />
+            {pendingApps.length > 0 && (
+              <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
+                {pendingApps.length}
+              </span>
+            )}
+          </Link>
+        </div>
+        <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+          <button
+            onClick={() => setActiveTab('applications')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'applications'
+                ? 'bg-white text-[#55529d] shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Solicitudes ({pendingApps.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('drivers')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'drivers'
+                ? 'bg-white text-[#55529d] shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Conductores ({drivers.length})
+          </button>
         </div>
       </div>
 
-      {/* Drivers List */}
-      {filteredDrivers.length === 0 ? (
-        <Card padding="lg">
-          <div className="text-center py-8">
-            <Truck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No drivers found</p>
+      {/* Pending Applications Alert Banner */}
+      {pendingApps.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-amber-800">
+                {pendingApps.length} solicitud{pendingApps.length !== 1 ? 'es' : ''} pendiente{pendingApps.length !== 1 ? 's' : ''}
+              </p>
+              <p className="text-sm text-amber-600">Revisa y aprueba las solicitudes de nuevos conductores</p>
+            </div>
           </div>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {filteredDrivers.map((driver) => (
-            <Card key={driver.id} padding="md">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4">
-                  {/* Avatar */}
-                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0 relative overflow-hidden">
-                    {driver.photoURL ? (
-                      <Image
-                        src={driver.photoURL}
-                        alt={driver.name}
-                        fill
-                        className="object-cover"
-                      />
-                    ) : (
-                      <User className="w-6 h-6 text-emerald-600" />
-                    )}
-                  </div>
+          <Link
+            href="/admin/driver-applications"
+            className="px-4 py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition-colors text-sm"
+          >
+            Revisar Ahora
+          </Link>
+        </div>
+      )}
 
-                  {/* Info */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-gray-900">
-                        {driver.name || 'Unnamed Driver'}
-                      </h3>
-                      {getStatusBadge(driver)}
-                    </div>
+      {activeTab === 'applications' && (
+        <div className="space-y-6">
+          {/* Pending Applications */}
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-500" />
+              Pendientes ({pendingApps.length})
+            </h2>
 
-                    <div className="space-y-1 text-sm text-gray-500">
-                      <p className="flex items-center gap-2">
-                        <Mail className="w-4 h-4" />
-                        {driver.email || 'No email'}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Phone className="w-4 h-4" />
-                        {driver.phone || 'No phone'}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Truck className="w-4 h-4" />
-                        {driver.vehicleType?.charAt(0).toUpperCase() +
-                          driver.vehicleType?.slice(1) || 'Unknown'}
-                        {driver.vehiclePlate && ` • ${driver.vehiclePlate}`}
-                      </p>
-                    </div>
-
-                    {/* Stats */}
-                    <div className="flex items-center gap-4 mt-2 text-sm">
-                      <span className="flex items-center gap-1 text-gray-600">
-                        <Package className="w-4 h-4" />
-                        {driver.totalDeliveries || 0} deliveries
-                      </span>
-                      <span className="flex items-center gap-1 text-amber-600">
-                        <Star className="w-4 h-4 fill-amber-400" />
-                        {driver.rating?.toFixed(1) || '5.0'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => toggleVerification(driver)}
-                    disabled={processingId === driver.id}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                      driver.verified
-                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                    }`}
-                  >
-                    {processingId === driver.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : driver.verified ? (
-                      'Unverify'
-                    ) : (
-                      'Verify'
-                    )}
-                  </button>
-                  <button
-                    onClick={() => deleteDriver(driver.id)}
-                    disabled={processingId === driver.id}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+            {pendingApps.length === 0 ? (
+              <div className="bg-gray-50 rounded-xl p-8 text-center">
+                <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-600">No hay solicitudes pendientes</p>
               </div>
-            </Card>
-          ))}
+            ) : (
+              <div className="space-y-3">
+                {pendingApps.map((app) => (
+                  <div key={app.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div
+                      className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => setExpandedApp(expandedApp === app.id ? null : app.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                            <User className="w-5 h-5 text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{app.fullName}</p>
+                            <p className="text-sm text-gray-500">{app.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+                            Pendiente
+                          </span>
+                          {expandedApp === app.id ? (
+                            <ChevronUp className="w-5 h-5 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {expandedApp === app.id && (
+                      <div className="border-t border-gray-100 p-4 bg-gray-50">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Phone className="w-4 h-4 text-gray-400" />
+                              <span>{app.phone}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <MapPin className="w-4 h-4 text-gray-400" />
+                              <span>{app.city}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Car className="w-4 h-4 text-gray-400" />
+                              <span>{vehicleLabels[app.vehicleType] || app.vehicleType} - {app.vehiclePlate}</span>
+                              {app.vehicleColor && <span className="text-gray-400">({app.vehicleColor})</span>}
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Clock className="w-4 h-4 text-gray-400" />
+                              <span>Experiencia: {experienceLabels[app.experience] || app.experience}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <FileText className="w-4 h-4 text-gray-400" />
+                              <span>Licencia: {app.hasLicense ? '✅ Sí' : '❌ No'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Mail className="w-4 h-4 text-gray-400" />
+                              <span>Smartphone: {app.hasPhone ? '✅ Sí' : '❌ No'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {app.whyJoin && (
+                          <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                            <p className="text-xs text-gray-500 mb-1">¿Por qué quiere unirse?</p>
+                            <p className="text-sm text-gray-700">{app.whyJoin}</p>
+                          </div>
+                        )}
+
+                        <div className="text-xs text-gray-400 mb-4">
+                          Enviado: {formatDate(app.createdAt)}
+                        </div>
+
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => approveApplication(app)}
+                            disabled={processingId === app.id}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors"
+                          >
+                            {processingId === app.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4" />
+                            )}
+                            Aprobar
+                          </button>
+                          <button
+                            onClick={() => setShowRejectModal(app.id)}
+                            disabled={processingId === app.id}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            Rechazar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reviewed Applications */}
+          {reviewedApps.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-3">Historial</h2>
+              <div className="space-y-2">
+                {reviewedApps.map((app) => (
+                  <div
+                    key={app.id}
+                    className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          app.status === 'approved' ? 'bg-green-100' : 'bg-red-100'
+                        }`}
+                      >
+                        {app.status === 'approved' ? (
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-red-600" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">{app.fullName}</p>
+                        <p className="text-sm text-gray-500">{app.email}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          app.status === 'approved'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {app.status === 'approved' ? 'Aprobado' : 'Rechazado'}
+                      </span>
+                      <p className="text-xs text-gray-400 mt-1">{formatDate(app.reviewedAt)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'drivers' && (
+        <div>
+          {drivers.length === 0 ? (
+            <div className="bg-gray-50 rounded-xl p-8 text-center">
+              <Car className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-600">No hay conductores activos</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {drivers.map((driver) => (
+                <div key={driver.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-[#55529d] rounded-full flex items-center justify-center text-white font-bold">
+                        {driver.name?.charAt(0).toUpperCase() || 'D'}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900">{driver.name}</p>
+                        <p className="text-sm text-gray-500">{driver.email}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${
+                          driver.status === 'online'
+                            ? 'bg-green-100 text-green-700'
+                            : driver.status === 'busy'
+                            ? 'bg-orange-100 text-orange-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            driver.status === 'online'
+                              ? 'bg-green-500'
+                              : driver.status === 'busy'
+                              ? 'bg-orange-500'
+                              : 'bg-gray-400'
+                          }`}
+                        />
+                        {driver.status === 'online' ? 'En línea' : driver.status === 'busy' ? 'Ocupado' : 'Desconectado'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-6 text-sm text-gray-600">
+                    <span>{vehicleLabels[driver.vehicleType] || driver.vehicleType}</span>
+                    <span>{driver.totalDeliveries} entregas</span>
+                    <span>★ {driver.rating?.toFixed(1) || '5.0'}</span>
+                    {driver.verified && (
+                      <span className="text-green-600 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Verificado
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 text-center mb-2">Rechazar Solicitud</h3>
+            <p className="text-sm text-gray-600 text-center mb-4">
+              Por favor indica la razón del rechazo
+            </p>
+            <textarea
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="Razón del rechazo..."
+              className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#55529d]/20 focus:border-[#55529d] resize-none"
+              rows={3}
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => {
+                  setShowRejectModal(null);
+                  setRejectionReason('');
+                }}
+                className="flex-1 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => rejectApplication(showRejectModal)}
+                disabled={processingId !== null || !rejectionReason.trim()}
+                className="flex-1 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {processingId && <Loader2 className="w-4 h-4 animate-spin" />}
+                Rechazar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -10,9 +10,9 @@ import {
   signInWithCredential,
   GoogleAuthProvider,
   OAuthProvider,
-  getIdTokenResult,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase/config';
+import { doc, getDoc, setDoc, query, collection, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase/config';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { Capacitor } from '@capacitor/core';
 import {
@@ -25,6 +25,8 @@ import {
   Globe,
   ArrowRight,
   Truck,
+  Clock,
+  XCircle,
 } from 'lucide-react';
 
 const translations = {
@@ -44,8 +46,16 @@ const translations = {
     notADriver: '¿No eres conductor?',
     applyNow: 'Aplica ahora',
     backToApp: 'Volver a StackBot',
+    checkingStatus: 'Verificando estado...',
+    // Status messages
+    pendingApplication: 'Tu solicitud está pendiente de revisión.',
+    rejectedApplication: 'Tu solicitud fue rechazada.',
+    noApplication: 'No tienes una solicitud de conductor.',
+    applyToBeDriver: 'Aplica para ser conductor',
+    contactSupport: 'Contactar soporte',
+    tryAgain: 'Intentar de nuevo',
+    // Errors
     invalidCredentials: 'Correo o contraseña incorrectos',
-    notDriverAccount: 'Esta cuenta no es de conductor. Aplica primero.',
     tooManyRequests: 'Demasiados intentos. Intenta más tarde.',
     networkError: 'Error de conexión. Verifica tu internet.',
     unknownError: 'Ocurrió un error. Intenta de nuevo.',
@@ -66,8 +76,16 @@ const translations = {
     notADriver: 'Not a driver yet?',
     applyNow: 'Apply now',
     backToApp: 'Back to StackBot',
+    checkingStatus: 'Checking status...',
+    // Status messages
+    pendingApplication: 'Your application is pending review.',
+    rejectedApplication: 'Your application was rejected.',
+    noApplication: 'You don\'t have a driver application.',
+    applyToBeDriver: 'Apply to be a driver',
+    contactSupport: 'Contact support',
+    tryAgain: 'Try again',
+    // Errors
     invalidCredentials: 'Invalid email or password',
-    notDriverAccount: 'This account is not a driver. Apply first.',
     tooManyRequests: 'Too many attempts. Try again later.',
     networkError: 'Connection error. Check your internet.',
     unknownError: 'Something went wrong. Please try again.',
@@ -75,6 +93,7 @@ const translations = {
 };
 
 type Language = 'es' | 'en';
+type ApplicationStatus = 'approved' | 'pending' | 'rejected' | 'none' | null;
 
 export default function DriverLoginPage() {
   const router = useRouter();
@@ -85,6 +104,9 @@ export default function DriverLoginPage() {
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
   const [error, setError] = useState('');
+  const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [checkingStatus, setCheckingStatus] = useState(false);
   
   const isNative = Capacitor.isNativePlatform();
   const t = translations[language];
@@ -102,17 +124,6 @@ export default function DriverLoginPage() {
     localStorage.setItem('stackbot-driver-lang', newLang);
   };
 
-  const validateDriverRole = async (): Promise<boolean> => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return false;
-      const tokenResult = await getIdTokenResult(user, true);
-      return tokenResult.claims.role === 'driver';
-    } catch {
-      return false;
-    }
-  };
-
   const getErrorMessage = (code: string): string => {
     switch (code) {
       case 'auth/invalid-credential':
@@ -128,28 +139,131 @@ export default function DriverLoginPage() {
     }
   };
 
+  const checkDriverStatus = async (userEmail: string, uid: string, displayName: string | null): Promise<boolean> => {
+    setCheckingStatus(true);
+    
+    try {
+      // 1. First check if already a driver (returning user)
+      const driverDoc = await getDoc(doc(db, 'drivers', uid));
+      if (driverDoc.exists()) {
+        return true;
+      }
+
+      // 2. Check approved_drivers collection (new approved driver)
+      const emailKey = userEmail.replace(/[.]/g, '_');
+      const approvedDoc = await getDoc(doc(db, 'approved_drivers', emailKey));
+      
+      if (approvedDoc.exists()) {
+        const approvedData = approvedDoc.data();
+        
+        await setDoc(doc(db, 'drivers', uid), {
+          ...approvedData,
+          id: uid,
+          userId: uid,
+          email: userEmail,
+          name: approvedData.name || displayName || 'Conductor',
+          status: 'offline',
+          isOnline: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          firstLoginAt: serverTimestamp(),
+        });
+
+        setApplicationStatus('approved');
+        return true;
+      }
+
+      // 3. Check driver_applications for pending/rejected status
+      const applicationsQuery = query(
+        collection(db, 'driver_applications'),
+        where('email', '==', userEmail)
+      );
+      const applicationsSnapshot = await getDocs(applicationsQuery);
+
+      if (!applicationsSnapshot.empty) {
+        const application = applicationsSnapshot.docs[0].data();
+        
+        if (application.status === 'pending') {
+          setApplicationStatus('pending');
+          return false;
+        } else if (application.status === 'rejected') {
+          setApplicationStatus('rejected');
+          setRejectionReason(application.rejectionReason || '');
+          return false;
+        } else if (application.status === 'approved') {
+          setApplicationStatus('approved');
+          
+          await setDoc(doc(db, 'drivers', uid), {
+            id: uid,
+            userId: uid,
+            email: userEmail,
+            name: application.fullName || displayName || 'Conductor',
+            phone: application.phone || '',
+            city: application.city || '',
+            vehicleType: application.vehicleType || 'motorcycle',
+            vehiclePlate: application.vehiclePlate || '',
+            vehicleColor: application.vehicleColor || '',
+            status: 'offline',
+            isOnline: false,
+            verified: true,
+            isVerified: true,
+            rating: 5.0,
+            ratingCount: 0,
+            totalDeliveries: 0,
+            applicationId: applicationsSnapshot.docs[0].id,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            firstLoginAt: serverTimestamp(),
+          });
+          
+          return true;
+        }
+      }
+
+      // 4. No application found
+      setApplicationStatus('none');
+      return false;
+
+    } catch (error) {
+      console.error('Error checking driver status:', error);
+      throw error;
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
     setLoading(true);
     setError('');
+    setApplicationStatus(null);
 
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
-      
-      const isDriver = await validateDriverRole();
-      if (!isDriver) {
-        await auth.signOut();
-        setError(t.notDriverAccount);
-        setLoading(false);
-        return;
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
+
+      if (!user.email) {
+        throw new Error('No email found');
       }
 
-      router.push('/driver/dashboard');
+      const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
+      
+      if (isDriver) {
+        router.push('/driver/dashboard');
+      } else {
+        await auth.signOut();
+      }
+
     } catch (err: any) {
       console.error('Sign in error:', err);
-      setError(getErrorMessage(err.code));
+      if (err.code) {
+        setError(getErrorMessage(err.code));
+      }
+      try {
+        await auth.signOut();
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -158,34 +272,44 @@ export default function DriverLoginPage() {
   const handleGoogleSignIn = async () => {
     setSocialLoading('google');
     setError('');
+    setApplicationStatus(null);
 
     try {
+      let userCredential;
+      
       if (isNative) {
         const result = await FirebaseAuthentication.signInWithGoogle();
         if (!result.credential?.idToken) {
           throw new Error('No credential received');
         }
         const credential = GoogleAuthProvider.credential(result.credential.idToken);
-        await signInWithCredential(auth, credential);
+        userCredential = await signInWithCredential(auth, credential);
       } else {
         const provider = new GoogleAuthProvider();
-        await signInWithPopup(auth, provider);
+        userCredential = await signInWithPopup(auth, provider);
       }
 
-      const isDriver = await validateDriverRole();
-      if (!isDriver) {
+      const user = userCredential.user;
+      if (!user.email) {
+        throw new Error('No email found');
+      }
+
+      const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
+      
+      if (isDriver) {
+        router.push('/driver/dashboard');
+      } else {
         await auth.signOut();
-        setError(t.notDriverAccount);
-        setSocialLoading(null);
-        return;
       }
 
-      router.push('/driver/dashboard');
     } catch (err: any) {
       console.error('Google sign in error:', err);
-      if (!err.message?.includes('canceled') && !err.message?.includes('cancelled')) {
-        setError(getErrorMessage(err.code));
+      if (!err.message?.includes('canceled') && !err.message?.includes('cancelled') && !err.message?.includes('popup-closed')) {
+        setError(err.code ? getErrorMessage(err.code) : t.unknownError);
       }
+      try {
+        await auth.signOut();
+      } catch {}
     } finally {
       setSocialLoading(null);
     }
@@ -194,8 +318,11 @@ export default function DriverLoginPage() {
   const handleAppleSignIn = async () => {
     setSocialLoading('apple');
     setError('');
+    setApplicationStatus(null);
 
     try {
+      let userCredential;
+      
       if (isNative) {
         const result = await FirebaseAuthentication.signInWithApple();
         if (!result.credential?.idToken) {
@@ -206,32 +333,153 @@ export default function DriverLoginPage() {
           idToken: result.credential.idToken,
           rawNonce: result.credential.nonce,
         });
-        await signInWithCredential(auth, credential);
+        userCredential = await signInWithCredential(auth, credential);
       } else {
         const provider = new OAuthProvider('apple.com');
         provider.addScope('email');
         provider.addScope('name');
-        await signInWithPopup(auth, provider);
+        userCredential = await signInWithPopup(auth, provider);
       }
 
-      const isDriver = await validateDriverRole();
-      if (!isDriver) {
+      const user = userCredential.user;
+      if (!user.email) {
+        throw new Error('No email found');
+      }
+
+      const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
+      
+      if (isDriver) {
+        router.push('/driver/dashboard');
+      } else {
         await auth.signOut();
-        setError(t.notDriverAccount);
-        setSocialLoading(null);
-        return;
       }
 
-      router.push('/driver/dashboard');
     } catch (err: any) {
       console.error('Apple sign in error:', err);
-      if (!err.message?.includes('canceled') && !err.message?.includes('cancelled')) {
-        setError(getErrorMessage(err.code));
+      if (!err.message?.includes('canceled') && !err.message?.includes('cancelled') && !err.message?.includes('popup-closed')) {
+        setError(err.code ? getErrorMessage(err.code) : t.unknownError);
       }
+      try {
+        await auth.signOut();
+      } catch {}
     } finally {
       setSocialLoading(null);
     }
   };
+
+  const resetStatus = () => {
+    setApplicationStatus(null);
+    setError('');
+    setRejectionReason('');
+  };
+
+  // Status screen for non-approved users
+  if (applicationStatus && applicationStatus !== 'approved') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#55529d] to-[#3d3b7a] flex flex-col">
+        <header className="p-4 flex justify-between items-center safe-top">
+          <Link href="/" className="text-white/80 hover:text-white text-sm font-medium">
+            ← {t.backToApp}
+          </Link>
+          <button
+            onClick={toggleLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 rounded-full text-white text-sm font-medium hover:bg-white/20 transition-colors"
+          >
+            <Globe className="w-4 h-4" />
+            {language.toUpperCase()}
+          </button>
+        </header>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 text-center">
+            {applicationStatus === 'pending' && (
+              <>
+                <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-8 h-8 text-amber-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">{t.pendingApplication}</h2>
+                <p className="text-gray-600 mb-6">
+                  {language === 'es' 
+                    ? 'Tu solicitud está siendo revisada. Te notificaremos cuando sea aprobada.'
+                    : 'Your application is being reviewed. We\'ll notify you when it\'s approved.'}
+                </p>
+                <button
+                  onClick={resetStatus}
+                  className="w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t.tryAgain}
+                </button>
+              </>
+            )}
+
+            {applicationStatus === 'rejected' && (
+              <>
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <XCircle className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">{t.rejectedApplication}</h2>
+                {rejectionReason && (
+                  <div className="mb-4 p-3 bg-red-50 rounded-lg text-left">
+                    <p className="text-xs text-red-500 mb-1">
+                      {language === 'es' ? 'Razón:' : 'Reason:'}
+                    </p>
+                    <p className="text-sm text-red-700">{rejectionReason}</p>
+                  </div>
+                )}
+                <p className="text-gray-600 mb-6">
+                  {language === 'es'
+                    ? 'Puedes contactar soporte si crees que esto es un error.'
+                    : 'You can contact support if you believe this is a mistake.'}
+                </p>
+                <div className="space-y-3">
+                  <a
+                    href="mailto:support@stackbotglobal.com"
+                    className="block w-full py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] transition-colors"
+                  >
+                    {t.contactSupport}
+                  </a>
+                  <button
+                    onClick={resetStatus}
+                    className="w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    {t.tryAgain}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {applicationStatus === 'none' && (
+              <>
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Truck className="w-8 h-8 text-gray-400" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">{t.noApplication}</h2>
+                <p className="text-gray-600 mb-6">
+                  {language === 'es'
+                    ? 'Para ser conductor de StackBot, primero debes enviar una solicitud.'
+                    : 'To become a StackBot driver, you must first submit an application.'}
+                </p>
+                <div className="space-y-3">
+                  <Link
+                    href="/driver/apply"
+                    className="block w-full py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] transition-colors text-center"
+                  >
+                    {t.applyToBeDriver}
+                  </Link>
+                  <button
+                    onClick={resetStatus}
+                    className="w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    {t.tryAgain}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#55529d] to-[#3d3b7a] flex flex-col">
@@ -262,6 +510,13 @@ export default function DriverLoginPage() {
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {checkingStatus && (
+            <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-[#55529d]" />
+              <p className="text-sm text-[#55529d] font-medium">{t.checkingStatus}</p>
             </div>
           )}
 
@@ -315,7 +570,7 @@ export default function DriverLoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !email || !password}
+              disabled={loading || !email || !password || checkingStatus}
               className="w-full py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -341,7 +596,7 @@ export default function DriverLoginPage() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={handleGoogleSignIn}
-              disabled={socialLoading !== null}
+              disabled={socialLoading !== null || loading || checkingStatus}
               className="flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               {socialLoading === 'google' ? (
@@ -359,7 +614,7 @@ export default function DriverLoginPage() {
 
             <button
               onClick={handleAppleSignIn}
-              disabled={socialLoading !== null}
+              disabled={socialLoading !== null || loading || checkingStatus}
               className="flex items-center justify-center gap-2 py-3 bg-black text-white rounded-xl font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
             >
               {socialLoading === 'apple' ? (
