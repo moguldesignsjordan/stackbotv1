@@ -43,15 +43,15 @@ const translations = {
     google: 'Google',
     apple: 'Apple',
     forgotPassword: '¿Olvidaste tu contraseña?',
-    notADriver: '¿No eres conductor?',
-    applyNow: 'Aplica ahora',
+    noAccount: '¿No tienes cuenta?',
+    signUp: 'Regístrate',
     backToApp: 'Volver a StackBot',
     checkingStatus: 'Verificando estado...',
     // Status messages
     pendingApplication: 'Tu solicitud está pendiente de revisión.',
     rejectedApplication: 'Tu solicitud fue rechazada.',
     noApplication: 'No tienes una solicitud de conductor.',
-    applyToBeDriver: 'Aplica para ser conductor',
+    applyToBeDriver: 'Completar Solicitud',
     contactSupport: 'Contactar soporte',
     tryAgain: 'Intentar de nuevo',
     // Errors
@@ -73,15 +73,15 @@ const translations = {
     google: 'Google',
     apple: 'Apple',
     forgotPassword: 'Forgot password?',
-    notADriver: 'Not a driver yet?',
-    applyNow: 'Apply now',
+    noAccount: 'Don\'t have an account?',
+    signUp: 'Sign up',
     backToApp: 'Back to StackBot',
     checkingStatus: 'Checking status...',
     // Status messages
     pendingApplication: 'Your application is pending review.',
     rejectedApplication: 'Your application was rejected.',
     noApplication: 'You don\'t have a driver application.',
-    applyToBeDriver: 'Apply to be a driver',
+    applyToBeDriver: 'Complete Application',
     contactSupport: 'Contact support',
     tryAgain: 'Try again',
     // Errors
@@ -107,7 +107,7 @@ export default function DriverLoginPage() {
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [checkingStatus, setCheckingStatus] = useState(false);
-  
+
   const isNative = Capacitor.isNativePlatform();
   const t = translations[language];
 
@@ -141,7 +141,7 @@ export default function DriverLoginPage() {
 
   const checkDriverStatus = async (userEmail: string, uid: string, displayName: string | null): Promise<boolean> => {
     setCheckingStatus(true);
-    
+
     try {
       // 1. First check if already a driver (returning user)
       const driverDoc = await getDoc(doc(db, 'drivers', uid));
@@ -152,10 +152,10 @@ export default function DriverLoginPage() {
       // 2. Check approved_drivers collection (new approved driver)
       const emailKey = userEmail.replace(/[.]/g, '_');
       const approvedDoc = await getDoc(doc(db, 'approved_drivers', emailKey));
-      
+
       if (approvedDoc.exists()) {
         const approvedData = approvedDoc.data();
-        
+
         await setDoc(doc(db, 'drivers', uid), {
           ...approvedData,
           id: uid,
@@ -182,7 +182,7 @@ export default function DriverLoginPage() {
 
       if (!applicationsSnapshot.empty) {
         const application = applicationsSnapshot.docs[0].data();
-        
+
         if (application.status === 'pending') {
           setApplicationStatus('pending');
           return false;
@@ -192,7 +192,7 @@ export default function DriverLoginPage() {
           return false;
         } else if (application.status === 'approved') {
           setApplicationStatus('approved');
-          
+
           await setDoc(doc(db, 'drivers', uid), {
             id: uid,
             userId: uid,
@@ -215,7 +215,7 @@ export default function DriverLoginPage() {
             updatedAt: serverTimestamp(),
             firstLoginAt: serverTimestamp(),
           });
-          
+
           return true;
         }
       }
@@ -249,7 +249,7 @@ export default function DriverLoginPage() {
       }
 
       const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
-      
+
       if (isDriver) {
         router.push('/driver/dashboard');
       } else {
@@ -276,7 +276,7 @@ export default function DriverLoginPage() {
 
     try {
       let userCredential;
-      
+
       if (isNative) {
         const result = await FirebaseAuthentication.signInWithGoogle();
         if (!result.credential?.idToken) {
@@ -295,7 +295,7 @@ export default function DriverLoginPage() {
       }
 
       const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
-      
+
       if (isDriver) {
         router.push('/driver/dashboard');
       } else {
@@ -322,7 +322,7 @@ export default function DriverLoginPage() {
 
     try {
       let userCredential;
-      
+
       if (isNative) {
         const result = await FirebaseAuthentication.signInWithApple();
         if (!result.credential?.idToken) {
@@ -347,7 +347,7 @@ export default function DriverLoginPage() {
       }
 
       const isDriver = await checkDriverStatus(user.email, user.uid, user.displayName);
-      
+
       if (isDriver) {
         router.push('/driver/dashboard');
       } else {
@@ -399,7 +399,7 @@ export default function DriverLoginPage() {
                 </div>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{t.pendingApplication}</h2>
                 <p className="text-gray-600 mb-6">
-                  {language === 'es' 
+                  {language === 'es'
                     ? 'Tu solicitud está siendo revisada. Te notificaremos cuando sea aprobada.'
                     : 'Your application is being reviewed. We\'ll notify you when it\'s approved.'}
                 </p>
@@ -630,9 +630,9 @@ export default function DriverLoginPage() {
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              {t.notADriver}{' '}
-              <Link href="/driver/apply" className="text-[#55529d] font-semibold hover:underline">
-                {t.applyNow}
+              {t.noAccount}{' '}
+              <Link href="/driver/signup" className="text-[#55529d] font-semibold hover:underline">
+                {t.signUp}
               </Link>
             </p>
           </div>
