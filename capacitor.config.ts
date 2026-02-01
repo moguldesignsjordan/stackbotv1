@@ -5,13 +5,13 @@ const config: CapacitorConfig = {
   appName: 'StackBot',
 
   server: {
-    url: 'https://stackbotglobal.com', // ✅ LIVE SITE
+    url: 'https://stackbotglobal.com',
     cleartext: false,
   },
 
   plugins: {
     FirebaseAuthentication: {
-      skipNativeAuth: false, // ✅ REQUIRED FOR GOOGLE PLAY
+      skipNativeAuth: true,  // ← Change to TRUE
       providers: ['google.com', 'apple.com'],
     },
   },

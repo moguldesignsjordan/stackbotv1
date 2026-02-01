@@ -5,6 +5,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/components/ui/Toast";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import { PushNotificationProvider } from "@/components/PushNotificationProvider";
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
 export const metadata: Metadata = {
@@ -27,17 +28,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" suppressHydrationWarning>
-      {/* Added pt-[35px] to the class list below */}
       <body className="min-h-screen bg-sb-bg text-gray-900 antialiased pt-[0px] ">
         <LanguageProvider>
           <ToastProvider>
             <CartProvider>
               <NotificationProvider>
-                {children}
+                <PushNotificationProvider>
+                  {children}
+                </PushNotificationProvider>
               </NotificationProvider>
             </CartProvider>
           </ToastProvider>
         </LanguageProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
