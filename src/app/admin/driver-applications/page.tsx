@@ -17,6 +17,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { httpsCallable, getFunctions } from 'firebase/functions';
+import { formatLocation } from "@/lib/utils/formatLocation";
+
 import {
   Users,
   Search,
@@ -662,7 +664,7 @@ export default function DriverApplicationsPage() {
                     {t.vehicle}
                   </th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                    {t.location}
+                    {formatLocation(t.location)}
                   </th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     {t.status}
