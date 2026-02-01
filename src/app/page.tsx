@@ -769,7 +769,7 @@ export default function HomePage() {
       {itemCount > 0 && (
         <Link
           href="/cart"
-          className="fixed bottom-20 left-4 right-4 lg:bottom-6 lg:left-auto lg:right-6 lg:w-auto bg-[var(--sb-primary)] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[var(--sb-primary)]/30 z-40 hover:bg-[var(--sb-primary-dark)] transition-colors lg:hidden"
+          className="fixed bottom-24 left-4 right-4 lg:bottom-6 lg:left-auto lg:right-6 lg:w-auto bg-[var(--sb-primary)] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[var(--sb-primary)]/30 z-40 hover:bg-[var(--sb-primary-dark)] transition-colors lg:hidden"
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center">
