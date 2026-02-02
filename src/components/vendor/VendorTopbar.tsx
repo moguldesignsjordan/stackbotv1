@@ -207,8 +207,8 @@ export default function VendorTopbar() {
           <Image
             src="/stackbot-logo-purp.png"
             alt="StackBot"
-            width={120}
-            height={32}
+            width={70}
+            height={30}
             priority
           />
         </Link>
