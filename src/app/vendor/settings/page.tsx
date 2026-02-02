@@ -10,6 +10,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { TranslationKey } from "@/lib/translations";
 import {
   Store,
   MapPin,
@@ -39,17 +41,18 @@ import {
   Loader2,
 } from "lucide-react";
 
-const CATEGORIES = [
-  "Restaurants",
-  "Groceries",
-  "Beauty & Wellness",
-  "Taxi & Transport",
-  "Tours & Activities",
-  "Professional Services",
-  "Home Repair & Maintenance",
-  "Electronics & Gadgets",
-  "Cleaning Services",
-  "Retail Shops",
+// Category keys mapping for translations
+const CATEGORY_KEYS: { key: TranslationKey; value: string }[] = [
+  { key: 'vendor.categories.restaurants' as TranslationKey, value: "Restaurants" },
+  { key: 'vendor.categories.groceries' as TranslationKey, value: "Groceries" },
+  { key: 'vendor.categories.beauty' as TranslationKey, value: "Beauty & Wellness" },
+  { key: 'vendor.categories.taxi' as TranslationKey, value: "Taxi & Transport" },
+  { key: 'vendor.categories.tours' as TranslationKey, value: "Tours & Activities" },
+  { key: 'vendor.categories.professional' as TranslationKey, value: "Professional Services" },
+  { key: 'vendor.categories.homeRepair' as TranslationKey, value: "Home Repair & Maintenance" },
+  { key: 'vendor.categories.electronics' as TranslationKey, value: "Electronics & Gadgets" },
+  { key: 'vendor.categories.cleaning' as TranslationKey, value: "Cleaning Services" },
+  { key: 'vendor.categories.retail' as TranslationKey, value: "Retail Shops" },
 ];
 
 // Video compression settings
@@ -74,6 +77,7 @@ function TikTokIcon({ className }: { className?: string }) {
 }
 
 export default function VendorSettings() {
+  const { t } = useLanguage();
   const [user, setUser] = useState<any>(null);
   const [vendor, setVendor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -216,86 +220,79 @@ export default function VendorSettings() {
           width = Math.round(width * scale);
           height = Math.round(height * scale);
 
-          setCompressionProgress(10);
-          setCompressionStatus(`Compressing ${width}x${height}...`);
+          // Make dimensions even (required for most codecs)
+          width = width % 2 === 0 ? width : width - 1;
+          height = height % 2 === 0 ? height : height - 1;
 
           const canvas = document.createElement("canvas");
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext("2d")!;
 
-          // Target bitrate
-          const targetBps = Math.floor((MAX_VIDEO_SIZE_MB * 8 * 1024 * 1024) / duration * 0.7);
+          // Try to use MediaRecorder for compression
+          const stream = canvas.captureStream(30);
 
-          const stream = canvas.captureStream(24);
+          // Add audio if present
+          try {
+            const audioCtx = new AudioContext();
+            const source = audioCtx.createMediaElementSource(video);
+            const dest = audioCtx.createMediaStreamDestination();
+            source.connect(dest);
+            source.connect(audioCtx.destination);
+            dest.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+          } catch (e) {
+            console.log("No audio track or audio context failed");
+          }
 
-          // Find supported codec
-          let mimeType = "video/webm;codecs=vp9";
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = "video/webm;codecs=vp8";
-          }
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = "video/webm";
-          }
+          const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+            ? "video/webm;codecs=vp9"
+            : "video/webm";
+
+          const targetBitrate = Math.floor((MAX_VIDEO_SIZE_MB * 8 * 1024 * 1024) / duration * 0.8);
 
           const recorder = new MediaRecorder(stream, {
             mimeType,
-            videoBitsPerSecond: Math.min(targetBps, 2000000),
+            videoBitsPerSecond: Math.min(targetBitrate, 2500000),
           });
 
           const chunks: Blob[] = [];
-          recorder.ondataavailable = (e) => {
-            if (e.data.size > 0) chunks.push(e.data);
-          };
+          recorder.ondataavailable = (e) => chunks.push(e.data);
 
           recorder.onstop = () => {
             URL.revokeObjectURL(videoUrl);
-            const blob = new Blob(chunks, { type: "video/webm" });
-            const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".webm"), { type: "video/webm" });
-            const newSize = compressed.size / (1024 * 1024);
-            
-            setCompressionProgress(100);
-            setCompressionStatus(`Done! ${fileSizeMB.toFixed(1)}MB → ${newSize.toFixed(1)}MB`);
+            const blob = new Blob(chunks, { type: mimeType });
+            const compressedFile = new File(
+              [blob],
+              file.name.replace(/\.[^.]+$/, ".webm"),
+              { type: mimeType }
+            );
+
+            const finalSizeMB = compressedFile.size / (1024 * 1024);
+            setCompressionStatus(`Compressed: ${fileSizeMB.toFixed(1)}MB → ${finalSizeMB.toFixed(1)}MB`);
             setIsCompressing(false);
-            resolve(compressed);
+            resolve(compressedFile);
           };
 
-          recorder.onerror = () => {
+          recorder.onerror = (e) => {
             URL.revokeObjectURL(videoUrl);
             setIsCompressing(false);
-            reject(new Error("Compression failed"));
+            reject(e);
           };
 
-          recorder.start(100);
+          recorder.start();
           video.currentTime = 0;
+
+          setCompressionStatus("Compressing...");
+
+          video.onended = () => recorder.stop();
+
+          video.ontimeupdate = () => {
+            const progress = (video.currentTime / duration) * 100;
+            setCompressionProgress(Math.min(progress, 99));
+          };
+
           await video.play();
-
-          const startTime = Date.now();
-          const maxMs = duration * 1000;
-
-          const render = () => {
-            if (video.paused || video.ended) {
-              recorder.stop();
-              return;
-            }
-
-            ctx.drawImage(video, 0, 0, width, height);
-
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(95, 10 + (elapsed / maxMs) * 85);
-            setCompressionProgress(Math.round(progress));
-            setCompressionStatus(`Compressing... ${Math.round(video.currentTime)}s / ${Math.round(duration)}s`);
-
-            requestAnimationFrame(render);
-          };
-
-          render();
-
-          video.onended = () => {
-            if (recorder.state === "recording") recorder.stop();
-          };
-
-        } catch (err: any) {
+        } catch (err) {
           URL.revokeObjectURL(videoUrl);
           setIsCompressing(false);
           reject(err);
@@ -310,53 +307,34 @@ export default function VendorSettings() {
     });
   }, []);
 
-  const selectLogo = (file: File) => {
-    setLogoFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setLogoPreview(reader.result as string);
-    reader.readAsDataURL(file);
-  };
+  const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const selectCoverImage = (file: File) => {
-    setCoverFile(file);
-    setCoverType("image");
-    const reader = new FileReader();
-    reader.onload = () => setCoverPreview(reader.result as string);
-    reader.readAsDataURL(file);
-    setCompressionStatus("");
-  };
+    const isVideo = file.type.startsWith("video/");
+    setCoverType(isVideo ? "video" : "image");
 
-  const selectCoverVideo = async (file: File) => {
-    setCoverType("video");
-    setCoverPreview(URL.createObjectURL(file));
-
-    try {
-      const compressed = await compressVideo(file);
-      setCoverFile(compressed);
-      // Update preview with compressed version
-      if (coverPreview) URL.revokeObjectURL(coverPreview);
-      setCoverPreview(URL.createObjectURL(compressed));
-    } catch (err) {
-      console.error("Compression failed:", err);
-      setCoverFile(file); // Use original if compression fails
-      setMessage({ type: "error", text: "Compression failed, using original video" });
+    if (isVideo) {
+      try {
+        const compressed = await compressVideo(file);
+        setCoverFile(compressed);
+        setCoverPreview(URL.createObjectURL(compressed));
+      } catch (err) {
+        console.error("Video compression error:", err);
+        setMessage({ type: "error", text: "Failed to process video" });
+      }
+    } else {
+      setCoverFile(file);
+      setCoverPreview(URL.createObjectURL(file));
     }
   };
 
-  const uploadFile = async (file: File, path: string): Promise<string> => {
-    const storage = getStorage();
-    const fileRef = ref(storage, path);
-    await uploadBytes(fileRef, file);
-    return getDownloadURL(fileRef);
-  };
-
-  const toggleCategory = (cat: string) => {
-    setForm((f) => ({
-      ...f,
-      categories: f.categories.includes(cat)
-        ? f.categories.filter((c) => c !== cat)
-        : [...f.categories, cat],
-    }));
+  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setLogoFile(file);
+      setLogoPreview(URL.createObjectURL(file));
+    }
   };
 
   const getCurrentLocation = () => {
@@ -367,21 +345,35 @@ export default function VendorSettings() {
 
     setGettingLocation(true);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation((prev) => ({
-          ...prev,
-          lat: position.coords.latitude.toFixed(6),
-          lng: position.coords.longitude.toFixed(6),
-        }));
+      async (pos) => {
+        const lat = pos.coords.latitude.toString();
+        const lng = pos.coords.longitude.toString();
+
+        // Reverse geocode
+        try {
+          const res = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+          );
+          const data = await res.json();
+          const address = data.results?.[0]?.formatted_address || "";
+          setLocation({ lat, lng, location_address: address });
+        } catch {
+          setLocation({ lat, lng, location_address: "" });
+        }
         setGettingLocation(false);
-        setMessage({ type: "success", text: "Location updated!" });
       },
-      (err) => {
-        setMessage({ type: "error", text: "Could not get location" });
+      () => {
+        setMessage({ type: "error", text: "Failed to get location" });
         setGettingLocation(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+      }
     );
+  };
+
+  const uploadFile = async (file: File, path: string): Promise<string> => {
+    const storage = getStorage();
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file);
+    return getDownloadURL(storageRef);
   };
 
   const handleSave = async () => {
@@ -461,24 +453,24 @@ export default function VendorSettings() {
       setShowBankEdit(false);
       setCompressionStatus("");
 
-      setMessage({ type: "success", text: "Settings saved!" });
+      setMessage({ type: "success", text: t('vendor.settings.settingsSaved' as TranslationKey) });
     } catch (err: any) {
       console.error("Save error:", err);
-      setMessage({ type: "error", text: err.message || "Failed to save" });
+      setMessage({ type: "error", text: err.message || t('vendor.settings.saveFailed' as TranslationKey) });
     }
 
     setSaving(false);
   };
 
   const removeLogo = async () => {
-    if (!confirm("Remove logo?")) return;
+    if (!confirm(t('vendor.settings.removeLogo' as TranslationKey))) return;
     await updateDoc(doc(db, "vendors", user.uid), { logoUrl: "", updated_at: serverTimestamp() });
     setVendor((v: any) => ({ ...v, logoUrl: "" }));
-    setMessage({ type: "success", text: "Logo removed" });
+    setMessage({ type: "success", text: t('vendor.settings.logoRemoved' as TranslationKey) });
   };
 
   const removeCover = async () => {
-    if (!confirm("Remove cover?")) return;
+    if (!confirm(t('vendor.settings.removeCover' as TranslationKey))) return;
     await updateDoc(doc(db, "vendors", user.uid), {
       cover_image_url: "",
       cover_video_url: "",
@@ -488,10 +480,19 @@ export default function VendorSettings() {
     setCoverPreview(null);
     setCoverFile(null);
     setCompressionStatus("");
-    setMessage({ type: "success", text: "Cover removed" });
+    setMessage({ type: "success", text: t('vendor.settings.coverRemoved' as TranslationKey) });
   };
 
-  if (loading) return <LoadingSpinner text="Loading settings..." />;
+  const toggleCategory = (categoryValue: string) => {
+    setForm((prev) => ({
+      ...prev,
+      categories: prev.categories.includes(categoryValue)
+        ? prev.categories.filter((c) => c !== categoryValue)
+        : [...prev.categories, categoryValue],
+    }));
+  };
+
+  if (loading) return <LoadingSpinner text={t('vendor.settings.loading' as TranslationKey)} />;
 
   const currentCoverUrl = vendor?.cover_video_url || vendor?.cover_image_url;
   const isCurrentCoverVideo = !!vendor?.cover_video_url;
@@ -499,14 +500,14 @@ export default function VendorSettings() {
   return (
     <div className="space-y-6 max-w-3xl pb-24">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl sm:text-3xl font-bold">Store Settings</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold">{t('vendor.settings.title' as TranslationKey)}</h1>
         {vendor?.slug && (
           <Link
             href={`/store/${vendor.slug}`}
             target="_blank"
             className="flex items-center gap-1 text-sb-primary font-semibold text-sm hover:underline"
           >
-            View Storefront
+            {t('vendor.settings.viewStorefront' as TranslationKey)}
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         )}
@@ -530,10 +531,10 @@ export default function VendorSettings() {
       )}
 
       {/* COVER MEDIA */}
-      <Card title="Cover Media">
+      <Card title={t('vendor.settings.coverMedia' as TranslationKey)}>
         <div className="space-y-4">
           <p className="text-sm text-gray-500">
-            Upload an image or video. Videos over 8MB are auto-compressed.
+            {t('vendor.settings.coverMediaDesc' as TranslationKey)}
           </p>
 
           {/* Compression Progress */}
@@ -599,135 +600,140 @@ export default function VendorSettings() {
             {/* Upload buttons */}
             {!isCompressing && (
               <div className="absolute bottom-3 right-3 flex gap-2">
-                <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
+                <label className="flex items-center gap-1.5 px-3 py-2 bg-white/90 hover:bg-white rounded-lg cursor-pointer text-sm font-medium shadow-sm">
                   <ImageIcon className="h-4 w-4" />
-                  Image
+                  {t('vendor.settings.uploadImage' as TranslationKey)}
                   <input
                     type="file"
-                    hidden
                     accept="image/*"
-                    onChange={(e) => e.target.files?.[0] && selectCoverImage(e.target.files[0])}
+                    onChange={handleCoverSelect}
+                    className="hidden"
                   />
                 </label>
-                <label className="cursor-pointer bg-white/90 backdrop-blur px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-white transition">
+                <label className="flex items-center gap-1.5 px-3 py-2 bg-white/90 hover:bg-white rounded-lg cursor-pointer text-sm font-medium shadow-sm">
                   <Video className="h-4 w-4" />
-                  Video
+                  {t('vendor.settings.uploadVideo' as TranslationKey)}
                   <input
                     type="file"
-                    hidden
-                    accept="video/mp4,video/webm,video/mov,video/quicktime"
-                    onChange={(e) => e.target.files?.[0] && selectCoverVideo(e.target.files[0])}
+                    accept="video/*"
+                    onChange={handleCoverSelect}
+                    className="hidden"
                   />
                 </label>
+                {(currentCoverUrl || coverPreview) && (
+                  <button
+                    onClick={removeCover}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium shadow-sm"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             )}
           </div>
-
-          {/* Type indicator */}
-          {(currentCoverUrl || coverPreview) && !isCompressing && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500 flex items-center gap-2">
-                {(coverPreview ? coverType === "video" : isCurrentCoverVideo) ? (
-                  <><Video className="h-4 w-4" /> Video</>
-                ) : (
-                  <><ImageIcon className="h-4 w-4" /> Image</>
-                )}
-              </span>
-              <button onClick={removeCover} className="text-red-600 text-sm font-medium flex items-center gap-1">
-                <Trash2 className="h-3.5 w-3.5" /> Remove
-              </button>
-            </div>
-          )}
         </div>
       </Card>
 
-      {/* LOGO & STORE NAME */}
-      <Card title="Store Identity">
-        <div className="space-y-6">
-          <div className="flex items-center gap-4">
-            <div className="relative">
+      {/* LOGO */}
+      <Card title={t('vendor.settings.storeLogo' as TranslationKey)}>
+        <div className="flex items-center gap-6">
+          <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0">
+            {logoPreview || vendor?.logoUrl ? (
               <Image
-                src={logoPreview || vendor?.logoUrl || "/placeholder.png"}
-                width={80}
-                height={80}
+                src={logoPreview || vendor?.logoUrl}
+                fill
                 alt="Logo"
-                className="rounded-xl border object-cover"
+                className="object-cover"
               />
-              <label className="absolute -bottom-2 -right-2 cursor-pointer bg-sb-primary text-white p-2 rounded-full shadow-lg">
-                <Camera className="h-4 w-4" />
-                <input type="file" hidden accept="image/*" onChange={(e) => e.target.files?.[0] && selectLogo(e.target.files[0])} />
-              </label>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Store Logo</p>
-              {vendor?.logoUrl && (
-                <button onClick={removeLogo} className="text-red-600 text-sm font-medium">Remove</button>
-              )}
-            </div>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                <Store className="w-8 h-8" />
+              </div>
+            )}
           </div>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 px-4 py-2 bg-sb-primary text-white rounded-xl cursor-pointer font-medium text-sm hover:bg-sb-primary/90">
+              <Camera className="h-4 w-4" />
+              {t('vendor.settings.uploadLogo' as TranslationKey)}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleLogoSelect}
+                className="hidden"
+              />
+            </label>
+            {vendor?.logoUrl && (
+              <button
+                onClick={removeLogo}
+                className="text-sm text-red-500 hover:underline"
+              >
+                <Trash2 className="h-3 w-3 inline mr-1" />
+                {t('vendor.settings.edit' as TranslationKey)}
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
 
+      {/* BASIC INFO */}
+      <Card title={t('vendor.settings.basicInfo' as TranslationKey)}>
+        <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Store className="inline h-4 w-4 mr-1" /> Store Name *
+              {t('vendor.settings.storeName' as TranslationKey)}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+              className="w-full px-4 py-3 border rounded-xl"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('vendor.settings.description' as TranslationKey)}
+            </label>
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={3}
-              className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent resize-none"
+              className="w-full px-4 py-3 border rounded-xl resize-none"
             />
           </div>
-        </div>
-      </Card>
-
-      {/* CATEGORIES */}
-      <Card title="Categories">
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => toggleCategory(cat)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-                form.categories.includes(cat)
-                  ? "bg-sb-primary text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {t('vendor.settings.categories' as TranslationKey)}
+            </label>
+            <p className="text-xs text-gray-500 mb-3">
+              {t('vendor.settings.selectCategories' as TranslationKey)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORY_KEYS.map(({ key, value }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggleCategory(value)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+                    form.categories.includes(value)
+                      ? "bg-sb-primary text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {t(key)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </Card>
 
       {/* CONTACT */}
-      <Card title="Contact Information">
+      <Card title={t('vendor.settings.contactInfo' as TranslationKey)}>
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <MapPin className="inline h-4 w-4 mr-1" /> Address
-            </label>
-            <input
-              type="text"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="w-full px-4 py-3 border rounded-xl"
-            />
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Phone className="inline h-4 w-4 mr-1" /> Phone
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <Phone className="h-4 w-4 text-gray-400" /> {t('vendor.settings.phone' as TranslationKey)}
               </label>
               <input
                 type="tel"
@@ -737,8 +743,32 @@ export default function VendorSettings() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <MessageCircle className="inline h-4 w-4 mr-1 text-green-600" /> WhatsApp
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <Mail className="h-4 w-4 text-gray-400" /> {t('vendor.settings.email' as TranslationKey)}
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full px-4 py-3 border rounded-xl"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <Globe className="h-4 w-4 text-gray-400" /> {t('vendor.settings.website' as TranslationKey)}
+              </label>
+              <input
+                type="url"
+                value={form.website}
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+                className="w-full px-4 py-3 border rounded-xl"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-green-500" /> {t('vendor.settings.whatsapp' as TranslationKey)}
               </label>
               <input
                 type="tel"
@@ -748,52 +778,38 @@ export default function VendorSettings() {
               />
             </div>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Mail className="inline h-4 w-4 mr-1" /> Email
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-gray-400" /> {t('vendor.settings.address' as TranslationKey)}
             </label>
             <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              type="text"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
               className="w-full px-4 py-3 border rounded-xl"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Globe className="inline h-4 w-4 mr-1" /> Website
-            </label>
-            <input
-              type="url"
-              value={form.website}
-              onChange={(e) => setForm({ ...form, website: e.target.value })}
-              className="w-full px-4 py-3 border rounded-xl"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Clock className="inline h-4 w-4 mr-1" /> Store Hours
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-gray-400" /> {t('vendor.settings.businessHours' as TranslationKey)}
             </label>
             <input
               type="text"
               value={form.hours}
               onChange={(e) => setForm({ ...form, hours: e.target.value })}
+              placeholder={t('vendor.settings.hoursPlaceholder' as TranslationKey)}
               className="w-full px-4 py-3 border rounded-xl"
-              placeholder="Mon-Fri 9AM-6PM"
             />
           </div>
         </div>
       </Card>
 
       {/* SOCIAL MEDIA */}
-      <Card title="Social Media">
+      <Card title={t('vendor.settings.socialMedia' as TranslationKey)}>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <Instagram className="h-4 w-4 text-pink-600" /> Instagram
+              <Instagram className="h-4 w-4 text-pink-500" /> Instagram
             </label>
             <input
               type="text"
@@ -854,10 +870,12 @@ export default function VendorSettings() {
       </Card>
 
       {/* DELIVERY */}
-      <Card title="Delivery Settings">
+      <Card title={t('vendor.settings.deliverySettings' as TranslationKey)}>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Fee (RD$)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('vendor.settings.deliveryFee' as TranslationKey)} (RD$)
+            </label>
             <input
               type="number"
               value={form.delivery_fee}
@@ -867,7 +885,9 @@ export default function VendorSettings() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Order (RD$)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('vendor.settings.minOrder' as TranslationKey)} (RD$)
+            </label>
             <input
               type="number"
               value={form.min_order}
@@ -880,7 +900,7 @@ export default function VendorSettings() {
       </Card>
 
       {/* LOCATION */}
-      <Card title="Store Location">
+      <Card title={t('vendor.settings.storeLocation' as TranslationKey)}>
         <div className="space-y-4">
           <button
             onClick={getCurrentLocation}
@@ -888,12 +908,17 @@ export default function VendorSettings() {
             className="flex items-center gap-2 px-4 py-2.5 bg-sb-primary text-white rounded-xl font-medium text-sm disabled:opacity-50"
           >
             <Locate className={`h-4 w-4 ${gettingLocation ? "animate-spin" : ""}`} />
-            {gettingLocation ? "Getting..." : "Use Current Location"}
+            {gettingLocation 
+              ? t('vendor.settings.gettingLocation' as TranslationKey) 
+              : t('vendor.settings.useCurrentLocation' as TranslationKey)
+            }
           </button>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('vendor.settings.latitude' as TranslationKey)}
+              </label>
               <input
                 type="text"
                 value={location.lat}
@@ -902,7 +927,9 @@ export default function VendorSettings() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('vendor.settings.longitude' as TranslationKey)}
+              </label>
               <input
                 type="text"
                 value={location.lng}
@@ -918,25 +945,35 @@ export default function VendorSettings() {
               target="_blank"
               className="inline-flex items-center gap-2 text-sm text-sb-primary hover:underline"
             >
-              <ExternalLink className="h-4 w-4" /> View on Map
+              <ExternalLink className="h-4 w-4" /> {t('vendor.settings.viewOnMap' as TranslationKey)}
             </a>
           )}
         </div>
       </Card>
 
       {/* BANK INFO */}
-      <Card title="Bank / Payout">
+      <Card title={t('vendor.settings.bankPayout' as TranslationKey)}>
         <div className="space-y-4">
           {bankInfo.bank_name && !showBankEdit ? (
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-              <div className="flex justify-between"><span className="text-gray-500">Bank</span><span className="font-medium">{bankInfo.bank_name}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Account</span><span className="font-medium">•••• {bankInfo.account_last4}</span></div>
-              <button onClick={() => setShowBankEdit(true)} className="text-sb-primary text-sm font-medium">Edit</button>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{t('vendor.settings.bank' as TranslationKey)}</span>
+                <span className="font-medium">{bankInfo.bank_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{t('vendor.settings.account' as TranslationKey)}</span>
+                <span className="font-medium">•••• {bankInfo.account_last4}</span>
+              </div>
+              <button onClick={() => setShowBankEdit(true)} className="text-sb-primary text-sm font-medium">
+                {t('vendor.settings.edit' as TranslationKey)}
+              </button>
             </div>
           ) : (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('vendor.settings.bankName' as TranslationKey)}
+                </label>
                 <div className="relative">
                   <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
@@ -948,7 +985,9 @@ export default function VendorSettings() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('vendor.settings.accountHolder' as TranslationKey)}
+                </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
@@ -961,7 +1000,9 @@ export default function VendorSettings() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Account #</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('vendor.settings.accountNumber' as TranslationKey)}
+                  </label>
                   <div className="relative">
                     <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
@@ -974,7 +1015,9 @@ export default function VendorSettings() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Routing #</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('vendor.settings.routingNumber' as TranslationKey)}
+                  </label>
                   <div className="relative">
                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
@@ -995,7 +1038,9 @@ export default function VendorSettings() {
                       onChange={() => setBankInfo({ ...bankInfo, account_type: type })}
                       className="w-4 h-4 text-sb-primary"
                     />
-                    <span className="capitalize">{type}</span>
+                    <span className="capitalize">
+                      {t(`vendor.settings.${type}` as TranslationKey)}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -1012,9 +1057,15 @@ export default function VendorSettings() {
           className="flex items-center gap-2 px-6 py-3 bg-sb-primary text-white rounded-xl font-semibold shadow-lg hover:bg-sb-primary/90 disabled:opacity-50"
         >
           {saving ? (
-            <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</>
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> 
+              {t('vendor.settings.saving' as TranslationKey)}
+            </>
           ) : (
-            <><Save className="h-4 w-4" /> Save Settings</>
+            <>
+              <Save className="h-4 w-4" /> 
+              {t('vendor.settings.save' as TranslationKey)}
+            </>
           )}
         </button>
       </div>
