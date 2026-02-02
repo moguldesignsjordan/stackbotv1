@@ -470,12 +470,7 @@ export default function HomePage() {
               {language === "en" ? "🇺🇸" : "🇩🇴"}
             </button>
 
-            <Link
-              href="/account/notifications"
-              className="p-2 hover:bg-gray-100 rounded-full relative"
-            >
-              <Bell className="w-5 h-5 text-gray-700" />
-            </Link>
+
 
        <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
               <ShoppingCart className="w-5 h-5 text-gray-700" />
