@@ -730,9 +730,7 @@ export default function HomePage() {
           )}
         </section>
 
-        
-        {/* Become a Vendor CTA */}
-        <VendorCTA language={language} />
+
       </main>
 
       {/* Footer - shown on all devices */}
