@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { FirebaseMessaging } from '@capacitor-firebase/messaging';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
 
@@ -27,7 +27,7 @@ export function PushDebug() {
 
       // Step 1: Request permission
       setStatus('Requesting permission...');
-      const permResult = await PushNotifications.requestPermissions();
+      const permResult = await FirebaseMessaging.requestPermissions();
       setStatus(`Perm: ${permResult.receive}`);
       
       if (permResult.receive !== 'granted') {
@@ -35,34 +35,30 @@ export function PushDebug() {
         return;
       }
 
-      // Step 2: Remove old listeners
-      await PushNotifications.removeAllListeners();
+      // Step 2: Get FCM token (this is the correct token!)
+      setStatus('Getting FCM token...');
+      const { token } = await FirebaseMessaging.getToken();
+      
+      if (!token) {
+        setStatus('No token received');
+        return;
+      }
 
-      // Step 3: Add registration listener
-      PushNotifications.addListener('registration', async (token) => {
-        setStatus(`Got token!`);
-        
-        try {
-          await setDoc(doc(db, 'pushTokens', user.uid), {
-            token: token.value,
-            userId: user.uid,
-            platform: Capacitor.getPlatform(),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          setStatus('✅ Saved!');
-        } catch (e: any) {
-          setStatus(`Save err: ${e.message}`);
-        }
-      });
+      setStatus(`Token: ${token.substring(0, 20)}...`);
 
-      PushNotifications.addListener('registrationError', (error) => {
-        setStatus(`Reg err: ${error.error}`);
-      });
-
-      // Step 4: Register
-      setStatus('Registering...');
-      await PushNotifications.register();
+      // Step 3: Save to Firestore
+      try {
+        await setDoc(doc(db, 'pushTokens', user.uid), {
+          token: token,
+          userId: user.uid,
+          platform: Capacitor.getPlatform(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        setStatus('✅ FCM Token Saved!');
+      } catch (e: any) {
+        setStatus(`Save err: ${e.message}`);
+      }
 
     } catch (e: any) {
       setStatus(`Error: ${e.message}`);

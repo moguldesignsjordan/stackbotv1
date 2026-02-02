@@ -36,6 +36,7 @@ export default function RootLayout({
               <NotificationProvider>
 <PushNotificationProvider>
   {children}
+  <PushDebug /> 
 </PushNotificationProvider>
               </NotificationProvider>
             </CartProvider>
