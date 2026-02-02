@@ -449,12 +449,12 @@ export default function HomePage() {
         <div className="pt-[50px] safe-area-top" />
         
         {/* Logo & Actions Row */}
-        <div className="px-4 py-3 flex items-center justify-between">
+        <div className="px-3 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <Image
               src="/stackbot-logo-purp.png"
               alt="StackBot"
-              width={100}
+              width={80}
               height={30}
               className="object-contain"
               priority
@@ -470,7 +470,12 @@ export default function HomePage() {
               {language === "en" ? "🇺🇸" : "🇩🇴"}
             </button>
 
-    
+            <Link
+              href="/account/notifications"
+              className="p-2 hover:bg-gray-100 rounded-full relative"
+            >
+              <Bell className="w-5 h-5 text-gray-700" />
+            </Link>
 
        <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
               <ShoppingCart className="w-5 h-5 text-gray-700" />
