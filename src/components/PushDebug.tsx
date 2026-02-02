@@ -3,27 +3,60 @@
 import { useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase/config';
 
 export function PushDebug() {
-  const [status, setStatus] = useState('Tap to check');
+  const [status, setStatus] = useState('Tap to register push');
   
-  const checkPush = async () => {
+  const registerPush = async () => {
     try {
-      const isNative = Capacitor.isNativePlatform();
-      const platform = Capacitor.getPlatform();
+      setStatus('Checking...');
       
+      const isNative = Capacitor.isNativePlatform();
       if (!isNative) {
-        setStatus(`Not native: ${platform}`);
+        setStatus('Not native');
         return;
       }
-      
-      const perm = await PushNotifications.checkPermissions();
-      setStatus(`Native: ${platform}, Perm: ${perm.receive}`);
-      
-      if (perm.receive === 'prompt') {
-        const result = await PushNotifications.requestPermissions();
-        setStatus(`Requested: ${result.receive}`);
+
+      const user = auth.currentUser;
+      if (!user) {
+        setStatus('Not logged in');
+        return;
       }
+
+      setStatus('Registering...');
+
+      // Remove old listeners
+      await PushNotifications.removeAllListeners();
+
+      // Add registration listener FIRST
+      PushNotifications.addListener('registration', async (token) => {
+        setStatus(`Token: ${token.value.substring(0, 20)}...`);
+        
+        // Save to Firestore
+        try {
+          await setDoc(doc(db, 'pushTokens', user.uid), {
+            token: token.value,
+            userId: user.uid,
+            platform: Capacitor.getPlatform(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          setStatus('✅ Token saved!');
+        } catch (e: any) {
+          setStatus(`Save error: ${e.message}`);
+        }
+      });
+
+      PushNotifications.addListener('registrationError', (error) => {
+        setStatus(`Reg error: ${error.error}`);
+      });
+
+      // Register
+      await PushNotifications.register();
+      setStatus('Register called...');
+
     } catch (e: any) {
       setStatus(`Error: ${e.message}`);
     }
@@ -31,7 +64,7 @@ export function PushDebug() {
 
   return (
     <button
-      onClick={checkPush}
+      onClick={registerPush}
       style={{
         position: 'fixed',
         bottom: 100,
@@ -43,6 +76,7 @@ export function PushDebug() {
         borderRadius: 8,
         fontSize: 12,
         maxWidth: 200,
+        wordBreak: 'break-all',
       }}
     >
       {status}
