@@ -200,7 +200,7 @@ export default function VendorTopbar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-gray-100 pt-7 pb-2">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-gray-100 pt-13 pb-2">
       <div className="flex items-center justify-between px-4 py-3 lg:px-6">
         {/* Mobile Logo */}
         <Link href="/vendor" className="lg:hidden">
