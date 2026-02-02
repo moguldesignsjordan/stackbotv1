@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { PushNotificationProvider } from "@/components/PushNotificationProvider";
 import { SpeedInsights } from "@vercel/speed-insights/next"
+import { PushDebug } from "@/components/PushDebug";
 
 export const metadata: Metadata = {
   title: "StackBot",
@@ -33,9 +34,10 @@ export default function RootLayout({
           <ToastProvider>
             <CartProvider>
               <NotificationProvider>
-                <PushNotificationProvider>
-                  {children}
-                </PushNotificationProvider>
+<PushNotificationProvider>
+  {children}
+  <PushDebug /> 
+</PushNotificationProvider>
               </NotificationProvider>
             </CartProvider>
           </ToastProvider>
