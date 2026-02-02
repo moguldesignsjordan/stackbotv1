@@ -43,8 +43,8 @@ const translations = {
     google: 'Google',
     apple: 'Apple',
     forgotPassword: '¿Olvidaste tu contraseña?',
-    noAccount: '¿No tienes cuenta?',
-    signUp: 'Regístrate',
+    noAccount: '¿Quieres ser conductor?',
+    signUp: 'Solicitar aquí',
     backToApp: 'Volver a StackBot',
     checkingStatus: 'Verificando estado...',
     // Status messages
@@ -73,8 +73,8 @@ const translations = {
     google: 'Google',
     apple: 'Apple',
     forgotPassword: 'Forgot password?',
-    noAccount: 'Don\'t have an account?',
-    signUp: 'Sign up',
+    noAccount: 'Want to be a driver?',
+    signUp: 'Apply here',
     backToApp: 'Back to StackBot',
     checkingStatus: 'Checking status...',
     // Status messages
@@ -373,7 +373,7 @@ export default function DriverLoginPage() {
     setRejectionReason('');
   };
 
-  // Status screen for non-approved users
+  // Show status screen if we have an application status (not approved)
   if (applicationStatus && applicationStatus !== 'approved') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-[#55529d] to-[#3d3b7a] flex flex-col">
@@ -390,7 +390,7 @@ export default function DriverLoginPage() {
           </button>
         </header>
 
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
+        <div className="flex-1 flex items-center justify-center px-4 py-8">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 text-center">
             {applicationStatus === 'pending' && (
               <>
@@ -400,15 +400,23 @@ export default function DriverLoginPage() {
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{t.pendingApplication}</h2>
                 <p className="text-gray-600 mb-6">
                   {language === 'es'
-                    ? 'Tu solicitud está siendo revisada. Te notificaremos cuando sea aprobada.'
-                    : 'Your application is being reviewed. We\'ll notify you when it\'s approved.'}
+                    ? 'Te notificaremos por correo cuando tu solicitud sea revisada.'
+                    : 'We\'ll notify you by email when your application is reviewed.'}
                 </p>
-                <button
-                  onClick={resetStatus}
-                  className="w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  {t.tryAgain}
-                </button>
+                <div className="space-y-3">
+                  <Link
+                    href="mailto:support@stackbotglobal.com"
+                    className="block w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    {t.contactSupport}
+                  </Link>
+                  <button
+                    onClick={resetStatus}
+                    className="w-full py-3 text-[#55529d] font-medium hover:underline"
+                  >
+                    {t.tryAgain}
+                  </button>
+                </div>
               </>
             )}
 
@@ -419,25 +427,22 @@ export default function DriverLoginPage() {
                 </div>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">{t.rejectedApplication}</h2>
                 {rejectionReason && (
-                  <div className="mb-4 p-3 bg-red-50 rounded-lg text-left">
-                    <p className="text-xs text-red-500 mb-1">
-                      {language === 'es' ? 'Razón:' : 'Reason:'}
-                    </p>
-                    <p className="text-sm text-red-700">{rejectionReason}</p>
-                  </div>
+                  <p className="text-gray-600 mb-4 text-sm bg-gray-50 p-3 rounded-lg">
+                    {rejectionReason}
+                  </p>
                 )}
                 <p className="text-gray-600 mb-6">
                   {language === 'es'
-                    ? 'Puedes contactar soporte si crees que esto es un error.'
-                    : 'You can contact support if you believe this is a mistake.'}
+                    ? 'Contacta soporte si crees que esto es un error.'
+                    : 'Contact support if you believe this is an error.'}
                 </p>
                 <div className="space-y-3">
-                  <a
+                  <Link
                     href="mailto:support@stackbotglobal.com"
                     className="block w-full py-3 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444280] transition-colors"
                   >
                     {t.contactSupport}
-                  </a>
+                  </Link>
                   <button
                     onClick={resetStatus}
                     className="w-full py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
@@ -631,7 +636,7 @@ export default function DriverLoginPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               {t.noAccount}{' '}
-              <Link href="/driver/signup" className="text-[#55529d] font-semibold hover:underline">
+              <Link href="/driver/apply" className="text-[#55529d] font-semibold hover:underline">
                 {t.signUp}
               </Link>
             </p>
