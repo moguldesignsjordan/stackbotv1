@@ -11,7 +11,7 @@ export function PushDebug() {
   
   const registerPush = async () => {
     try {
-      setStatus('Checking...');
+      setStatus('Starting...');
       
       const isNative = Capacitor.isNativePlatform();
       if (!isNative) {
@@ -25,16 +25,23 @@ export function PushDebug() {
         return;
       }
 
-      setStatus('Registering...');
+      // Step 1: Request permission
+      setStatus('Requesting permission...');
+      const permResult = await PushNotifications.requestPermissions();
+      setStatus(`Perm: ${permResult.receive}`);
+      
+      if (permResult.receive !== 'granted') {
+        setStatus(`Permission denied: ${permResult.receive}`);
+        return;
+      }
 
-      // Remove old listeners
+      // Step 2: Remove old listeners
       await PushNotifications.removeAllListeners();
 
-      // Add registration listener FIRST
+      // Step 3: Add registration listener
       PushNotifications.addListener('registration', async (token) => {
-        setStatus(`Token: ${token.value.substring(0, 20)}...`);
+        setStatus(`Got token!`);
         
-        // Save to Firestore
         try {
           await setDoc(doc(db, 'pushTokens', user.uid), {
             token: token.value,
@@ -43,19 +50,19 @@ export function PushDebug() {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
-          setStatus('✅ Token saved!');
+          setStatus('✅ Saved!');
         } catch (e: any) {
-          setStatus(`Save error: ${e.message}`);
+          setStatus(`Save err: ${e.message}`);
         }
       });
 
       PushNotifications.addListener('registrationError', (error) => {
-        setStatus(`Reg error: ${error.error}`);
+        setStatus(`Reg err: ${error.error}`);
       });
 
-      // Register
+      // Step 4: Register
+      setStatus('Registering...');
       await PushNotifications.register();
-      setStatus('Register called...');
 
     } catch (e: any) {
       setStatus(`Error: ${e.message}`);
