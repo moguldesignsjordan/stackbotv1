@@ -119,7 +119,8 @@ export async function checkPushStatus(): Promise<{
 export function setNavigationCallback(callback: (url: string) => void) {
   // Handle notification taps
   FirebaseMessaging.addListener('notificationActionPerformed', (action) => {
-    const url = action.notification?.data?.url || '/';
+    const data = action.notification?.data as Record<string, string> | undefined;
+    const url = data?.url || '/';
     callback(url);
   });
 }

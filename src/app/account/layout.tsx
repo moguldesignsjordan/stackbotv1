@@ -195,7 +195,7 @@ export default function AccountLayout({
                 <Image
                   src="/stackbot-logo-purp.png"
                   alt="StackBot"
-                  width={120}
+                  width={80}
                   height={32}
                   priority
                 />
