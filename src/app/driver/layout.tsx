@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { auth, db } from '@/lib/firebase/config';
-import { onAuthStateChanged, getIdTokenResult, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import {
   Home,
@@ -17,8 +17,6 @@ import {
   X,
   LogOut,
   Globe,
-  Bell,
-  MapPin,
   Settings,
   ChevronRight,
   Loader2,
@@ -86,9 +84,17 @@ interface DriverProfile {
 export default function DriverLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  
+
   const [language, setLanguage] = useState<Language>('es');
-  const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated' | 'unauthorized'>('loading');
+  // 'loading'        → waiting for onAuthStateChanged
+  // 'checking'       → user is signed in, waiting for /drivers/{uid} doc check
+  // 'authenticated'  → /drivers/{uid} exists, render children
+  // 'unauthenticated'→ no user, redirecting to login
+  // 'unauthorized'   → user exists but no driver doc
+  const [authState, setAuthState] = useState<
+    'loading' | 'checking' | 'authenticated' | 'unauthenticated' | 'unauthorized'
+  >('loading');
+  const [userId, setUserId] = useState<string | null>(null);
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
@@ -96,8 +102,9 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   const t = translations[language];
 
   const publicRoutes = ['/driver/apply', '/driver/login'];
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
+  // ── language pref ──────────────────────────────────────────────
   useEffect(() => {
     const savedLang = localStorage.getItem('stackbot-driver-lang') as Language;
     if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
@@ -111,92 +118,91 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
     localStorage.setItem('stackbot-driver-lang', newLang);
   };
 
+  // ── 1. auth state listener ─────────────────────────────────────
+  // Captures the uid (or null) and moves to 'checking' / 'unauthenticated'.
+  // Does NOT do any Firestore reads itself — that's effect #2's job.
   useEffect(() => {
     if (isPublicRoute) {
       setAuthState('authenticated');
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
+        setUserId(null);
         setAuthState('unauthenticated');
-        router.push('/driver/login');
+        router.replace('/driver/login');
         return;
       }
-
-      try {
-        const tokenResult = await getIdTokenResult(user);
-        const role = tokenResult.claims.role as string;
-
-        if (role !== 'driver') {
-          setAuthState('unauthorized');
-          return;
-        }
-
-        setAuthState('authenticated');
-      } catch (error) {
-        console.error('Auth error:', error);
-        setAuthState('unauthenticated');
-      }
+      setUserId(user.uid);
+      setAuthState('checking'); // hand off to the driver-doc listener
     });
 
     return () => unsubscribe();
   }, [router, isPublicRoute]);
 
+  // ── 2. driver doc listener ─────────────────────────────────────
+  // Runs only after we have a real uid and only on protected routes.
+  // Single onSnapshot does double duty:
+  //   • first emission decides authenticated vs unauthorized
+  //   • subsequent emissions keep `driver` state fresh for the UI
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user || authState !== 'authenticated' || isPublicRoute) return;
+    if (!userId || isPublicRoute) return;
 
-    const unsubscribe = onSnapshot(
-      doc(db, 'drivers', user.uid),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setDriver({
-            id: docSnap.id,
-            name: data.name || user.displayName || '',
-            email: data.email || user.email || '',
-            phone: data.phone,
-            photoURL: data.photoURL || user.photoURL,
-            status: data.status || 'offline',
-            vehicleType: data.vehicleType,
-            vehiclePlate: data.vehiclePlate,
-            verified: data.verified,
-            totalDeliveries: data.totalDeliveries || 0,
-            rating: data.rating,
-          });
-        }
+    const unsubscribe = onSnapshot(doc(db, 'drivers', userId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setDriver({
+          id: docSnap.id,
+          name: data.name || '',
+          email: data.email || '',
+          phone: data.phone,
+          photoURL: data.photoURL,
+          status: data.status || 'offline',
+          vehicleType: data.vehicleType,
+          vehiclePlate: data.vehiclePlate,
+          verified: data.verified,
+          totalDeliveries: data.totalDeliveries || 0,
+          rating: data.rating,
+        });
+        setAuthState('authenticated');
+      } else {
+        // Doc doesn't exist → not an approved driver
+        setDriver(null);
+        setAuthState('unauthorized');
       }
-    );
+    });
 
     return () => unsubscribe();
-  }, [authState, isPublicRoute]);
+  }, [userId, isPublicRoute]);
 
+  // ── 3. active delivery indicator ───────────────────────────────
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user || authState !== 'authenticated' || isPublicRoute) return;
+    if (!userId || authState !== 'authenticated' || isPublicRoute) return;
 
     const unsubscribe = onSnapshot(
-      doc(db, 'driver_active_deliveries', user.uid),
+      doc(db, 'driver_active_deliveries', userId),
       (docSnap) => {
         setHasActiveDelivery(docSnap.exists());
       }
     );
 
     return () => unsubscribe();
-  }, [authState, isPublicRoute]);
+  }, [userId, authState, isPublicRoute]);
 
+  // ── logout ─────────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      router.push('/driver/login');
+      router.replace('/driver/login');
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
+  // ── nav items ──────────────────────────────────────────────────
   const navItems = [
-    { href: '/driver/dashboard', icon: Home, label: t.dashboard, exact: true },
+    { href: '/driver', icon: Home, label: t.dashboard, exact: true },
     { href: '/driver/delivery', icon: Package, label: t.activeDelivery, badge: hasActiveDelivery },
     { href: '/driver/history', icon: Clock, label: t.history },
     { href: '/driver/earnings', icon: DollarSign, label: t.earnings },
@@ -208,11 +214,13 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
     return pathname.startsWith(href);
   };
 
+  // ── public routes bypass everything ────────────────────────────
   if (isPublicRoute) {
     return <div className="min-h-screen bg-gray-50">{children}</div>;
   }
 
-  if (authState === 'loading') {
+  // ── loading / checking spinner ─────────────────────────────────
+  if (authState === 'loading' || authState === 'checking') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -223,6 +231,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
     );
   }
 
+  // ── unauthorized screen ────────────────────────────────────────
   if (authState === 'unauthorized') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -244,6 +253,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
     );
   }
 
+  // ── authenticated — full layout with nav ───────────────────────
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50 safe-top">
@@ -257,8 +267,8 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
 
           <div className="flex items-center gap-2">
             {driver && (
-              <button
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
                   driver.status === 'online'
                     ? 'bg-green-100 text-green-700'
                     : driver.status === 'busy'
@@ -266,13 +276,21 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
                     : 'bg-gray-100 text-gray-600'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${
-                  driver.status === 'online' ? 'bg-green-500' :
-                  driver.status === 'busy' ? 'bg-orange-500' : 'bg-gray-400'
-                }`} />
-                {driver.status === 'online' ? t.online :
-                 driver.status === 'busy' ? t.busy : t.offline}
-              </button>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    driver.status === 'online'
+                      ? 'bg-green-500'
+                      : driver.status === 'busy'
+                      ? 'bg-orange-500'
+                      : 'bg-gray-400'
+                  }`}
+                />
+                {driver.status === 'online'
+                  ? t.online
+                  : driver.status === 'busy'
+                  ? t.busy
+                  : t.offline}
+              </div>
             )}
 
             <button
@@ -294,6 +312,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
 
       <main className="pb-4">{children}</main>
 
+      {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 safe-area-bottom">
         <div className="flex items-center justify-around py-2">
           {navItems.map((item) => {
@@ -302,7 +321,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center gap-0.5 px-4 py-1 transition-colors relative ${
+                className={`flex flex-col items-center gap-0.5 px-4 py-1 transition-colors ${
                   active ? 'text-[#55529d]' : 'text-gray-400'
                 }`}
               >
@@ -319,6 +338,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
         </div>
       </nav>
 
+      {/* Slide-out menu */}
       <div
         className={`fixed inset-0 z-[100] transition-opacity duration-300 ${
           menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -347,19 +367,23 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
             {driver && (
               <div className="pb-4 mb-4 border-b border-gray-100">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-[#55529d] text-white font-semibold flex items-center justify-center">
-                    {driver.name?.charAt(0).toUpperCase() || 'D'}
+                  <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#55529d]">
+                    {driver.photoURL ? (
+                      <img src={driver.photoURL} alt={driver.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#55529d] text-white font-semibold flex items-center justify-center">
+                        {driver.name?.charAt(0).toUpperCase() || 'D'}
+                      </div>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-900 truncate">{driver.name}</p>
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      {driver.verified && (
-                        <span className="flex items-center gap-1 text-green-600">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          {language === 'es' ? 'Verificado' : 'Verified'}
-                        </span>
-                      )}
-                    </div>
+                    {driver.verified && (
+                      <span className="flex items-center gap-1 text-sm text-green-600">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        {language === 'es' ? 'Verificado' : 'Verified'}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

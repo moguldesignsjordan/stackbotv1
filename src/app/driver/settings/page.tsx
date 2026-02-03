@@ -1,324 +1,431 @@
 // src/app/driver/settings/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { doc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
-import { signOut } from 'firebase/auth';
-import { ArrowLeft, User, Phone, Mail, Car, Bike, Star, Package, Shield, CheckCircle, AlertCircle, Loader2, Globe, LogOut, Save } from 'lucide-react';
-interface DriverProfile { id: string; isOnline?: boolean; name: string; email: string; phone?: string; photoURL?: string; vehicleType?: string; vehiclePlate?: string; vehicleColor?: string; city?: string; status: string; verified?: boolean; isVerified?: boolean; rating?: number; totalDeliveries?: number; createdAt?: any; }
+import { onAuthStateChanged } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import {
+  Camera,
+  ArrowLeft,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  User,
+  Phone,
+  Truck,
+  Mail,
+} from 'lucide-react';
+import Link from 'next/link';
 
+// ============================================================================
+// TRANSLATIONS
+// ============================================================================
 const translations = {
   es: {
     title: 'Configuración',
-    back: 'Volver',
-    profileTitle: 'Información Personal',
-    name: 'Nombre',
-    namePlaceholder: 'Tu nombre completo',
-    email: 'Correo Electrónico',
-    phone: 'Teléfono / WhatsApp',
-    phonePlaceholder: '+1 809 123 4567',
-    vehicleTitle: 'Información del Vehículo',
-    vehicleType: 'Tipo de Vehículo',
-    vehiclePlate: 'Placa',
-    vehiclePlatePlaceholder: 'A123456',
-    vehicleColor: 'Color',
-    vehicleColorPlaceholder: 'Rojo',
-    vehicles: { motorcycle: 'Motocicleta', car: 'Carro', bicycle: 'Bicicleta', scooter: 'Scooter' },
-    statsTitle: 'Estadísticas',
-    totalDeliveries: 'Entregas Totales',
-    rating: 'Calificación',
-    memberSince: 'Miembro desde',
-    accountTitle: 'Cuenta',
-    verified: 'Verificado',
-    notVerified: 'No Verificado',
-    verificationPending: 'Verificación pendiente',
-    saveChanges: 'Guardar Cambios',
+    profilePhoto: 'Foto de Perfil',
+    changePhoto: 'Cambiar foto',
+    addPhoto: 'Agregar foto',
+    name: 'Nombre completo',
+    email: 'Correo electrónico',
+    phone: 'Número de teléfono',
+    vehicle: 'Tipo de vehículo',
+    vehiclePlate: 'Placa del vehículo',
+    motorcycle: 'Motocicleta',
+    bicycle: 'Bicicleta',
+    car: 'Automóvil',
+    van: 'Furgoneta',
+    saveChanges: 'Guardar cambios',
     saving: 'Guardando...',
-    logout: 'Cerrar Sesión',
     saved: '¡Cambios guardados!',
-    errorSaving: 'Error al guardar',
+    errorSaving: 'Error al guardar los cambios',
+    errorUpload: 'Error al subir la foto',
+    uploading: 'Subiendo foto...',
+    back: 'Atrás',
     loading: 'Cargando...',
+    personalInfo: 'Información Personal',
+    vehicleInfo: 'Información del Vehículo',
+    tapToChange: 'Toca para cambiar',
   },
   en: {
     title: 'Settings',
-    back: 'Back',
-    profileTitle: 'Personal Information',
-    name: 'Name',
-    namePlaceholder: 'Your full name',
-    email: 'Email',
-    phone: 'Phone / WhatsApp',
-    phonePlaceholder: '+1 809 123 4567',
-    vehicleTitle: 'Vehicle Information',
-    vehicleType: 'Vehicle Type',
-    vehiclePlate: 'Plate',
-    vehiclePlatePlaceholder: 'A123456',
-    vehicleColor: 'Color',
-    vehicleColorPlaceholder: 'Red',
-    vehicles: { motorcycle: 'Motorcycle', car: 'Car', bicycle: 'Bicycle', scooter: 'Scooter' },
-    statsTitle: 'Statistics',
-    totalDeliveries: 'Total Deliveries',
-    rating: 'Rating',
-    memberSince: 'Member since',
-    accountTitle: 'Account',
-    verified: 'Verified',
-    notVerified: 'Not Verified',
-    verificationPending: 'Verification pending',
-    saveChanges: 'Save Changes',
+    profilePhoto: 'Profile Photo',
+    changePhoto: 'Change photo',
+    addPhoto: 'Add photo',
+    name: 'Full name',
+    email: 'Email address',
+    phone: 'Phone number',
+    vehicle: 'Vehicle type',
+    vehiclePlate: 'Vehicle plate',
+    motorcycle: 'Motorcycle',
+    bicycle: 'Bicycle',
+    car: 'Car',
+    van: 'Van',
+    saveChanges: 'Save changes',
     saving: 'Saving...',
-    logout: 'Logout',
     saved: 'Changes saved!',
-    errorSaving: 'Error saving',
+    errorSaving: 'Error saving changes',
+    errorUpload: 'Error uploading photo',
+    uploading: 'Uploading photo...',
+    back: 'Back',
     loading: 'Loading...',
+    personalInfo: 'Personal Information',
+    vehicleInfo: 'Vehicle Information',
+    tapToChange: 'Tap to change',
   },
 };
 
 type Language = 'es' | 'en';
-type VehicleType = 'motorcycle' | 'car' | 'bicycle' | 'scooter';
 
-export default function DriverSettingsPage() {
-  const router = useRouter();
+interface DriverProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  photoURL?: string;
+  vehicleType?: string;
+  vehiclePlate?: string;
+  [key: string]: any;
+}
+
+const VEHICLE_TYPES = ['motorcycle', 'bicycle', 'car', 'van'] as const;
+
+export default function DriverSettings() {
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const [language, setLanguage] = useState<Language>('es');
+  const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<DriverProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // editable fields mirror profile; initialized once profile loads
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [vehicleType, setVehicleType] = useState<VehicleType>('motorcycle');
+  const [vehicleType, setVehicleType] = useState<string>('motorcycle');
   const [vehiclePlate, setVehiclePlate] = useState('');
-  const [vehicleColor, setVehicleColor] = useState('');
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const t = translations[language];
-  const userId = auth.currentUser?.uid;
 
+  // ── language ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const savedLang = localStorage.getItem('stackbot-driver-lang') as Language;
-    if (savedLang && (savedLang === 'es' || savedLang === 'en')) setLanguage(savedLang);
+    const saved = localStorage.getItem('stackbot-driver-lang') as Language;
+    if (saved === 'es' || saved === 'en') setLanguage(saved);
   }, []);
 
-  const toggleLanguage = () => {
-    const newLang = language === 'es' ? 'en' : 'es';
-    setLanguage(newLang);
-    localStorage.setItem('stackbot-driver-lang', newLang);
-  };
+  // ── auth ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => setUserId(user?.uid ?? null));
+    return () => unsub();
+  }, []);
 
+  // ── driver doc listener ──────────────────────────────────────────────────
   useEffect(() => {
     if (!userId) return;
-    const driverRef = doc(db, 'drivers', userId);
-    const unsubscribe = onSnapshot(driverRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as DriverProfile;
-        setProfile({ ...data, id: docSnap.id });
-        setName(data.name || '');
-        setPhone(data.phone || '');
-        setVehicleType((data.vehicleType || 'motorcycle') as VehicleType);
-        setVehiclePlate(data.vehiclePlate || '');
-        setVehicleColor(data.vehicleColor || '');
+    const unsubscribe = onSnapshot(doc(db, 'drivers', userId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const p: DriverProfile = {
+          id: snap.id,
+          name: data.name || '',
+          email: data.email || '',
+          phone: data.phone || '',
+          photoURL: data.photoURL || null,
+          vehicleType: data.vehicleType || 'motorcycle',
+          vehiclePlate: data.vehiclePlate || '',
+        };
+        setProfile(p);
+        // seed form fields (only on first load to avoid overwriting while user types)
+        setName(p.name);
+        setPhone(p.phone || '');
+        setVehicleType(p.vehicleType || 'motorcycle');
+        setVehiclePlate(p.vehiclePlate || '');
+        setPhotoURL(p.photoURL || null);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, [userId]);
 
+  // ── show toast helper ────────────────────────────────────────────────────
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // ── photo upload ─────────────────────────────────────────────────────────
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+
+    // basic client validation: image, < 5 MB
+    if (!file.type.startsWith('image/')) {
+      showToast('error', t.errorUpload);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('error', language === 'es' ? 'La foto no puede ser mayor a 5 MB' : 'Photo must be under 5 MB');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const storage = getStorage();
+      const storageRef = ref(storage, `driver_photos/${userId}/profile.jpg`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      // persist to Firestore immediately so layout's onSnapshot picks it up
+      await updateDoc(doc(db, 'drivers', userId), {
+        photoURL: url,
+        updatedAt: serverTimestamp(),
+      });
+
+      setPhotoURL(url);
+      showToast('success', language === 'es' ? '¡Foto actualizada!' : 'Photo updated!');
+    } catch (err) {
+      console.error('Photo upload error:', err);
+      showToast('error', t.errorUpload);
+    } finally {
+      setUploadingPhoto(false);
+      // reset input so the same file can be re-selected if needed
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  // ── save profile fields ──────────────────────────────────────────────────
   const handleSave = async () => {
     if (!userId) return;
     setSaving(true);
-    setMessage(null);
     try {
-      const driverRef = doc(db, 'drivers', userId);
-      await updateDoc(driverRef, { name, phone, vehicleType, vehiclePlate: vehiclePlate.toUpperCase(), vehicleColor, updatedAt: serverTimestamp() });
-      setMessage({ type: 'success', text: t.saved });
-      setTimeout(() => setMessage(null), 3000);
+      await updateDoc(doc(db, 'drivers', userId), {
+        name,
+        phone,
+        vehicleType,
+        vehiclePlate,
+        updatedAt: serverTimestamp(),
+      });
+      showToast('success', t.saved);
     } catch (err) {
-      console.error('Error saving:', err);
-      setMessage({ type: 'error', text: t.errorSaving });
-      setTimeout(() => setMessage(null), 5000);
+      console.error('Save error:', err);
+      showToast('error', t.errorSaving);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      if (profile?.isOnline) {
-        const driverRef = doc(db, 'drivers', userId!);
-        await updateDoc(driverRef, { isOnline: false, status: 'offline', updatedAt: serverTimestamp() });
-      }
-      await signOut(auth);
-      router.push('/driver/login');
-    } catch (err) {
-      console.error('Logout error:', err);
-    }
+  // ── vehicle type label ───────────────────────────────────────────────────
+  const vehicleLabel = (v: string) => {
+    const map: Record<string, string> = {
+      motorcycle: t.motorcycle,
+      bicycle: t.bicycle,
+      car: t.car,
+      van: t.van,
+    };
+    return map[v] || v;
   };
 
-  const formatDate = (timestamp: unknown): string => {
-    if (!timestamp) return '-';
-    const date = typeof timestamp === 'object' && 'toDate' in timestamp ? (timestamp as { toDate: () => Date }).toDate() : new Date(timestamp as string);
-    return date.toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US', { year: 'numeric', month: 'long' });
-  };
-
-  const vehicleIcons: Record<VehicleType, React.ReactNode> = {
-    motorcycle: <Bike className="w-5 h-5" />,
-    car: <Car className="w-5 h-5" />,
-    bicycle: <Bike className="w-5 h-5" />,
-    scooter: <Bike className="w-5 h-5" />,
-  };
-
+  // ── loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto" />
-          <p className="text-gray-400 mt-2">{t.loading}</p>
+          <Loader2 className="w-10 h-10 animate-spin text-[#55529d] mx-auto mb-3" />
+          <p className="text-gray-500">{t.loading}</p>
         </div>
       </div>
     );
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-900 text-white pb-8">
-      <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-sm border-b border-gray-800 safe-top">
-        <div className="flex items-center justify-between px-4 py-3">
-          <button onClick={() => router.push('/driver')} className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-6 h-6" />
+    <div className="min-h-screen bg-gray-50 pb-24">
+      {/* Page header (inside layout's chrome — sits below layout's sticky header) */}
+      <div className="bg-white border-b border-gray-200 px-4 py-4 flex items-center gap-3">
+        <Link href="/driver" className="p-1 -ml-1 text-gray-500 hover:text-gray-800 transition-colors">
+          <ArrowLeft className="w-5 h-5" />
+        </Link>
+        <h1 className="text-lg font-semibold text-gray-900">{t.title}</h1>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`mx-4 mt-4 flex items-start gap-3 p-3 rounded-xl border ${
+            toast.type === 'success'
+              ? 'bg-green-50 border-green-200'
+              : 'bg-red-50 border-red-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          )}
+          <p className={`text-sm ${toast.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+            {toast.message}
+          </p>
+        </div>
+      )}
+
+      <div className="px-4 pt-6 space-y-6">
+        {/* ─── Profile Photo ──────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
+          <p className="text-sm font-medium text-gray-500 mb-4">{t.profilePhoto}</p>
+
+          {/* Avatar circle — tappable */}
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploadingPhoto}
+            className="relative w-28 h-28 mx-auto rounded-full overflow-hidden border-4 border-[#55529d] shadow-md hover:opacity-80 transition-opacity focus:outline-none"
+          >
+            {photoURL ? (
+              <img src={photoURL} alt={profile?.name || 'Avatar'} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-[#55529d]/10 flex items-center justify-center">
+                <User className="w-14 h-14 text-[#55529d]/40" />
+              </div>
+            )}
+
+            {/* overlay label */}
+            <div className="absolute inset-0 bg-black/30 flex items-end justify-center pb-2">
+              {uploadingPhoto ? (
+                <Loader2 className="w-5 h-5 animate-spin text-white" />
+              ) : (
+                <span className="text-white text-xs font-semibold drop-shadow">
+                  {photoURL ? t.changePhoto : t.addPhoto}
+                </span>
+              )}
+            </div>
           </button>
-          <h1 className="text-lg font-semibold text-white">{t.title}</h1>
-          <button onClick={toggleLanguage} className="p-2 -mr-2 text-gray-400 hover:text-white transition-colors">
-            <Globe className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
 
-      <main className="px-4 py-6 space-y-6">
-        {message && (
-          <div className={`flex items-start gap-3 p-3 rounded-xl ${message.type === 'success' ? 'bg-purple-500/10 border border-purple-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-            {message.type === 'success' ? <CheckCircle className="w-5 h-5 text-purple-400 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />}
-            <p className={`text-sm ${message.type === 'success' ? 'text-purple-300' : 'text-red-300'}`}>{message.text}</p>
-          </div>
-        )}
+          {/* hidden file input */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoChange}
+          />
 
-        <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <User className="w-5 h-5 text-purple-400" />
-            {t.profileTitle}
-          </h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">{t.name}</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t.namePlaceholder} className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">{t.email}</label>
-              <div className="flex items-center gap-3 px-4 py-3 bg-gray-900/30 border border-gray-700/50 rounded-xl text-gray-400">
-                <Mail className="w-5 h-5" />
-                <span>{profile?.email}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">{t.phone}</label>
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t.phonePlaceholder} className="w-full pl-12 pr-4 py-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-              </div>
-            </div>
-          </div>
+          <p className="text-xs text-gray-400 mt-3">{t.tapToChange}</p>
         </div>
 
-        <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Car className="w-5 h-5 text-blue-400" />
-            {t.vehicleTitle}
-          </h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">{t.vehicleType}</label>
-              <div className="grid grid-cols-2 gap-3">
-                {(['motorcycle', 'car', 'bicycle', 'scooter'] as VehicleType[]).map((type) => (
-                  <button key={type} type="button" onClick={() => setVehicleType(type)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${vehicleType === type ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:border-gray-600'}`}>
-                    {vehicleIcons[type]}
-                    <span className="text-sm font-medium">{t.vehicles[type]}</span>
-                  </button>
-                ))}
-              </div>
+        {/* ─── Personal Info ──────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.personalInfo}</p>
+          </div>
+
+          {/* Name */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <label className="flex items-center gap-2 text-sm text-gray-500 mb-1.5">
+              <User className="w-4 h-4" />
+              {t.name}
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:border-transparent transition"
+            />
+          </div>
+
+          {/* Email (read-only) */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <label className="flex items-center gap-2 text-sm text-gray-500 mb-1.5">
+              <Mail className="w-4 h-4" />
+              {t.email}
+            </label>
+            <div className="w-full text-sm text-gray-400 bg-gray-100 border border-gray-200 rounded-xl px-3 py-2.5 cursor-not-allowed">
+              {profile?.email || '—'}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t.vehiclePlate}</label>
-                <input type="text" value={vehiclePlate} onChange={(e) => setVehiclePlate(e.target.value.toUpperCase())} placeholder={t.vehiclePlatePlaceholder} className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all uppercase" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t.vehicleColor}</label>
-                <input type="text" value={vehicleColor} onChange={(e) => setVehicleColor(e.target.value)} placeholder={t.vehicleColorPlaceholder} className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-              </div>
-            </div>
+          </div>
+
+          {/* Phone */}
+          <div className="px-4 py-3">
+            <label className="flex items-center gap-2 text-sm text-gray-500 mb-1.5">
+              <Phone className="w-4 h-4" />
+              {t.phone}
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:border-transparent transition"
+            />
           </div>
         </div>
 
-        <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Star className="w-5 h-5 text-amber-400" />
-            {t.statsTitle}
-          </h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                <Package className="w-6 h-6 text-purple-400" />
-              </div>
-              <p className="text-2xl font-bold text-white">{profile?.totalDeliveries || 0}</p>
-              <p className="text-xs text-gray-500">{t.totalDeliveries}</p>
+        {/* ─── Vehicle Info ───────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.vehicleInfo}</p>
+          </div>
+
+          {/* Vehicle Type – pill selector */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <label className="flex items-center gap-2 text-sm text-gray-500 mb-2.5">
+              <Truck className="w-4 h-4" />
+              {t.vehicle}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {VEHICLE_TYPES.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setVehicleType(v)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${
+                    vehicleType === v
+                      ? 'bg-[#55529d] text-white border-[#55529d]'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-[#55529d]'
+                  }`}
+                >
+                  {vehicleLabel(v)}
+                </button>
+              ))}
             </div>
-            <div className="text-center">
-              <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                <Star className="w-6 h-6 text-amber-400" />
-              </div>
-              <p className="text-2xl font-bold text-white">{profile?.rating?.toFixed(1) || '5.0'}</p>
-              <p className="text-xs text-gray-500">{t.rating}</p>
-            </div>
-            <div className="text-center">
-              <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                <Shield className="w-6 h-6 text-blue-400" />
-              </div>
-              <p className="text-sm font-medium text-white">{formatDate(profile?.createdAt)}</p>
-              <p className="text-xs text-gray-500">{t.memberSince}</p>
-            </div>
+          </div>
+
+          {/* Vehicle Plate */}
+          <div className="px-4 py-3">
+            <label className="flex items-center gap-2 text-sm text-gray-500 mb-1.5">
+              <Truck className="w-4 h-4" />
+              {t.vehiclePlate}
+            </label>
+            <input
+              type="text"
+              value={vehiclePlate}
+              onChange={(e) => setVehiclePlate(e.target.value)}
+              placeholder="—"
+              className="w-full text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:border-transparent transition"
+            />
           </div>
         </div>
 
-        <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-purple-400" />
-            {t.accountTitle}
-          </h2>
-          <div className="flex items-center justify-between p-3 bg-gray-900/30 rounded-xl">
-            <div className="flex items-center gap-3">
-              {profile?.isVerified ? <CheckCircle className="w-5 h-5 text-purple-400" /> : <AlertCircle className="w-5 h-5 text-amber-400" />}
-              <span className="text-gray-300">{profile?.isVerified ? t.verified : t.notVerified}</span>
-            </div>
-            {!profile?.isVerified && <span className="text-xs text-amber-400">{t.verificationPending}</span>}
-          </div>
-        </div>
-
-        <button onClick={handleSave} disabled={saving} className="w-full flex items-center justify-center gap-2 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white font-semibold rounded-xl transition-all">
+        {/* ─── Save Button ─────────────────────────────────────────────── */}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full flex items-center justify-center gap-2 py-4 bg-[#55529d] hover:bg-[#444280] disabled:opacity-60 text-white font-semibold rounded-2xl shadow-sm transition-all"
+        >
           {saving ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>{t.saving}</span>
             </>
           ) : (
-            <>
-              <Save className="w-5 h-5" />
-              <span>{t.saveChanges}</span>
-            </>
+            <span>{t.saveChanges}</span>
           )}
         </button>
-
-        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold rounded-xl border border-red-500/30 transition-all">
-          <LogOut className="w-5 h-5" />
-          <span>{t.logout}</span>
-        </button>
-      </main>
+      </div>
     </div>
   );
 }

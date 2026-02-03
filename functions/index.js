@@ -659,12 +659,13 @@ exports.completeDelivery = functions.https.onCall(async (data, context) => {
 });
 
 /* ============================================================
-    📢 SEND BROADCAST NOTIFICATION (Admin Only)
+    📢 SEND BROADCAST NOTIFICATION (Admin Only) - SENDS 1X
 ============================================================ */
 exports.sendBroadcastNotification = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Login required");
   const isAdmin = context.auth.token.role === "admin" || ADMIN_EMAILS.includes(context.auth.token.email);
   if (!isAdmin) throw new functions.https.HttpsError("permission-denied", "Admin only");
+  
   const { title, message, url } = data;
   if (!title || !message) throw new functions.https.HttpsError("invalid-argument", "Title and message required");
   
@@ -684,6 +685,7 @@ exports.sendBroadcastNotification = functions.https.onCall(async (data, context)
   let successCount = 0;
   let failureCount = 0;
   
+  // Send ONCE
   for (let i = 0; i < tokens.length; i += batchSize) {
     const batchTokens = tokens.slice(i, i + batchSize);
     try {
@@ -702,6 +704,7 @@ exports.sendBroadcastNotification = functions.https.onCall(async (data, context)
     }
   }
   
+  // Create in-app notification
   const firestoreBatch = admin.firestore().batch();
   const now = admin.firestore.FieldValue.serverTimestamp();
   for (const uId of userIds) {

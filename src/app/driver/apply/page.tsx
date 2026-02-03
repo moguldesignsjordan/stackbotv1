@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase/config';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase/config';
 import {
   Truck,
   User,
@@ -99,6 +100,7 @@ const translations = {
       invalidPhone: 'Número de teléfono inválido',
       submitFailed: 'Error al enviar. Intenta de nuevo.',
       acceptTerms: 'Debes aceptar los términos',
+      notLoggedIn: 'Debes iniciar sesión antes de aplicar.',
     },
     haveAccount: '¿Ya tienes cuenta?',
     signIn: 'Iniciar Sesión',
@@ -172,6 +174,7 @@ const translations = {
       invalidPhone: 'Invalid phone number',
       submitFailed: 'Failed to submit. Please try again.',
       acceptTerms: 'You must accept the terms',
+      notLoggedIn: 'You must be logged in to apply.',
     },
     haveAccount: 'Already have an account?',
     signIn: 'Sign In',
@@ -219,15 +222,32 @@ export default function DriverApplyPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const t = translations[language];
 
+  // ── language pref ────────────────────────────────────────────
   useEffect(() => {
     const savedLang = localStorage.getItem('stackbot-driver-lang') as Language;
     if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
       setLanguage(savedLang);
     }
   }, []);
+
+  // ── auth guard ───────────────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser({ uid: user.uid, email: user.email! });
+      } else {
+        // not logged in → bounce to login
+        router.replace('/driver/login');
+      }
+      setAuthLoading(false);
+    });
+    return () => unsub();
+  }, [router]);
 
   const toggleLanguage = () => {
     const newLang = language === 'es' ? 'en' : 'es';
@@ -268,12 +288,23 @@ export default function DriverApplyPage() {
     e.preventDefault();
     if (!validateForm()) return;
 
+    // safety: should never happen because of the auth guard above,
+    // but if somehow currentUser is null we surface a clear error.
+    if (!currentUser) {
+      setError(t.errors.notLoggedIn);
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
       await addDoc(collection(db, 'driver_applications'), {
         ...formData,
+        // uid & email MUST come from the authenticated token —
+        // the Firestore rules verify both against request.auth.
+        uid: currentUser.uid,
+        email: currentUser.email,
         status: 'pending',
         language,
         createdAt: serverTimestamp(),
@@ -294,6 +325,15 @@ export default function DriverApplyPage() {
     bicycle: <Bike className="w-5 h-5" />,
     scooter: <Bike className="w-5 h-5" />,
   };
+
+  // ── while Firebase is still resolving the current user ─────
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-sb-primary/80 via-sb-primary to-sb-primary/90 flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-white animate-spin" />
+      </div>
+    );
+  }
 
   // Success State
   if (submitted) {

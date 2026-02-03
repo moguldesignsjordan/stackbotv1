@@ -16,34 +16,26 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
-import { httpsCallable, getFunctions } from 'firebase/functions';
-import { formatLocation } from "@/lib/utils/formatLocation";
 
 import {
   Users,
   Search,
-  Filter,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   Loader2,
-  ChevronDown,
-  ChevronUp,
   Phone,
   Mail,
   MapPin,
   Car,
   Bike,
   FileText,
-  Calendar,
   Trash2,
   UserPlus,
   Eye,
   X,
   Globe,
-  Shield,
-  ExternalLink,
 } from 'lucide-react';
 
 // ============================================================================
@@ -51,6 +43,7 @@ import {
 // ============================================================================
 interface DriverApplication {
   id: string;
+  uid?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -80,20 +73,17 @@ const translations = {
     title: 'Solicitudes de Conductores',
     subtitle: 'Gestiona las solicitudes de nuevos conductores',
     
-    // Filters
     all: 'Todas',
     pending: 'Pendientes',
     approved: 'Aprobadas',
     rejected: 'Rechazadas',
     searchPlaceholder: 'Buscar por nombre, email o teléfono...',
     
-    // Stats
     totalApplications: 'Total Solicitudes',
     pendingReview: 'Pendientes',
     approvedCount: 'Aprobadas',
     rejectedCount: 'Rechazadas',
     
-    // Table Headers
     applicant: 'Solicitante',
     contact: 'Contacto',
     vehicle: 'Vehículo',
@@ -102,7 +92,6 @@ const translations = {
     date: 'Fecha',
     actions: 'Acciones',
     
-    // Vehicle Types
     vehicles: {
       motorcycle: 'Motocicleta',
       car: 'Carro',
@@ -110,27 +99,16 @@ const translations = {
       scooter: 'Scooter',
     },
     
-    // Experience
-    experienceOptions: {
-      none: 'Sin experiencia',
-      lessThan1: 'Menos de 1 año',
-      oneToThree: '1-3 años',
-      moreThan3: 'Más de 3 años',
-    },
-    
-    // Status
     statusPending: 'Pendiente',
     statusApproved: 'Aprobado',
     statusRejected: 'Rechazado',
     
-    // Actions
     viewDetails: 'Ver Detalles',
     approve: 'Aprobar',
     reject: 'Rechazar',
     delete: 'Eliminar',
     approving: 'Aprobando...',
     
-    // Modal
     applicationDetails: 'Detalles de Solicitud',
     personalInfo: 'Información Personal',
     vehicleInfo: 'Información del Vehículo',
@@ -145,19 +123,16 @@ const translations = {
     submittedIn: 'Idioma de solicitud',
     close: 'Cerrar',
     
-    // Rejection Modal
     rejectApplication: 'Rechazar Solicitud',
     rejectionReason: 'Motivo del Rechazo (opcional)',
     rejectionPlaceholder: 'Explica el motivo del rechazo...',
     confirmReject: 'Confirmar Rechazo',
     cancel: 'Cancelar',
     
-    // Delete Confirmation
     deleteConfirmTitle: '¿Eliminar solicitud?',
     deleteConfirmMessage: 'Esta acción no se puede deshacer.',
     confirmDelete: 'Sí, Eliminar',
     
-    // Messages
     approveSuccess: 'Solicitud aprobada. Conductor creado exitosamente.',
     approveError: 'Error al aprobar la solicitud',
     rejectSuccess: 'Solicitud rechazada',
@@ -165,33 +140,28 @@ const translations = {
     deleteSuccess: 'Solicitud eliminada',
     deleteError: 'Error al eliminar la solicitud',
     
-    // Empty State
     noApplications: 'No hay solicitudes',
     noApplicationsDesc: 'Las nuevas solicitudes aparecerán aquí',
     noResults: 'Sin resultados',
     noResultsDesc: 'No se encontraron solicitudes con ese filtro',
     
-    // Loading
     loading: 'Cargando solicitudes...',
   },
   en: {
     title: 'Driver Applications',
     subtitle: 'Manage new driver applications',
     
-    // Filters
     all: 'All',
     pending: 'Pending',
     approved: 'Approved',
     rejected: 'Rejected',
     searchPlaceholder: 'Search by name, email or phone...',
     
-    // Stats
     totalApplications: 'Total Applications',
     pendingReview: 'Pending',
     approvedCount: 'Approved',
     rejectedCount: 'Rejected',
     
-    // Table Headers
     applicant: 'Applicant',
     contact: 'Contact',
     vehicle: 'Vehicle',
@@ -200,7 +170,6 @@ const translations = {
     date: 'Date',
     actions: 'Actions',
     
-    // Vehicle Types
     vehicles: {
       motorcycle: 'Motorcycle',
       car: 'Car',
@@ -208,27 +177,16 @@ const translations = {
       scooter: 'Scooter',
     },
     
-    // Experience
-    experienceOptions: {
-      none: 'No experience',
-      lessThan1: 'Less than 1 year',
-      oneToThree: '1-3 years',
-      moreThan3: 'More than 3 years',
-    },
-    
-    // Status
     statusPending: 'Pending',
     statusApproved: 'Approved',
     statusRejected: 'Rejected',
     
-    // Actions
     viewDetails: 'View Details',
     approve: 'Approve',
     reject: 'Reject',
     delete: 'Delete',
     approving: 'Approving...',
     
-    // Modal
     applicationDetails: 'Application Details',
     personalInfo: 'Personal Information',
     vehicleInfo: 'Vehicle Information',
@@ -243,19 +201,16 @@ const translations = {
     submittedIn: 'Application language',
     close: 'Close',
     
-    // Rejection Modal
     rejectApplication: 'Reject Application',
     rejectionReason: 'Rejection Reason (optional)',
     rejectionPlaceholder: 'Explain the reason for rejection...',
     confirmReject: 'Confirm Rejection',
     cancel: 'Cancel',
     
-    // Delete Confirmation
     deleteConfirmTitle: 'Delete application?',
     deleteConfirmMessage: 'This action cannot be undone.',
     confirmDelete: 'Yes, Delete',
     
-    // Messages
     approveSuccess: 'Application approved. Driver created successfully.',
     approveError: 'Error approving application',
     rejectSuccess: 'Application rejected',
@@ -263,13 +218,11 @@ const translations = {
     deleteSuccess: 'Application deleted',
     deleteError: 'Error deleting application',
     
-    // Empty State
     noApplications: 'No applications',
     noApplicationsDesc: 'New applications will appear here',
     noResults: 'No results',
     noResultsDesc: 'No applications found with that filter',
     
-    // Loading
     loading: 'Loading applications...',
   },
 };
@@ -294,7 +247,6 @@ export default function DriverApplicationsPage() {
 
   const t = translations[language];
 
-  // Load saved language preference
   useEffect(() => {
     const savedLang = localStorage.getItem('stackbot-admin-lang') as Language;
     if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
@@ -302,21 +254,19 @@ export default function DriverApplicationsPage() {
     }
   }, []);
 
-  // Toggle language
   const toggleLanguage = () => {
     const newLang = language === 'es' ? 'en' : 'es';
     setLanguage(newLang);
     localStorage.setItem('stackbot-admin-lang', newLang);
   };
 
-  // Fetch applications
   useEffect(() => {
-    const applicationsQuery = query(
+    const q = query(
       collection(db, 'driver_applications'),
       orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(applicationsQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const apps: DriverApplication[] = [];
       snapshot.forEach((doc) => {
         apps.push({ id: doc.id, ...doc.data() } as DriverApplication);
@@ -328,27 +278,6 @@ export default function DriverApplicationsPage() {
     return () => unsubscribe();
   }, []);
 
-  // Filter applications
-  const filteredApplications = applications.filter((app) => {
-    // Status filter
-    if (filterStatus !== 'all' && app.status !== filterStatus) {
-      return false;
-    }
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        app.fullName.toLowerCase().includes(query) ||
-        app.email.toLowerCase().includes(query) ||
-        app.phone.includes(query)
-      );
-    }
-
-    return true;
-  });
-
-  // Stats
   const stats = {
     total: applications.length,
     pending: applications.filter((a) => a.status === 'pending').length,
@@ -356,26 +285,37 @@ export default function DriverApplicationsPage() {
     rejected: applications.filter((a) => a.status === 'rejected').length,
   };
 
-  // Format date
-  const formatDate = (timestamp: Timestamp): string => {
-    const date = timestamp.toDate();
-    return date.toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US', {
+  const filteredApplications = applications.filter((app) => {
+    const matchesStatus = filterStatus === 'all' || app.status === filterStatus;
+    const matchesSearch =
+      app.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      app.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      app.phone.includes(searchQuery);
+    return matchesStatus && matchesSearch;
+  });
+
+  const formatDate = (timestamp: Timestamp) => {
+    if (!timestamp?.toDate) return '-';
+    return timestamp.toDate().toLocaleDateString(language === 'es' ? 'es-DO' : 'en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
   };
 
-  // Approve application
+  // ✅ SIMPLIFIED APPROVAL - Just create driver doc
   const handleApprove = async (app: DriverApplication) => {
     setProcessingId(app.id);
     setMessage(null);
 
     try {
-      // First, create the driver document
-      const driverRef = doc(db, 'drivers', app.id);
-      await setDoc(driverRef, {
-        userId: app.id, // Temporary - will be replaced when user creates account
+      console.log('=== APPROVING DRIVER ===');
+      console.log('Application ID:', app.id);
+      console.log('Email:', app.email);
+
+      // Create driver document (Firestore rules allow access if doc exists)
+      await setDoc(doc(db, 'drivers', app.id), {
+        userId: app.id,
         applicationId: app.id,
         name: app.fullName,
         email: app.email,
@@ -387,20 +327,42 @@ export default function DriverApplicationsPage() {
         status: 'offline',
         isOnline: false,
         isVerified: true,
-        totalDeliveries: 0,
+        verified: true,
         rating: 5.0,
         ratingCount: 0,
+        totalDeliveries: 0,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       // Update application status
-      const appRef = doc(db, 'driver_applications', app.id);
-      await updateDoc(appRef, {
+      await updateDoc(doc(db, 'driver_applications', app.id), {
         status: 'approved',
         reviewedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
+      // Store in approved_drivers for future logins
+      const emailKey = app.email.replace(/[.]/g, '_');
+      await setDoc(doc(db, 'approved_drivers', emailKey), {
+        applicationId: app.id,
+        name: app.fullName,
+        email: app.email,
+        phone: app.phone,
+        city: app.city,
+        vehicleType: app.vehicleType,
+        vehiclePlate: app.vehiclePlate,
+        vehicleColor: app.vehicleColor,
+        status: 'offline',
+        isOnline: false,
+        verified: true,
+        isVerified: true,
+        rating: 5.0,
+        ratingCount: 0,
+        totalDeliveries: 0,
+      });
+
+      console.log('✅ Driver approved successfully');
 
       setMessage({ type: 'success', text: t.approveSuccess });
       setTimeout(() => setMessage(null), 5000);
@@ -413,7 +375,6 @@ export default function DriverApplicationsPage() {
     }
   };
 
-  // Reject application
   const handleReject = async () => {
     if (!rejectingApp) return;
 
@@ -421,8 +382,7 @@ export default function DriverApplicationsPage() {
     setMessage(null);
 
     try {
-      const appRef = doc(db, 'driver_applications', rejectingApp.id);
-      await updateDoc(appRef, {
+      await updateDoc(doc(db, 'driver_applications', rejectingApp.id), {
         status: 'rejected',
         rejectionReason: rejectionReason || null,
         reviewedAt: serverTimestamp(),
@@ -443,7 +403,6 @@ export default function DriverApplicationsPage() {
     }
   };
 
-  // Delete application
   const handleDelete = async (appId: string) => {
     setProcessingId(appId);
     setMessage(null);
@@ -462,7 +421,6 @@ export default function DriverApplicationsPage() {
     }
   };
 
-  // Vehicle icon
   const getVehicleIcon = (type: string) => {
     switch (type) {
       case 'car':
@@ -472,7 +430,6 @@ export default function DriverApplicationsPage() {
     }
   };
 
-  // Status badge
   const StatusBadge = ({ status }: { status: string }) => {
     switch (status) {
       case 'pending':
@@ -601,115 +558,110 @@ export default function DriverApplicationsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t.searchPlaceholder}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sb-primary/20 focus:border-sb-primary transition-all"
-            />
-          </div>
-
-          {/* Status Filter */}
-          <div className="flex gap-2">
-            {(['all', 'pending', 'approved', 'rejected'] as FilterStatus[]).map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  filterStatus === status
-                    ? 'bg-sb-primary text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {t[status as keyof typeof t] as string}
-              </button>
-            ))}
-          </div>
+      {/* Search & Filter */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder={t.searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+          />
+        </div>
+        <div className="flex gap-2 overflow-x-auto">
+          {(['all', 'pending', 'approved', 'rejected'] as FilterStatus[]).map((status) => (
+            <button
+              key={status}
+              onClick={() => setFilterStatus(status)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors ${
+                filterStatus === status
+                  ? 'bg-sb-primary text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {t[status as keyof typeof t] as string} (
+              {status === 'all' ? stats.total : stats[status as 'pending' | 'approved' | 'rejected']})
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Applications List */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        {filteredApplications.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-1">
-              {searchQuery || filterStatus !== 'all' ? t.noResults : t.noApplications}
-            </h3>
-            <p className="text-gray-500 text-sm">
-              {searchQuery || filterStatus !== 'all' ? t.noResultsDesc : t.noApplicationsDesc}
-            </p>
-          </div>
-        ) : (
+      {/* Applications Table */}
+      {filteredApplications.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            {searchQuery ? t.noResults : t.noApplications}
+          </h3>
+          <p className="text-gray-500">
+            {searchQuery ? t.noResultsDesc : t.noApplicationsDesc}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     {t.applicant}
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider hidden sm:table-cell">
                     {t.contact}
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     {t.vehicle}
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                    {formatLocation(t.location)}
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider hidden sm:table-cell">
+                    {t.location}
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     {t.status}
                   </th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     {t.actions}
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-200">
                 {filteredApplications.map((app) => (
                   <tr key={app.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-sb-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-semibold text-sb-primary">
+                        <div className="w-10 h-10 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">
                             {app.fullName.charAt(0).toUpperCase()}
                           </span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{app.fullName}</p>
-                          <p className="text-sm text-gray-500 truncate md:hidden">{app.email}</p>
+                        <div>
+                          <p className="font-medium text-gray-900">{app.fullName}</p>
+                          <p className="text-sm text-gray-500 sm:hidden">{app.email}</p>
+                          <p className="text-xs text-gray-400">{formatDate(app.createdAt)}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 hidden md:table-cell">
+                    <td className="px-6 py-4 hidden sm:table-cell">
                       <div className="space-y-1">
-                        <p className="text-sm text-gray-900 flex items-center gap-1.5">
+                        <p className="text-sm text-gray-600 flex items-center gap-1.5">
                           <Mail className="w-3.5 h-3.5 text-gray-400" />
                           {app.email}
                         </p>
-                        <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                        <p className="text-sm text-gray-600 flex items-center gap-1.5">
                           <Phone className="w-3.5 h-3.5 text-gray-400" />
                           {app.phone}
                         </p>
                       </div>
                     </td>
-                    <td className="px-6 py-4 hidden lg:table-cell">
+                    <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                           {getVehicleIcon(app.vehicleType)}
                         </div>
                         <div>
-                          <p className="text-sm text-gray-900">
-                            {t.vehicles[app.vehicleType]}
+                          <p className="text-sm font-medium text-gray-900">
+                            {t.vehicles[app.vehicleType as keyof typeof t.vehicles]}
                           </p>
                           {app.vehiclePlate && (
                             <p className="text-xs text-gray-500">{app.vehiclePlate}</p>
@@ -728,7 +680,6 @@ export default function DriverApplicationsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        {/* View Details */}
                         <button
                           onClick={() => setSelectedApp(app)}
                           className="p-2 text-gray-500 hover:text-sb-primary hover:bg-sb-primary/10 rounded-lg transition-colors"
@@ -737,40 +688,39 @@ export default function DriverApplicationsPage() {
                           <Eye className="w-4 h-4" />
                         </button>
 
-                        {/* Approve (only for pending) */}
                         {app.status === 'pending' && (
-                          <button
-                            onClick={() => handleApprove(app)}
-                            disabled={processingId === app.id}
-                            className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
-                            title={t.approve}
-                          >
-                            {processingId === app.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <CheckCircle className="w-4 h-4" />
-                            )}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleApprove(app)}
+                              disabled={processingId === app.id}
+                              className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
+                              title={t.approve}
+                            >
+                              {processingId === app.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4" />
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setRejectingApp(app);
+                                setShowRejectModal(true);
+                              }}
+                              disabled={processingId === app.id}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                              title={t.reject}
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
 
-                        {/* Reject (only for pending) */}
-                        {app.status === 'pending' && (
-                          <button
-                            onClick={() => {
-                              setRejectingApp(app);
-                              setShowRejectModal(true);
-                            }}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title={t.reject}
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        {/* Delete */}
                         <button
                           onClick={() => setShowDeleteConfirm(app.id)}
-                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          disabled={processingId === app.id}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                           title={t.delete}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -782,16 +732,15 @@ export default function DriverApplicationsPage() {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Details Modal */}
+      {/* Application Details Modal */}
       {selectedApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900">{t.applicationDetails}</h2>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">{t.applicationDetails}</h2>
               <button
                 onClick={() => setSelectedApp(null)}
                 className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -800,162 +749,107 @@ export default function DriverApplicationsPage() {
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {/* Status */}
-              <div className="flex items-center justify-between">
-                <StatusBadge status={selectedApp.status} />
-                <p className="text-sm text-gray-500">
-                  {t.submittedOn}: {formatDate(selectedApp.createdAt)}
-                </p>
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <UserPlus className="w-4 h-4" />
+                  {t.personalInfo}
+                </h3>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Nombre:</span>
+                    <span className="text-sm font-medium text-gray-900">{selectedApp.fullName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Email:</span>
+                    <span className="text-sm font-medium text-gray-900">{selectedApp.email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Teléfono:</span>
+                    <span className="text-sm font-medium text-gray-900">{selectedApp.phone}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Ciudad:</span>
+                    <span className="text-sm font-medium text-gray-900">{selectedApp.city}</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Personal Info */}
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">{t.personalInfo}</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  {getVehicleIcon(selectedApp.vehicleType)}
+                  {t.vehicleInfo}
+                </h3>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Tipo:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {t.vehicles[selectedApp.vehicleType as keyof typeof t.vehicles]}
+                    </span>
+                  </div>
+                  {selectedApp.vehiclePlate && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Placa:</span>
+                      <span className="text-sm font-medium text-gray-900">{selectedApp.vehiclePlate}</span>
+                    </div>
+                  )}
+                  {selectedApp.vehicleColor && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Color:</span>
+                      <span className="text-sm font-medium text-gray-900">{selectedApp.vehicleColor}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  {t.additionalInfo}
+                </h3>
                 <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-sb-primary/10 rounded-full flex items-center justify-center">
-                      <span className="text-lg font-semibold text-sb-primary">
-                        {selectedApp.fullName.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{selectedApp.fullName}</p>
-                      <p className="text-sm text-gray-500">{selectedApp.city}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                    <a
-                      href={`mailto:${selectedApp.email}`}
-                      className="flex items-center gap-2 text-sm text-gray-600 hover:text-sb-primary transition-colors"
-                    >
-                      <Mail className="w-4 h-4" />
-                      {selectedApp.email}
-                    </a>
-                    <a
-                      href={`tel:${selectedApp.phone}`}
-                      className="flex items-center gap-2 text-sm text-gray-600 hover:text-sb-primary transition-colors"
-                    >
-                      <Phone className="w-4 h-4" />
-                      {selectedApp.phone}
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              {/* Vehicle Info */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">{t.vehicleInfo}</h3>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">{t.vehicle}</p>
-                      <div className="flex items-center gap-2">
-                        {getVehicleIcon(selectedApp.vehicleType)}
-                        <span className="text-sm font-medium text-gray-900">
-                          {t.vehicles[selectedApp.vehicleType]}
-                        </span>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Placa</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedApp.vehiclePlate || '-'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Color</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedApp.vehicleColor || '-'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Info */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">{t.additionalInfo}</h3>
-                <div className="bg-gray-50 rounded-xl p-4 space-y-4">
-                  {/* Experience */}
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">{t.experience}</p>
-                    <p className="text-sm text-gray-900">
-                      {selectedApp.experience
-                        ? t.experienceOptions[selectedApp.experience as keyof typeof t.experienceOptions] || selectedApp.experience
-                        : '-'}
-                    </p>
+                    <p className="text-sm text-gray-500 mb-1">{t.experience}:</p>
+                    <p className="text-sm font-medium text-gray-900">{selectedApp.experience}</p>
                   </div>
-
-                  {/* Why Join */}
                   {selectedApp.whyJoin && (
                     <div>
-                      <p className="text-xs text-gray-500 mb-1">{t.whyJoin}</p>
+                      <p className="text-sm text-gray-500 mb-1">{t.whyJoin}:</p>
                       <p className="text-sm text-gray-900">{selectedApp.whyJoin}</p>
                     </div>
                   )}
-
-                  {/* Checkboxes */}
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div className="flex items-center gap-2">
-                      {selectedApp.hasLicense ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      )}
-                      <span className="text-sm text-gray-600">{t.hasLicense}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedApp.hasPhone ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      )}
-                      <span className="text-sm text-gray-600">{t.hasSmartphone}</span>
-                    </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <span className="text-sm text-gray-500">{t.hasLicense}:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {selectedApp.hasLicense ? t.yes : t.no}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-500">{t.hasSmartphone}:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {selectedApp.hasPhone ? t.yes : t.no}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <span className="text-sm text-gray-500">{t.submittedOn}:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatDate(selectedApp.createdAt)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-500">{t.submittedIn}:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {selectedApp.language === 'es' ? 'Español' : 'English'}
+                    </span>
                   </div>
                 </div>
               </div>
-
-              {/* Rejection Reason (if rejected) */}
-              {selectedApp.status === 'rejected' && selectedApp.rejectionReason && (
-                <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-                  <p className="text-xs text-red-500 font-medium mb-1">{t.rejectionReason}</p>
-                  <p className="text-sm text-red-700">{selectedApp.rejectionReason}</p>
-                </div>
-              )}
             </div>
 
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
-              {selectedApp.status === 'pending' && (
-                <>
-                  <button
-                    onClick={() => {
-                      setRejectingApp(selectedApp);
-                      setShowRejectModal(true);
-                      setSelectedApp(null);
-                    }}
-                    className="px-4 py-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                  >
-                    {t.reject}
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleApprove(selectedApp);
-                      setSelectedApp(null);
-                    }}
-                    disabled={processingId === selectedApp.id}
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    {processingId === selectedApp.id ? t.approving : t.approve}
-                  </button>
-                </>
-              )}
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4">
               <button
                 onClick={() => setSelectedApp(null)}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-xl transition-colors"
+                className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
               >
                 {t.close}
               </button>
@@ -966,51 +860,44 @@ export default function DriverApplicationsPage() {
 
       {/* Reject Modal */}
       {showRejectModal && rejectingApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                  <XCircle className="w-5 h-5 text-red-500" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">{t.rejectApplication}</h2>
-                  <p className="text-sm text-gray-500">{rejectingApp.fullName}</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t.rejectionReason}
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder={t.rejectionPlaceholder}
-                  rows={3}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 resize-none transition-all"
-                />
-              </div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">{t.rejectApplication}</h2>
             </div>
 
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">{rejectingApp.fullName}</p>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder={t.rejectionPlaceholder}
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
               <button
                 onClick={() => {
                   setShowRejectModal(false);
                   setRejectingApp(null);
                   setRejectionReason('');
                 }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-xl transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
               >
                 {t.cancel}
               </button>
               <button
                 onClick={handleReject}
-                disabled={processingId === rejectingApp.id}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
+                disabled={processingId !== null}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {processingId === rejectingApp.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t.approving}
+                  </>
                 ) : (
                   t.confirmReject
                 )}
@@ -1020,32 +907,35 @@ export default function DriverApplicationsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-500" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">{t.deleteConfirmTitle}</h2>
-              <p className="text-gray-500 text-sm mb-6">{t.deleteConfirmMessage}</p>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-sm w-full">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">{t.deleteConfirmTitle}</h2>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="p-6">
+              <p className="text-gray-600">{t.deleteConfirmMessage}</p>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
               >
                 {t.cancel}
               </button>
               <button
                 onClick={() => handleDelete(showDeleteConfirm)}
-                disabled={processingId === showDeleteConfirm}
-                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50"
+                disabled={processingId !== null}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {processingId === showDeleteConfirm ? (
-                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t.approving}
+                  </>
                 ) : (
                   t.confirmDelete
                 )}
