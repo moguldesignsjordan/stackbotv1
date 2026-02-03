@@ -241,7 +241,7 @@ export default function TermsPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <a
-                href="mailto:support@stackbot.com"
+                href="mailto:support@stackbotglobal.com"
                 className="inline-flex items-center justify-center gap-2 bg-[#55529d] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#55529d]/90 transition-colors"
               >
                 Email Support
