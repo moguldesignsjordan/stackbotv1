@@ -14,47 +14,47 @@ import {
 import { doc, getDoc, setDoc, query, collection, where, getDocs, serverTimestamp, limit } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/config';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { isNativePlatform } from '@capacitor/core';
-import { Loader2, Mail, Lock, ArrowRight, Truck, Clock, AlertTriangle } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Loader2, Mail, Lock, ArrowRight, Truck, AlertTriangle } from 'lucide-react';
 
 const translations = {
   en: {
-    title: 'Driver',
+    title: 'Driver Portal',
     subtitle: 'Sign in to start delivering',
     email: 'Email',
     password: 'Password',
     signIn: 'Sign In',
     signingIn: 'Signing in...',
-    orContinueWith: 'or continue with',
+    orContinueWith: 'Or continue with',
     noAccount: "Don't have an account?",
     signUp: 'Sign up',
     forgotPassword: 'Forgot password?',
     pendingTitle: 'Application Pending',
-    pendingMessage: 'Your application is pending review.',
-    rejectedTitle: 'Application Rejected',
-    rejectedMessage: 'Your application was rejected.',
+    pendingMessage: 'Your application is under review. We\'ll notify you soon.',
+    rejectedTitle: 'Application Not Approved',
+    rejectedMessage: 'Unfortunately, your application was not approved at this time.',
     noApplicationTitle: 'No Application Found',
-    noApplicationMessage: 'We could not find a driver application associated with your account.',
+    noApplicationMessage: 'We couldn\'t find a driver application for your account.',
     applyNow: 'Apply Now',
     backHome: 'Back to Home',
   },
   es: {
-    title: 'Conductor',
+    title: 'Portal del Conductor',
     subtitle: 'Inicia sesión para comenzar a repartir',
     email: 'Correo electrónico',
     password: 'Contraseña',
     signIn: 'Iniciar Sesión',
     signingIn: 'Iniciando...',
-    orContinueWith: 'o continúa con',
+    orContinueWith: 'O continúa con',
     noAccount: '¿No tienes una cuenta?',
     signUp: 'Regístrate',
     forgotPassword: '¿Olvidaste tu contraseña?',
     pendingTitle: 'Solicitud Pendiente',
-    pendingMessage: 'Tu solicitud está pendiente de revisión.',
-    rejectedTitle: 'Solicitud Rechazada',
-    rejectedMessage: 'Tu solicitud fue rechazada.',
+    pendingMessage: 'Tu solicitud está en revisión. Te notificaremos pronto.',
+    rejectedTitle: 'Solicitud No Aprobada',
+    rejectedMessage: 'Lamentablemente, tu solicitud no fue aprobada en este momento.',
     noApplicationTitle: 'Solicitud No Encontrada',
-    noApplicationMessage: 'No pudimos encontrar una solicitud de conductor asociada con tu cuenta.',
+    noApplicationMessage: 'No encontramos una solicitud de conductor para tu cuenta.',
     applyNow: 'Aplicar Ahora',
     backHome: 'Volver al Inicio',
   },
@@ -64,7 +64,7 @@ type Lang = 'en' | 'es';
 
 export default function DriverLoginPage() {
   const router = useRouter();
-  const [language, setLanguage] = useState<Lang>('en');
+  const language: Lang = 'es';
   const t = translations[language];
 
   const [email, setEmail] = useState('');
@@ -80,9 +80,9 @@ export default function DriverLoginPage() {
 
   useEffect(() => {
     // Detect native (Capacitor) platform
-    const checkNative = async () => {
+    const checkNative = () => {
       try {
-        const native = await isNativePlatform();
+        const native = Capacitor.isNativePlatform();
         setIsNative(native);
       } catch {
         setIsNative(false);
@@ -94,13 +94,13 @@ export default function DriverLoginPage() {
   const checkDriverStatus = async (userEmail: string, uid: string, displayName: string | null): Promise<boolean> => {
     setCheckingStatus(true);
     try {
-      // 1. Already an active driver? (doc exists → isDriver() will be true in rules)
+      // 1. Check if already an active driver
       const driverDoc = await getDoc(doc(db, 'drivers', uid));
       if (driverDoc.exists()) {
         return true;
       }
 
-      // 2. No driver doc — look up their application by uid, fall back to email
+      // 2. Look up application by uid, fall back to email
       let appSnap = await getDocs(
         query(collection(db, 'driver_applications'), where('uid', '==', uid), limit(1))
       );
@@ -110,7 +110,7 @@ export default function DriverLoginPage() {
         );
       }
 
-      // 3. No application at all
+      // 3. No application found
       if (appSnap.empty) {
         setApplicationStatus('none');
         return false;
@@ -118,18 +118,17 @@ export default function DriverLoginPage() {
 
       const appData = appSnap.docs[0].data();
 
-      // 4. Application exists but is not approved
+      // 4. Check application status
       if (appData.status === 'rejected') {
         setApplicationStatus('rejected');
         return false;
       }
       if (appData.status !== 'approved') {
-        // pending or any other non-approved state
         setApplicationStatus('pending');
         return false;
       }
 
-      // 5. Approved — create the driver doc so isDriver() resolves via exists()
+      // 5. Approved - create driver document
       await setDoc(doc(db, 'drivers', uid), {
         uid,
         email: userEmail,
@@ -174,6 +173,7 @@ export default function DriverLoginPage() {
   const handleGoogleLogin = async () => {
     setSocialLoading('google');
     setError('');
+    setApplicationStatus(null);
     try {
       let cred;
       if (isNative) {
@@ -195,6 +195,7 @@ export default function DriverLoginPage() {
   const handleAppleLogin = async () => {
     setSocialLoading('apple');
     setError('');
+    setApplicationStatus(null);
     try {
       let cred;
       if (isNative) {
@@ -217,12 +218,13 @@ export default function DriverLoginPage() {
     }
   };
 
+  // Status screens
   if (checkingStatus) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#55529d]">
+      <div className="min-h-screen flex items-center justify-center bg-[#55529d]">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
-          <p className="text-white">Checking status...</p>
+          <p className="text-white text-lg">Verifying your account...</p>
         </div>
       </div>
     );
@@ -230,12 +232,14 @@ export default function DriverLoginPage() {
 
   if (applicationStatus === 'pending') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-white p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-          <Clock className="w-16 h-16 text-amber-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t.pendingTitle}</h1>
-          <p className="text-gray-600 mb-6">{t.pendingMessage}</p>
-          <Link href="/" className="inline-block px-6 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors">
+      <div className="min-h-screen flex items-center justify-center bg-[#55529d] p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Truck className="w-10 h-10 text-yellow-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">{t.pendingTitle}</h1>
+          <p className="text-gray-600 mb-8">{t.pendingMessage}</p>
+          <Link href="/" className="inline-block px-8 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors shadow-lg">
             {t.backHome}
           </Link>
         </div>
@@ -245,12 +249,14 @@ export default function DriverLoginPage() {
 
   if (applicationStatus === 'rejected') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-white p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t.rejectedTitle}</h1>
-          <p className="text-gray-600 mb-6">{t.rejectedMessage}</p>
-          <Link href="/" className="inline-block px-6 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors">
+      <div className="min-h-screen flex items-center justify-center bg-[#55529d] p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertTriangle className="w-10 h-10 text-red-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">{t.rejectedTitle}</h1>
+          <p className="text-gray-600 mb-8">{t.rejectedMessage}</p>
+          <Link href="/" className="inline-block px-8 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors shadow-lg">
             {t.backHome}
           </Link>
         </div>
@@ -260,21 +266,23 @@ export default function DriverLoginPage() {
 
   if (applicationStatus === 'none') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-          <AlertTriangle className="w-16 h-16 text-indigo-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t.noApplicationTitle}</h1>
-          <p className="text-gray-600 mb-6">{t.noApplicationMessage}</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#55529d] p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Truck className="w-10 h-10 text-[#55529d]" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">{t.noApplicationTitle}</h1>
+          <p className="text-gray-600 mb-8">{t.noApplicationMessage}</p>
+          <div className="flex flex-col gap-3">
             <Link
               href="/driver/apply"
-              className="px-6 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors inline-flex items-center justify-center"
+              className="px-8 py-3 bg-[#55529d] text-white rounded-full font-semibold hover:bg-[#47418a] transition-colors shadow-lg inline-flex items-center justify-center"
             >
               {t.applyNow}
             </Link>
             <Link
               href="/"
-              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-full font-semibold hover:bg-gray-50 transition-colors inline-flex items-center justify-center"
+              className="px-8 py-3 border-2 border-gray-200 text-gray-700 rounded-full font-semibold hover:bg-gray-50 transition-colors inline-flex items-center justify-center"
             >
               {t.backHome}
             </Link>
@@ -285,165 +293,151 @@ export default function DriverLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-amber-50 via-white to-[#e5e4ff]">
-      <div className="flex flex-1 flex-col md:flex-row max-w-6xl mx-auto w-full">
-        <div className="w-full md:w-1/2 flex flex-col justify-center px-6 sm:px-10 py-10">
-          <div className="flex justify-between items-center mb-8">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-[#55529d] rounded-xl flex items-center justify-center">
-                <Image src="/stackbot-icon-purple.png" alt="StackBot" width={28} height={28} />
-              </div>
-              <span className="font-semibold text-lg text-gray-900">StackBot Driver</span>
-            </Link>
+    <div className="min-h-screen flex items-center justify-center bg-[#55529d] p-4">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <Link href="/" className="inline-flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg">
+              <Truck className="w-7 h-7 text-[#55529d]" />
+            </div>
+            <span className="font-bold text-xl text-white">StackBot Driver</span>
+          </Link>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setLanguage('en')}
-                className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  language === 'en' ? 'bg-[#55529d] text-white' : 'text-gray-500 hover:bg-gray-100'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                onClick={() => setLanguage('es')}
-                className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  language === 'es' ? 'bg-[#55529d] text-white' : 'text-gray-500 hover:bg-gray-100'
-                }`}
-              >
-                ES
-              </button>
+          <h1 className="text-3xl font-bold text-white mb-2">{t.title}</h1>
+          <p className="text-white/80">{t.subtitle}</p>
+        </div>
+
+        {/* Login Card */}
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
+          {error && (
+            <div className="mb-6 flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleEmailLogin} className="space-y-4 mb-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">{t.email}</label>
+              <div className="relative">
+                <Mail className="w-5 h-5 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border-2 border-gray-200 focus:outline-none focus:border-[#55529d] transition-colors text-gray-900"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">{t.password}</label>
+              <div className="relative">
+                <Lock className="w-5 h-5 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border-2 border-gray-200 focus:outline-none focus:border-[#55529d] transition-colors text-gray-900"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Link href="/driver/forgot-password" className="text-sm text-[#55529d] hover:underline font-medium">
+                {t.forgotPassword}
+              </Link>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 bg-[#55529d] text-white py-3.5 rounded-2xl font-semibold hover:bg-[#47418a] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {t.signingIn}
+                </>
+              ) : (
+                <>
+                  {t.signIn}
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t-2 border-gray-200" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-white text-gray-500 font-medium">{t.orContinueWith}</span>
             </div>
           </div>
 
-          <div className="max-w-md">
-            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2 flex items-center gap-2">
-              <Truck className="w-7 h-7 text-[#55529d]" />
-              {t.title}
-            </h1>
-            <p className="text-gray-600 mb-8">{t.subtitle}</p>
+          <div className="space-y-3">
+            <button
+              onClick={handleGoogleLogin}
+              disabled={socialLoading !== null || loading}
+              className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 rounded-2xl py-3.5 font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {socialLoading === 'google' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  <span>Continue with Google</span>
+                </>
+              )}
+            </button>
 
-            {error && (
-              <div className="mb-6 flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                <AlertTriangle className="w-4 h-4" />
-                <span>{error}</span>
-              </div>
-            )}
+            <button
+              onClick={handleAppleLogin}
+              disabled={socialLoading !== null || loading}
+              className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 rounded-2xl py-3.5 font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {socialLoading === 'apple' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                  </svg>
+                  <span>Continue with Apple</span>
+                </>
+              )}
+            </button>
+          </div>
 
-            <form onSubmit={handleEmailLogin} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">{t.email}</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:border-transparent text-sm"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">{t.password}</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:border-transparent text-sm"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-xs sm:text-sm">
-                <div />
-                <Link href="/driver/forgot-password" className="text-[#55529d] hover:underline">
-                  {t.forgotPassword}
-                </Link>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-[#55529d] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#47418a] transition-colors disabled:opacity-60"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t.signingIn}
-                  </>
-                ) : (
-                  <>
-                    {t.signIn}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            <div className="my-6 flex items-center gap-3">
-              <div className="flex-1 h-px bg-gray-200" />
-              <span className="text-xs text-gray-400 uppercase tracking-wide">{t.orContinueWith}</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={socialLoading === 'google' || loading}
-                className="flex-1 flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-60"
-              >
-                {socialLoading === 'google' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Google...
-                  </>
-                ) : (
-                  <>
-                    <Image src="/google-icon.svg" alt="Google" width={18} height={18} />
-                    Google
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={handleAppleLogin}
-                disabled={socialLoading === 'apple' || loading}
-                className="flex-1 flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-60"
-              >
-                {socialLoading === 'apple' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Apple...
-                  </>
-                ) : (
-                  <>
-                    <Image src="/apple-icon.svg" alt="Apple" width={18} height={18} />
-                    Apple
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="mt-6 text-center text-sm text-gray-600">
-              {t.noAccount}{' '}
-              <Link href="/driver/signup" className="text-[#55529d] font-semibold hover:underline">
-                {t.signUp}
-              </Link>
-            </div>
+          <div className="mt-6 text-center text-sm text-gray-600">
+            {t.noAccount}{' '}
+            <Link href="/driver/signup" className="text-[#55529d] font-semibold hover:underline">
+              {t.signUp}
+            </Link>
           </div>
         </div>
 
-        <div className="hidden md:flex flex-col items-center justify-center bg-[#55529d] p-8">
-          <Truck className="w-32 h-32 text-white mb-8" />
-          <h2 className="text-white text-3xl font-bold text-center mb-4">Start Earning Today</h2>
-          <p className="text-white/80 text-center max-w-sm">
-            Join the StackBot driver network and deliver happiness to customers in your city.
-          </p>
+        {/* Footer */}
+        <div className="mt-6 text-center">
+          <Link href="/" className="text-white/70 hover:text-white text-sm transition-colors">
+            ← Back to StackBot
+          </Link>
         </div>
       </div>
     </div>
