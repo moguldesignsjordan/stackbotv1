@@ -1453,7 +1453,11 @@ exports.onActiveDeliveryUpdate = functions.firestore
     }
   });
 
+// Find this section (should be near the end):
 const { createTestOrder, updateOrderStatus, deleteTestOrders } = require('./testOrders');
 exports.createTestOrder = createTestOrder;
 exports.updateOrderStatus = updateOrderStatus;
 exports.deleteTestOrders = deleteTestOrders;
+
+// Add this line:
+exports.createTestOrderDev = require('./testOrders').createTestOrderDev;
