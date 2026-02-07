@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
@@ -18,8 +18,8 @@ export default function TestOrdersPage() {
   const [result, setResult] = useState<any>(null);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
 
-  // Listen to test orders
-  useState(() => {
+  // Listen to test orders — fixed: was useState, must be useEffect
+  useEffect(() => {
     const q = query(
       collection(db, 'orders'),
       where('isTest', '==', true),
@@ -30,10 +30,12 @@ export default function TestOrdersPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentOrders(orders);
+    }, (error) => {
+      console.error('Test orders listener error:', error);
     });
     
     return () => unsubscribe();
-  });
+  }, []);
 
   const handleCreateTestOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,36 +158,40 @@ export default function TestOrdersPage() {
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-bold mb-4">Recent Test Orders ({recentOrders.length})</h2>
-        <div className="space-y-2">
-          {recentOrders.map(order => (
-            <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <div className="flex-1">
-                <div className="font-medium">{order.id}</div>
-                <div className="text-sm text-gray-600">
-                  {order.vendorName} · DOP {order.total?.toFixed(2)} · {order.items?.length} items
+        {recentOrders.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">No test orders yet. Create one above.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentOrders.map(order => (
+              <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm truncate">{order.id}</div>
+                  <div className="text-sm text-gray-600">
+                    {order.vendorName} · DOP {order.total?.toFixed(2)} · {order.items?.length} items
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 ml-2">
+                  <span className={`px-2 py-1 text-xs font-medium rounded whitespace-nowrap ${
+                    order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+                    order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                    'bg-blue-100 text-blue-800'
+                  }`}>
+                    {order.status}
+                  </span>
+                  <select
+                    value={order.status}
+                    onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
+                    className="text-xs px-2 py-1 border rounded"
+                  >
+                    {statuses.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 text-xs font-medium rounded ${
-                  order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                  order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                  'bg-blue-100 text-blue-800'
-                }`}>
-                  {order.status}
-                </span>
-                <select
-                  value={order.status}
-                  onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
-                  className="text-xs px-2 py-1 border rounded"
-                >
-                  {statuses.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
