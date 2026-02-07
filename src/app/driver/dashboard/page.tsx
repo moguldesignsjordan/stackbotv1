@@ -1,172 +1,332 @@
-// src/app/driver/dashboard/page.tsx
+// src/app/driver/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   collection,
   query,
   where,
   orderBy,
-  limit,
   onSnapshot,
   doc,
+  getDoc,
   updateDoc,
   setDoc,
   serverTimestamp,
+  runTransaction,
   Timestamp,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
+import { signOut } from 'firebase/auth';
 import {
+  Truck,
   Package,
   MapPin,
   Clock,
   DollarSign,
   Navigation,
-  Store,
+  Phone,
   ChevronRight,
-  Loader2,
+  Power,
+  PowerOff,
+  RefreshCw,
   AlertCircle,
   CheckCircle,
+  Loader2,
+  Menu,
+  X,
+  User,
+  LogOut,
+  History,
+  Settings,
+  Store,
+  Home,
+  ExternalLink,
   Zap,
-  Star,
-  Phone,
+  Globe,
+  Bell,
+  MapPinned,
 } from 'lucide-react';
 
 // ============================================================================
 // TYPES
 // ============================================================================
+type DriverStatus = 'online' | 'offline' | 'busy' | 'break';
 
-interface AvailableOrder {
+interface DriverProfile {
   id: string;
+  userId?: string;
+  isOnline?: boolean;
+  ratingCount?: number;
+  isVerified?: boolean;
+  createdAt?: any;
+  updatedAt?: any;
+  name: string;
+  email: string;
+  phone?: string;
+  photoURL?: string;
+  vehicleType?: string;
+  vehiclePlate?: string;
+  status: DriverStatus;
+  verified?: boolean;
+  rating?: number;
+  totalDeliveries?: number;
+  currentLocation?: { lat: number; lng: number };
+}
+
+interface DeliveryOrder {
+  id: string;
+  customerPhone?: string;
+  trackingPin?: string;
+  vendorPhone?: string;
+  items?: any[];
+  vendorCoordinates?: { lat: number; lng: number };
+  customerCoordinates?: { lat: number; lng: number };
   orderId: string;
-  orderDisplayId?: string;
+  status: string;
+  deliveryStatus?: string;
   vendorId: string;
   vendorName: string;
   vendorAddress: string;
-  vendorPhone?: string;
-  vendorLocation?: { lat: number; lng: number } | null;
-  customerId?: string;
+  customerId: string;
   customerName?: string;
-  customerAddress: string;
-  customerPhone?: string;
-  customerLocation?: { lat: number; lng: number } | null;
+  customerAddress?: string;
+  customerEmail?: string;
+  deliveryAddress?: any;
   deliveryFee: number;
-  tip?: number;
+  subtotal?: number;
+  total?: number;
+  itemCount?: number;
   orderTotal?: number;
-  estimatedDistance?: number | null;
-  estimatedTime?: number | null;
-  itemCount: number;
-  createdAt: Timestamp;
-  priority?: 'normal' | 'high';
-}
-
-interface DriverStats {
-  todayDeliveries: number;
-  todayEarnings: number;
-  weekDeliveries: number;
-  weekEarnings: number;
-  rating: number;
-  totalDeliveries: number;
+  driverId?: string;
+  driverName?: string;
+  claimedAt?: any;
+  pickedUpAt?: any;
+  deliveredAt?: any;
+  createdAt?: any;
+  updatedAt?: any;
+  notes?: string;
 }
 
 // ============================================================================
 // TRANSLATIONS
 // ============================================================================
-
 const translations = {
   es: {
-    greeting: '¡Hola',
-    youAreOnline: 'Estás en línea',
-    youAreOffline: 'Estás desconectado',
-    youAreBusy: 'En entrega',
+    // Header
+    greeting: 'Hola',
+    online: 'En línea',
+    offline: 'Desconectado',
     goOnline: 'Conectarse',
     goOffline: 'Desconectarse',
-    today: 'Hoy',
-    thisWeek: 'Esta Semana',
-    deliveries: 'Entregas',
-    totalDeliveries: 'Total',
-    rating: 'Calificación',
+
+    // Status
+    available: 'Disponible',
+    busy: 'Ocupado',
+    onBreak: 'En descanso',
+
+    // Dashboard
     availableOrders: 'Pedidos Disponibles',
-    noOrdersAvailable: 'No hay pedidos disponibles',
-    noOrdersDesc: 'Nuevos pedidos aparecerán aquí cuando estén listos',
-    noOrdersOffline: 'Conéctate para ver pedidos disponibles',
-    pickup: 'Recoger en',
-    deliverTo: 'Entregar en',
+    noOrdersTitle: 'Sin pedidos disponibles',
+    noOrdersDesc: 'Los nuevos pedidos aparecerán aquí automáticamente',
+    refreshing: 'Actualizando...',
+
+    // Order Card
     items: 'artículos',
-    item: 'artículo',
-    accept: 'Aceptar',
-    accepting: 'Aceptando...',
-    fee: 'Tarifa',
-    mins: 'min',
-    km: 'km',
-    highPriority: '🔥 Prioridad Alta',
-    activeDelivery: 'Entrega Activa',
-    viewDelivery: 'Toca para ver detalles',
-    tipTitle: '💡 Consejo',
-    tipOffline: 'Conéctate para empezar a recibir pedidos',
-    tipOnline: 'Los pedidos más cercanos aparecen primero',
-    errorAccepting: 'Error al aceptar pedido. Intenta de nuevo.',
+    deliveryFee: 'tarifa de entrega',
+    pickup: 'Recoger',
+    deliverTo: 'Entregar a',
+    away: 'de distancia',
+    claimOrder: 'Tomar Pedido',
+    claiming: 'Tomando...',
+    justNow: 'Ahora mismo',
+    minsAgo: 'hace {n}m',
+    hoursAgo: 'hace {n}h',
+    daysAgo: 'hace {n}d',
+
+    // Active Order
+    activeOrder: 'Pedido Activo',
+    headToPickup: 'Dirígete al Pickup',
+    deliveringOrder: 'Entregando Pedido',
+    navigate: 'Navegar',
+    navigateTo: 'Navegar a',
+    call: 'Llamar',
+    customer: 'Cliente',
+    vendor: 'Vendedor',
+    orderSummary: 'Resumen del Pedido',
+    moreItems: '+{n} más artículos',
+    total: 'Total',
+    confirmPickup: 'Confirmar Recogida',
+    completeDelivery: 'Completar Entrega',
+    deliveryPin: 'PIN de Entrega',
+    instructions: 'Instrucciones',
+
+    // Menu
+    menu: 'Menú',
+    dashboard: 'Panel Principal',
+    orderHistory: 'Historial de Pedidos',
+    earnings: 'Ganancias',
+    settings: 'Configuración',
+    backToStackBot: 'Volver a StackBot',
+    logout: 'Cerrar Sesión',
+
+    // Stats
+    todayDeliveries: 'Entregas Hoy',
+    todayEarnings: 'Ganancias Hoy',
+    rating: 'Calificación',
+
+    // Errors
+    errorClaiming: 'Error al tomar el pedido',
+    orderTaken: 'Este pedido ya fue tomado por otro conductor',
+    errorUpdating: 'Error al actualizar estado',
+    errorGoingOffline: 'No puedes desconectarte con un pedido activo',
+
+    // Success
+    orderClaimed: '¡Pedido tomado exitosamente!',
+    pickupConfirmed: 'Recogida confirmada',
+    deliveryCompleted: '¡Entrega completada!',
   },
   en: {
+    // Header
     greeting: 'Hello',
-    youAreOnline: "You're online",
-    youAreOffline: "You're offline",
-    youAreBusy: 'On delivery',
+    online: 'Online',
+    offline: 'Offline',
     goOnline: 'Go Online',
     goOffline: 'Go Offline',
-    today: 'Today',
-    thisWeek: 'This Week',
-    deliveries: 'Deliveries',
-    totalDeliveries: 'Total',
-    rating: 'Rating',
+
+    // Status
+    available: 'Available',
+    busy: 'Busy',
+    onBreak: 'On Break',
+
+    // Dashboard
     availableOrders: 'Available Orders',
-    noOrdersAvailable: 'No orders available',
-    noOrdersDesc: 'New orders will appear here when ready',
-    noOrdersOffline: 'Go online to see available orders',
-    pickup: 'Pickup at',
-    deliverTo: 'Deliver to',
+    noOrdersTitle: 'No available orders',
+    noOrdersDesc: 'New orders will appear here automatically',
+    refreshing: 'Refreshing...',
+
+    // Order Card
     items: 'items',
-    item: 'item',
-    accept: 'Accept',
-    accepting: 'Accepting...',
-    fee: 'Fee',
-    mins: 'min',
-    km: 'km',
-    highPriority: '🔥 High Priority',
-    activeDelivery: 'Active Delivery',
-    viewDelivery: 'Tap to view details',
-    tipTitle: '💡 Tip',
-    tipOffline: 'Go online to start receiving orders',
-    tipOnline: 'Closest orders appear first',
-    errorAccepting: 'Error accepting order. Please try again.',
+    deliveryFee: 'delivery fee',
+    pickup: 'Pickup',
+    deliverTo: 'Deliver to',
+    away: 'away',
+    claimOrder: 'Claim Order',
+    claiming: 'Claiming...',
+    justNow: 'Just now',
+    minsAgo: '{n}m ago',
+    hoursAgo: '{n}h ago',
+    daysAgo: '{n}d ago',
+
+    // Active Order
+    activeOrder: 'Active Order',
+    headToPickup: 'Head to Pickup',
+    deliveringOrder: 'Delivering Order',
+    navigate: 'Navigate',
+    navigateTo: 'Navigate to',
+    call: 'Call',
+    customer: 'Customer',
+    vendor: 'Vendor',
+    orderSummary: 'Order Summary',
+    moreItems: '+{n} more items',
+    total: 'Total',
+    confirmPickup: 'Confirm Pickup',
+    completeDelivery: 'Complete Delivery',
+    deliveryPin: 'Delivery PIN',
+    instructions: 'Instructions',
+
+    // Menu
+    menu: 'Menu',
+    dashboard: 'Dashboard',
+    orderHistory: 'Order History',
+    earnings: 'Earnings',
+    settings: 'Settings',
+    backToStackBot: 'Back to StackBot',
+    logout: 'Logout',
+
+    // Stats
+    todayDeliveries: "Today's Deliveries",
+    todayEarnings: "Today's Earnings",
+    rating: 'Rating',
+
+    // Errors
+    errorClaiming: 'Error claiming order',
+    orderTaken: 'This order was already taken by another driver',
+    errorUpdating: 'Error updating status',
+    errorGoingOffline: 'Cannot go offline with an active order',
+
+    // Success
+    orderClaimed: 'Order claimed successfully!',
+    pickupConfirmed: 'Pickup confirmed',
+    deliveryCompleted: 'Delivery completed!',
   },
 };
 
 type Language = 'es' | 'en';
 
 // ============================================================================
-// COMPONENT
+// HELPERS
 // ============================================================================
 
-export default function DriverDashboardPage() {
+// Haversine distance calculation
+function calculateDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Format time ago
+function formatTimeAgo(date: Date, t: typeof translations.es): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return t.justNow;
+  if (diffMins < 60) return t.minsAgo.replace('{n}', String(diffMins));
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return t.hoursAgo.replace('{n}', String(diffHours));
+
+  return t.daysAgo.replace('{n}', String(Math.floor(diffHours / 24)));
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+export default function DriverDashboard() {
   const router = useRouter();
   const [language, setLanguage] = useState<Language>('es');
-  const [driverName, setDriverName] = useState('');
-  const [driverStatus, setDriverStatus] = useState<'online' | 'offline' | 'busy'>('offline');
-  const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([]);
-  const [stats, setStats] = useState<DriverStats | null>(null);
-  const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(null);
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
+  const [availableOrders, setAvailableOrders] = useState<DeliveryOrder[]>([]);
+  const [currentOrder, setCurrentOrder] = useState<DeliveryOrder | null>(null);
   const [loading, setLoading] = useState(true);
-  const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
-  const [statusLoading, setStatusLoading] = useState(false);
+  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
+  const [togglingStatus, setTogglingStatus] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const t = translations[language];
   const userId = auth.currentUser?.uid;
 
-  // ── Language persistence ─────────────────────────────────────
+  // Load saved language preference
   useEffect(() => {
     const savedLang = localStorage.getItem('stackbot-driver-lang') as Language;
     if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
@@ -174,15 +334,68 @@ export default function DriverDashboardPage() {
     }
   }, []);
 
-  // ── Driver profile listener ──────────────────────────────────
+  // Toggle language
+  const toggleLanguage = () => {
+    const newLang = language === 'es' ? 'en' : 'es';
+    setLanguage(newLang);
+    localStorage.setItem('stackbot-driver-lang', newLang);
+  };
+
+  // Get driver's current location
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setDriverLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (err) => {
+        console.error('Geolocation error:', err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 30000,
+        timeout: 10000,
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  // Fetch driver profile
   useEffect(() => {
     if (!userId) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'drivers', userId), (docSnap) => {
+    const driverRef = doc(db, 'drivers', userId);
+
+    const unsubscribe = onSnapshot(driverRef, async (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data();
-        setDriverName(data.name || '');
-        setDriverStatus(data.status || 'offline');
+        setDriverProfile({ id: docSnap.id, ...docSnap.data() } as DriverProfile);
+      } else {
+        // Create driver profile if doesn't exist
+        const user = auth.currentUser;
+        if (user) {
+          const newProfile: Partial<DriverProfile> = {
+            userId: user.uid,
+            name: user.displayName || 'Conductor',
+            email: user.email || '',
+            phone: '',
+            status: 'offline',
+            isOnline: false,
+            vehicleType: 'motorcycle',
+            totalDeliveries: 0,
+            rating: 5.0,
+            ratingCount: 0,
+            isVerified: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
+
+          await setDoc(driverRef, newProfile);
+        }
       }
       setLoading(false);
     });
@@ -190,481 +403,806 @@ export default function DriverDashboardPage() {
     return () => unsubscribe();
   }, [userId]);
 
-  // ── Driver stats listener ────────────────────────────────────
+  // Listen for available orders
   useEffect(() => {
-    if (!userId) return;
-
-    const unsubscribe = onSnapshot(doc(db, 'driver_stats', userId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setStats({
-          todayDeliveries: data.todayDeliveries || 0,
-          todayEarnings: data.todayEarnings || 0,
-          weekDeliveries: data.weekDeliveries || 0,
-          weekEarnings: data.weekEarnings || 0,
-          rating: data.rating || 5.0,
-          totalDeliveries: data.totalDeliveries || 0,
-        });
-      }
-    });
-
-    return () => unsubscribe();
-  }, [userId]);
-
-  // ── Active delivery listener ─────────────────────────────────
-  useEffect(() => {
-    if (!userId) return;
-
-    const unsubscribe = onSnapshot(doc(db, 'driver_active_deliveries', userId), (docSnap) => {
-      if (docSnap.exists()) {
-        setActiveDeliveryId(docSnap.data().orderId);
-      } else {
-        setActiveDeliveryId(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [userId]);
-
-  // ── Available orders listener (delivery_queue) ───────────────
-  useEffect(() => {
-    if (!userId || driverStatus !== 'online') {
+    if (!driverProfile?.isOnline) {
       setAvailableOrders([]);
       return;
     }
 
-    // Query pending queue items, ordered by creation time (oldest first)
-    // Note: Firestore composite index required: status ASC, createdAt ASC
-    const q = query(
-      collection(db, 'delivery_queue'),
-      where('status', '==', 'pending'),
-      orderBy('createdAt', 'asc'),
-      limit(15)
+    const ordersQuery = query(
+      collection(db, 'orders'),
+      where('fulfillmentType', '==', 'delivery'),
+      where('status', 'in', ['ready', 'confirmed', 'preparing']),
+      orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const orders = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          orderId: data.orderId,
-          orderDisplayId: data.orderDisplayId || data.orderId?.slice(0, 8).toUpperCase(),
-          vendorId: data.vendorId,
-          vendorName: data.vendorName || 'Unknown Vendor',
-          vendorAddress: data.vendorAddress || '',
-          vendorPhone: data.vendorPhone || null,
-          vendorLocation: data.vendorLocation || null,
-          customerId: data.customerId || null,
-          customerName: data.customerName || null,
-          customerAddress: data.customerAddress || '',
-          customerPhone: data.customerPhone || null,
-          customerLocation: data.customerLocation || null,
-          deliveryFee: data.deliveryFee || 0,
-          tip: data.tip || 0,
-          orderTotal: data.orderTotal || 0,
-          estimatedDistance: data.estimatedDistance || null,
-          estimatedTime: data.estimatedTime || null,
-          itemCount: data.itemCount || 1,
-          createdAt: data.createdAt,
-          priority: data.priority || 'normal',
-        } as AvailableOrder;
-      });
+    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+      const orders: DeliveryOrder[] = [];
 
-      // Sort: high priority first, then by creation time (oldest first)
-      orders.sort((a, b) => {
-        if (a.priority === 'high' && b.priority !== 'high') return -1;
-        if (a.priority !== 'high' && b.priority === 'high') return 1;
-        return 0; // Firestore already orders by createdAt
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (!data.driverId) {
+          orders.push({
+            id: doc.id,
+            orderId: data.orderId || doc.id,
+            status: data.status,
+            deliveryStatus: 'available',
+            vendorId: data.vendorId,
+            vendorName: data.vendorName,
+            vendorPhone: data.vendorPhone,
+            vendorAddress: data.vendorAddress,
+            vendorCoordinates: data.vendorCoordinates,
+            customerId: data.customerId,
+            customerName: data.customerInfo?.name || 'Cliente',
+            customerPhone: data.customerInfo?.phone || '',
+            customerEmail: data.customerInfo?.email,
+            deliveryAddress: data.deliveryAddress || {},
+            items: data.items || [],
+            subtotal: data.subtotal || 0,
+            deliveryFee: data.deliveryFee || 0,
+            total: data.total || 0,
+            trackingPin: data.trackingPin,
+            notes: data.notes,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+          } as DeliveryOrder);
+        }
       });
 
       setAvailableOrders(orders);
     });
 
     return () => unsubscribe();
-  }, [userId, driverStatus]);
+  }, [driverProfile?.isOnline]);
 
-  // ── Toggle online/offline ────────────────────────────────────
-  const toggleStatus = async () => {
+  // Listen for current active order
+  useEffect(() => {
     if (!userId) return;
-    setStatusLoading(true);
+
+    const currentOrderQuery = query(
+      collection(db, 'orders'),
+      where('driverId', '==', userId),
+      where('status', 'in', ['claimed', 'picked_up', 'out_for_delivery'])
+    );
+
+    const unsubscribe = onSnapshot(currentOrderQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+        setCurrentOrder({
+          id: doc.id,
+          orderId: data.orderId || doc.id,
+          status: data.status,
+          deliveryStatus: data.deliveryStatus || 'claimed',
+          driverId: data.driverId,
+          driverName: data.driverName,
+          claimedAt: data.claimedAt,
+          pickedUpAt: data.pickedUpAt,
+          vendorId: data.vendorId,
+          vendorName: data.vendorName,
+          vendorPhone: data.vendorPhone,
+          vendorAddress: data.vendorAddress,
+          vendorCoordinates: data.vendorCoordinates,
+          customerId: data.customerId,
+          customerName: data.customerInfo?.name || 'Cliente',
+          customerPhone: data.customerInfo?.phone || '',
+          customerEmail: data.customerInfo?.email,
+          deliveryAddress: data.deliveryAddress || {},
+          items: data.items || [],
+          subtotal: data.subtotal || 0,
+          deliveryFee: data.deliveryFee || 0,
+          total: data.total || 0,
+          trackingPin: data.trackingPin,
+          notes: data.notes,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+        } as DeliveryOrder);
+      } else {
+        setCurrentOrder(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  // Toggle online/offline status
+  const toggleOnlineStatus = async () => {
+    if (!userId || !driverProfile) return;
+
+    // Prevent going offline with active order
+    if (driverProfile.isOnline && currentOrder) {
+      setError(t.errorGoingOffline);
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setTogglingStatus(true);
+
     try {
-      const newStatus = driverStatus === 'online' ? 'offline' : 'online';
-      await updateDoc(doc(db, 'drivers', userId), {
-        status: newStatus,
-        lastStatusChange: serverTimestamp(),
+      const driverRef = doc(db, 'drivers', userId);
+      await updateDoc(driverRef, {
+        isOnline: !driverProfile.isOnline,
+        status: !driverProfile.isOnline ? 'available' : 'offline',
+        currentLocation: driverLocation,
+        lastLocationUpdate: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     } catch (err) {
-      console.error('Error updating status:', err);
+      console.error('Error toggling status:', err);
+      setError(t.errorUpdating);
+      setTimeout(() => setError(null), 3000);
     } finally {
-      setStatusLoading(false);
+      setTogglingStatus(false);
     }
   };
 
-  // ── Accept order from queue ──────────────────────────────────
-  // Writes enriched data to driver_active_deliveries so the
-  // onActiveDeliveryUpdate Cloud Function can sync to all collections.
-  const acceptOrder = async (order: AvailableOrder) => {
-    if (!userId || acceptingOrderId) return;
+  // ============================================================================
+  // FIX: Claim an order — use `|| null` for optional fields to prevent
+  //      Firestore "Unsupported field value: undefined" errors
+  // ============================================================================
+  const claimOrder = async (orderId: string) => {
+    if (!userId || !driverProfile) return;
 
-    setAcceptingOrderId(order.id);
+    setClaimingOrderId(orderId);
     setError(null);
 
     try {
-      // 1. Mark queue item as assigned
-      await updateDoc(doc(db, 'delivery_queue', order.id), {
-        status: 'assigned',
-        driverId: userId,
-        driverName: driverName,
-        assignedAt: serverTimestamp(),
-      });
+      const orderRef = doc(db, 'orders', orderId);
+      const driverRef = doc(db, 'drivers', userId);
 
-      // 2. Create active delivery with ALL enriched fields
-      //    (Phase 2: includes customerId, vendorLocation, customerLocation,
-      //     vendorPhone, customerPhone — needed for the delivery page map
-      //     and the onActiveDeliveryUpdate Cloud Function sync)
-      await setDoc(doc(db, 'driver_active_deliveries', userId), {
-        orderId: order.orderId,
-        queueId: order.id,
-        vendorId: order.vendorId,
-        vendorName: order.vendorName,
-        vendorAddress: order.vendorAddress,
-        vendorPhone: order.vendorPhone || null,
-        vendorLocation: order.vendorLocation || null,
-        customerId: order.customerId || null,
-        customerName: order.customerName || null,
-        customerAddress: order.customerAddress,
-        customerPhone: order.customerPhone || null,
-        customerLocation: order.customerLocation || null,
-        deliveryFee: order.deliveryFee,
-        tip: order.tip || 0,
-        orderTotal: order.orderTotal || 0,
-        itemCount: order.itemCount,
-        estimatedDistance: order.estimatedDistance || null,
-        estimatedTime: order.estimatedTime || null,
-        status: 'heading_to_pickup',
-        driverName: driverName,
-        acceptedAt: serverTimestamp(),
-      });
+      await runTransaction(db, async (transaction) => {
+        const orderDoc = await transaction.get(orderRef);
 
-      // 3. Set driver to busy
-      await updateDoc(doc(db, 'drivers', userId), {
-        status: 'busy',
-        currentOrderId: order.orderId,
-      });
-
-      // 4. Update main order with driver info
-      if (order.orderId) {
-        try {
-          await updateDoc(doc(db, 'orders', order.orderId), {
-            driverId: userId,
-            driverName: driverName,
-            status: 'claimed',
-            deliveryStatus: 'claimed',
-            claimedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        } catch (err) {
-          // Order doc may not exist if using only queue-based system
-          console.warn('Could not update orders doc:', err);
+        if (!orderDoc.exists()) {
+          throw new Error('Order not found');
         }
-      }
 
-      router.push('/driver/delivery');
-    } catch (err) {
-      console.error('Error accepting order:', err);
-      setError(t.errorAccepting);
-      setTimeout(() => setError(null), 4000);
+        const orderData = orderDoc.data();
+
+        if (orderData.driverId) {
+          throw new Error(t.orderTaken);
+        }
+
+        // FIX: Use `|| null` instead of bare undefined-prone values.
+        // Firestore rejects `undefined` but accepts `null`.
+        transaction.update(orderRef, {
+          driverId: userId,
+          driverName: driverProfile.name || null,
+          driverPhone: driverProfile.phone || null,
+          status: 'claimed',
+          deliveryStatus: 'claimed',
+          claimedAt: serverTimestamp(),
+          driverLocation: driverLocation || null,
+          updatedAt: serverTimestamp(),
+        });
+
+        transaction.update(driverRef, {
+          status: 'busy',
+          currentOrderId: orderId,
+          updatedAt: serverTimestamp(),
+        });
+      });
+
+      setSuccessMessage(t.orderClaimed);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: unknown) {
+      console.error('Error claiming order:', err);
+      const errorMessage = (err as Error)?.message || t.errorClaiming;
+      setError(errorMessage);
+      setTimeout(() => setError(null), 3000);
     } finally {
-      setAcceptingOrderId(null);
+      setClaimingOrderId(null);
     }
   };
 
-  // ── Helpers ──────────────────────────────────────────────────
-  const formatCurrency = (amount: number) => `RD$${amount.toLocaleString()}`;
+  // Update order status
+  const updateOrderStatus = async (newStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
+    if (!currentOrder || !userId) return;
 
-  const getTimeAgo = (timestamp: Timestamp) => {
-    if (!timestamp) return '';
-    const now = Date.now();
-    const time = timestamp.toMillis();
-    const diff = Math.floor((now - time) / 1000 / 60);
-    if (diff < 1) return language === 'es' ? 'Ahora' : 'Now';
-    if (diff < 60) return `${diff} min`;
-    return `${Math.floor(diff / 60)}h`;
+    try {
+      const orderRef = doc(db, 'orders', currentOrder.id);
+      const driverRef = doc(db, 'drivers', userId);
+
+      const updateData: Record<string, unknown> = {
+        status: newStatus === 'picked_up' ? 'out_for_delivery' : newStatus,
+        deliveryStatus: newStatus === 'delivered' ? 'delivered' : 'in_transit',
+        updatedAt: serverTimestamp(),
+      };
+
+      if (newStatus === 'picked_up') {
+        updateData.pickedUpAt = serverTimestamp();
+      } else if (newStatus === 'delivered') {
+        updateData.deliveredAt = serverTimestamp();
+      }
+
+      await updateDoc(orderRef, updateData);
+
+      // If delivered, free up the driver
+      if (newStatus === 'delivered') {
+        await updateDoc(driverRef, {
+          status: 'available',
+          currentOrderId: null,
+          updatedAt: serverTimestamp(),
+        });
+
+        setSuccessMessage(t.deliveryCompleted);
+      } else {
+        setSuccessMessage(t.pickupConfirmed);
+      }
+
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Error updating order:', err);
+      setError(t.errorUpdating);
+      setTimeout(() => setError(null), 3000);
+    }
   };
 
-  // ── Loading state ────────────────────────────────────────────
+  // Open navigation
+  const openNavigation = (lat: number, lng: number, label?: string) => {
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    window.open(url, '_blank');
+  };
+
+  // Make phone call
+  const makeCall = (phone: string) => {
+    if (phone) {
+      window.location.href = `tel:${phone}`;
+    }
+  };
+
+  // Logout
+  const handleLogout = async () => {
+    try {
+      if (driverProfile?.isOnline) {
+        const driverRef = doc(db, 'drivers', userId!);
+        await updateDoc(driverRef, {
+          isOnline: false,
+          status: 'offline',
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await signOut(auth);
+      router.push('/driver/login');
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-purple-400 mx-auto" />
+          <p className="text-gray-400 mt-3">Cargando...</p>
+        </div>
       </div>
     );
   }
 
-  // ── Render ───────────────────────────────────────────────────
   return (
-    <div className="px-4 py-4 space-y-6 pb-24">
+    <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">
-            {t.greeting}, {driverName?.split(' ')[0] || 'Driver'}! 👋
-          </h1>
-          <p className={`text-sm font-medium ${
-            driverStatus === 'online' ? 'text-green-600' 
-            : driverStatus === 'busy' ? 'text-orange-600' 
-            : 'text-gray-500'
-          }`}>
-            {driverStatus === 'online' ? t.youAreOnline 
-             : driverStatus === 'busy' ? t.youAreBusy 
-             : t.youAreOffline}
-          </p>
+      <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-sm border-b border-gray-800 safe-top">
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Menu Button */}
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+
+          {/* Status Badge */}
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${
+                driverProfile?.isOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
+              }`}
+            />
+            <span className="text-sm font-medium text-gray-300">
+              {driverProfile?.isOnline ? t.online : t.offline}
+            </span>
+          </div>
+
+          {/* Language Toggle */}
+          <button
+            onClick={toggleLanguage}
+            className="p-2 -mr-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <Globe className="w-5 h-5" />
+          </button>
         </div>
-        
-        <button
-          onClick={toggleStatus}
-          disabled={statusLoading || driverStatus === 'busy'}
-          className={`px-4 py-2 rounded-xl font-semibold transition-colors flex items-center gap-2 ${
-            driverStatus === 'online'
-              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-              : 'bg-green-500 text-white hover:bg-green-600'
-          } ${(statusLoading || driverStatus === 'busy') && 'opacity-50 cursor-not-allowed'}`}
-        >
-          {statusLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          {driverStatus === 'online' ? t.goOffline : t.goOnline}
-        </button>
+      </header>
+
+      {/* Main Content */}
+      <main className="pb-32">
+        {/* Welcome Section */}
+        <div className="px-4 py-6">
+          <h1 className="text-2xl font-bold text-white">
+            {t.greeting}, {driverProfile?.name?.split(' ')[0] || 'Conductor'} 👋
+          </h1>
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-2xl font-bold text-white">{driverProfile?.totalDeliveries || 0}</p>
+              <p className="text-xs text-gray-500">{t.todayDeliveries}</p>
+            </div>
+            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-2xl font-bold text-purple-400">$0.00</p>
+              <p className="text-xs text-gray-500">{t.todayEarnings}</p>
+            </div>
+            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-2xl font-bold text-amber-400">⭐ {driverProfile?.rating?.toFixed(1) || '5.0'}</p>
+              <p className="text-xs text-gray-500">{t.rating}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Toast Messages */}
+        {error && (
+          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl animate-fade-in">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl animate-fade-in">
+            <CheckCircle className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-purple-300">{successMessage}</p>
+          </div>
+        )}
+
+        {/* Active Order */}
+        {currentOrder && (
+          <div className="px-4 mb-6">
+            <ActiveOrderCard
+              order={currentOrder}
+              t={t}
+              onUpdateStatus={updateOrderStatus}
+              onNavigate={openNavigation}
+              onCall={makeCall}
+            />
+          </div>
+        )}
+
+        {/* Available Orders */}
+        {driverProfile?.isOnline && !currentOrder && (
+          <div className="px-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">{t.availableOrders}</h2>
+              <span className="text-sm text-gray-500">
+                {availableOrders.length} {language === 'es' ? 'disponibles' : 'available'}
+              </span>
+            </div>
+
+            {availableOrders.length === 0 ? (
+              <div className="bg-gray-800/30 rounded-2xl p-8 text-center">
+                <div className="w-16 h-16 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Package className="w-8 h-8 text-gray-500" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-300 mb-1">{t.noOrdersTitle}</h3>
+                <p className="text-sm text-gray-500">{t.noOrdersDesc}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {availableOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    t={t}
+                    driverLocation={driverLocation}
+                    claiming={claimingOrderId === order.id}
+                    onClaim={() => claimOrder(order.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Offline State */}
+        {!driverProfile?.isOnline && !currentOrder && (
+          <div className="px-4">
+            <div className="bg-gray-800/30 rounded-2xl p-8 text-center">
+              <div className="w-20 h-20 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <PowerOff className="w-10 h-10 text-gray-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-300 mb-2">
+                {language === 'es' ? 'Estás desconectado' : "You're offline"}
+              </h3>
+              <p className="text-gray-500 mb-6">
+                {language === 'es'
+                  ? 'Conéctate para ver y tomar pedidos disponibles'
+                  : 'Go online to see and claim available orders'}
+              </p>
+              <button
+                onClick={toggleOnlineStatus}
+                disabled={togglingStatus}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl transition-all"
+              >
+                {togglingStatus ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Power className="w-5 h-5" />
+                )}
+                <span>{t.goOnline}</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Bottom Status Bar */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 safe-bottom z-30">
+        <div className="px-4 py-4">
+          <button
+            onClick={toggleOnlineStatus}
+            disabled={togglingStatus || (driverProfile?.isOnline && !!currentOrder)}
+            className={`w-full flex items-center justify-center gap-3 py-4 font-semibold rounded-xl transition-all ${
+              driverProfile?.isOnline
+                ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
+            } disabled:opacity-50`}
+          >
+            {togglingStatus ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : driverProfile?.isOnline ? (
+              <PowerOff className="w-5 h-5" />
+            ) : (
+              <Power className="w-5 h-5" />
+            )}
+            <span>{driverProfile?.isOnline ? t.goOffline : t.goOnline}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Error Toast */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
+      {/* Slide-out Menu */}
+      <div
+        className={`fixed inset-0 z-50 transition-opacity duration-300 ${
+          menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/60" onClick={() => setMenuOpen(false)} />
 
-      {/* Active Delivery Banner */}
-      {activeDeliveryId && (
-        <Link
-          href="/driver/delivery"
-          className="block bg-gradient-to-r from-[#55529d] to-[#6d6abf] rounded-2xl p-4 text-white active:scale-[0.98] transition-transform"
+        {/* Menu Panel */}
+        <div
+          className={`absolute top-0 left-0 bottom-0 w-80 bg-gray-900 border-r border-gray-700 transition-transform duration-300 ${
+            menuOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
         >
-          <div className="flex items-center justify-between">
+          {/* Menu Header */}
+          <div className="p-4 border-b border-gray-700 safe-top">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">{t.menu}</h2>
+              <button
+                onClick={() => setMenuOpen(false)}
+                className="p-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Driver Info */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                <Package className="w-5 h-5" />
+              <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center">
+                <User className="w-6 h-6 text-purple-400" />
               </div>
               <div>
-                <p className="font-semibold">{t.activeDelivery}</p>
-                <p className="text-sm text-white/80">{t.viewDelivery}</p>
+                <p className="font-medium text-white">{driverProfile?.name}</p>
+                <p className="text-sm text-gray-500">{driverProfile?.email}</p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5" />
-          </div>
-        </Link>
-      )}
-
-      {/* Stats Grid */}
-      {stats && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-xl p-4 border border-gray-100">
-            <p className="text-xs text-gray-500 font-medium mb-2">{t.today}</p>
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold text-gray-900">{stats.todayDeliveries}</span>
-              <span className="text-sm text-gray-500">{t.deliveries.toLowerCase()}</span>
-            </div>
-            <p className="text-sm font-semibold text-green-600 mt-1">
-              {formatCurrency(stats.todayEarnings)}
-            </p>
           </div>
 
-          <div className="bg-white rounded-xl p-4 border border-gray-100">
-            <p className="text-xs text-gray-500 font-medium mb-2">{t.thisWeek}</p>
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold text-gray-900">{stats.weekDeliveries}</span>
-              <span className="text-sm text-gray-500">{t.deliveries.toLowerCase()}</span>
-            </div>
-            <p className="text-sm font-semibold text-green-600 mt-1">
-              {formatCurrency(stats.weekEarnings)}
-            </p>
-          </div>
+          {/* Menu Items */}
+          <nav className="p-4 space-y-1">
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                router.push('/driver');
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
+            >
+              <Home className="w-5 h-5" />
+              <span>{t.dashboard}</span>
+            </button>
 
-          <div className="bg-white rounded-xl p-4 border border-gray-100">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-              <span className="text-xs text-gray-500 font-medium">{t.rating}</span>
-            </div>
-            <span className="text-2xl font-bold text-gray-900">{stats.rating.toFixed(1)}</span>
-          </div>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                router.push('/driver/history');
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
+            >
+              <History className="w-5 h-5" />
+              <span>{t.orderHistory}</span>
+            </button>
 
-          <div className="bg-white rounded-xl p-4 border border-gray-100">
-            <p className="text-xs text-gray-500 font-medium mb-1">{t.totalDeliveries}</p>
-            <span className="text-2xl font-bold text-gray-900">{stats.totalDeliveries}</span>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                router.push('/driver/settings');
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
+            >
+              <Settings className="w-5 h-5" />
+              <span>{t.settings}</span>
+            </button>
+
+            <Link
+              href="/"
+              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
+            >
+              <Home className="w-5 h-5" />
+              <span>{t.backToStackBot}</span>
+            </Link>
+          </nav>
+
+          {/* Logout */}
+          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700 safe-bottom">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              <span>{t.logout}</span>
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {/* Offline Tip */}
-      {driverStatus === 'offline' && !activeDeliveryId && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium text-amber-800">{t.tipTitle}</p>
-            <p className="text-sm text-amber-700">{t.tipOffline}</p>
+// ============================================================================
+// Order Card Component
+// ============================================================================
+interface OrderCardProps {
+  order: DeliveryOrder;
+  t: typeof translations.es;
+  driverLocation: { lat: number; lng: number } | null;
+  claiming: boolean;
+  onClaim: () => void;
+}
+
+function OrderCard({ order, t, driverLocation, claiming, onClaim }: OrderCardProps) {
+  const createdAt =
+    order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
+
+  const distanceToPickup =
+    driverLocation && order.vendorCoordinates
+      ? `${calculateDistance(
+          driverLocation.lat,
+          driverLocation.lng,
+          order.vendorCoordinates.lat,
+          order.vendorCoordinates.lng
+        ).toFixed(1)} km`
+      : null;
+
+  return (
+    <div className="bg-gray-800/50 rounded-2xl border border-gray-700/50 overflow-hidden">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-700/50">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gray-700 rounded-xl flex items-center justify-center">
+              <Store className="w-5 h-5 text-gray-400" />
+            </div>
+            <div>
+              <p className="font-semibold text-white">{order.vendorName}</p>
+              <p className="text-sm text-gray-500">
+                {order.items?.length || 0} {t.items} • ${order.total?.toFixed(2)}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center gap-1 text-purple-400 font-semibold">
+              <DollarSign className="w-4 h-4" />
+              <span>{order.deliveryFee?.toFixed(2)}</span>
+            </div>
+            <p className="text-xs text-gray-500">{t.deliveryFee}</p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Available Orders */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-bold text-gray-900">{t.availableOrders}</h2>
-          {driverStatus === 'online' && availableOrders.length > 0 && (
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-              {availableOrders.length} {language === 'es' ? 'disponibles' : 'available'}
+      {/* Locations */}
+      <div className="p-4 space-y-3">
+        {/* Pickup */}
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Store className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-500 uppercase tracking-wide">{t.pickup}</p>
+            <p className="text-sm text-white truncate">
+              {order.vendorAddress || order.vendorName}
+            </p>
+            {distanceToPickup && (
+              <p className="text-xs text-purple-400 mt-0.5">
+                ~{distanceToPickup} {t.away}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Delivery */}
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+            <MapPin className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-500 uppercase tracking-wide">{t.deliverTo}</p>
+            <p className="text-sm text-white truncate">
+              {order.deliveryAddress?.street}, {order.deliveryAddress?.city}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{order.customerName}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="p-4 pt-0 flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          <Clock className="w-3.5 h-3.5 inline mr-1" />
+          {formatTimeAgo(createdAt, t)}
+        </p>
+        <button
+          onClick={onClaim}
+          disabled={claiming}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-medium rounded-xl transition-all"
+        >
+          {claiming ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Zap className="w-4 h-4" />
+          )}
+          <span>{claiming ? t.claiming : t.claimOrder}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Active Order Card Component
+// ============================================================================
+interface ActiveOrderCardProps {
+  order: DeliveryOrder;
+  t: typeof translations.es;
+  onUpdateStatus: (status: 'picked_up' | 'out_for_delivery' | 'delivered') => void;
+  onNavigate: (lat: number, lng: number, label?: string) => void;
+  onCall: (phone: string) => void;
+}
+
+function ActiveOrderCard({
+  order,
+  t,
+  onUpdateStatus,
+  onNavigate,
+  onCall,
+}: ActiveOrderCardProps) {
+  const isPickedUp = order.status === 'out_for_delivery' || order.status === 'picked_up';
+  const targetLocation = isPickedUp
+    ? order.deliveryAddress?.coordinates
+    : order.vendorCoordinates;
+  const targetLabel = isPickedUp ? t.customer : t.vendor;
+  const targetAddress = isPickedUp
+    ? `${order.deliveryAddress?.street}, ${order.deliveryAddress?.city}`
+    : order.vendorAddress || order.vendorName;
+
+  return (
+    <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 rounded-2xl border border-purple-500/30 overflow-hidden">
+      {/* Status Banner */}
+      <div className="bg-purple-500/20 px-4 py-2 border-b border-purple-500/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Truck className="w-4 h-4 text-purple-400" />
+            <span className="text-sm font-medium text-purple-400">
+              {isPickedUp ? t.deliveringOrder : t.headToPickup}
             </span>
+          </div>
+          <span className="text-xs text-gray-400">#{order.orderId}</span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {/* Target Location */}
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
+            {isPickedUp ? (
+              <MapPin className="w-5 h-5 text-purple-400" />
+            ) : (
+              <Store className="w-5 h-5 text-purple-400" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-500 uppercase tracking-wide">
+              {t.navigateTo} {targetLabel}
+            </p>
+            <p className="text-sm text-white font-medium truncate">{targetAddress}</p>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          {targetLocation && (
+            <button
+              onClick={() => onNavigate(targetLocation.lat, targetLocation.lng)}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 transition-colors"
+            >
+              <Navigation className="w-4 h-4" />
+              <span className="text-sm font-medium">{t.navigate}</span>
+            </button>
+          )}
+          {(isPickedUp ? order.customerPhone : order.vendorPhone) && (
+            <button
+              onClick={() => onCall((isPickedUp ? order.customerPhone : order.vendorPhone) || '')}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl hover:bg-green-500/30 transition-colors"
+            >
+              <Phone className="w-4 h-4" />
+              <span className="text-sm font-medium">{t.call}</span>
+            </button>
           )}
         </div>
 
-        {driverStatus !== 'online' ? (
-          <div className="bg-gray-50 rounded-xl p-8 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Package className="w-8 h-8 text-gray-400" />
-            </div>
-            <p className="text-gray-600 font-medium">{t.noOrdersAvailable}</p>
-            <p className="text-sm text-gray-500 mt-1">{t.noOrdersOffline}</p>
-          </div>
-        ) : availableOrders.length === 0 ? (
-          <div className="bg-gray-50 rounded-xl p-8 text-center">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
-              <CheckCircle className="w-8 h-8 text-green-400" />
-            </div>
-            <p className="text-gray-600 font-medium">{t.noOrdersAvailable}</p>
-            <p className="text-sm text-gray-500 mt-1">{t.noOrdersDesc}</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {availableOrders.map((order) => (
-              <div
-                key={order.id}
-                className={`bg-white rounded-xl border overflow-hidden transition-all ${
-                  order.priority === 'high'
-                    ? 'border-orange-300 shadow-sm shadow-orange-100'
-                    : 'border-gray-100'
-                }`}
-              >
-                {/* Priority Badge */}
-                {order.priority === 'high' && (
-                  <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-bold px-3 py-1.5 text-center">
-                    {t.highPriority}
-                  </div>
-                )}
-
-                <div className="p-4">
-                  {/* Vendor Row */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                        <Store className="w-5 h-5 text-[#55529d]" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate">{order.vendorName}</p>
-                        <p className="text-xs text-gray-500">
-                          {order.itemCount} {order.itemCount === 1 ? t.item : t.items}
-                          {order.orderTotal ? ` • ${formatCurrency(order.orderTotal)}` : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Time ago */}
-                    {order.createdAt && (
-                      <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
-                        <Clock className="w-3 h-3 inline mr-0.5" />
-                        {getTimeAgo(order.createdAt)}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Addresses */}
-                  <div className="space-y-2 mb-3">
-                    <div className="flex items-start gap-2">
-                      <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <Store className="w-3 h-3 text-blue-600" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs text-gray-500">{t.pickup}</p>
-                        <p className="text-sm text-gray-700 truncate">{order.vendorAddress || order.vendorName}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <MapPin className="w-3 h-3 text-red-600" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs text-gray-500">{t.deliverTo}</p>
-                        <p className="text-sm text-gray-700 truncate">{order.customerAddress}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Fee + Distance + Accept */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Delivery Fee */}
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="w-4 h-4 text-green-600" />
-                        <span className="font-bold text-green-700">{formatCurrency(order.deliveryFee)}</span>
-                        {order.tip ? (
-                          <span className="text-xs text-green-500">+{formatCurrency(order.tip)}</span>
-                        ) : null}
-                      </div>
-
-                      {/* Distance */}
-                      {order.estimatedDistance && (
-                        <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
-                          <Navigation className="w-3 h-3 inline mr-0.5" />
-                          {order.estimatedDistance} {t.km}
-                        </span>
-                      )}
-
-                      {/* ETA */}
-                      {order.estimatedTime && (
-                        <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
-                          ~{order.estimatedTime} {t.mins}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Accept Button */}
-                    <button
-                      onClick={() => acceptOrder(order)}
-                      disabled={!!acceptingOrderId || !!activeDeliveryId}
-                      className={`px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-1.5 transition-all ${
-                        activeDeliveryId
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : acceptingOrderId === order.id
-                          ? 'bg-[#55529d] text-white opacity-70'
-                          : 'bg-[#55529d] text-white hover:bg-[#444280] active:scale-95'
-                      }`}
-                    >
-                      {acceptingOrderId === order.id ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {t.accepting}
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-4 h-4" />
-                          {t.accept}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+        {/* Order Summary */}
+        <div className="bg-gray-800/50 rounded-xl p-3">
+          <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">{t.orderSummary}</p>
+          <div className="space-y-1">
+            {order.items?.slice(0, 3).map((item: any, idx: number) => (
+              <div key={idx} className="flex justify-between text-sm">
+                <span className="text-gray-300 truncate">
+                  {item.quantity}x {item.name}
+                </span>
+                <span className="text-gray-500 ml-2">${(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))}
+            {(order.items?.length || 0) > 3 && (
+              <p className="text-xs text-gray-500">
+                {t.moreItems.replace('{n}', String((order.items?.length || 0) - 3))}
+              </p>
+            )}
           </div>
+          <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-sm font-semibold">
+            <span className="text-gray-300">{t.total}</span>
+            <span className="text-white">${order.total?.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* Tracking PIN */}
+        {isPickedUp && order.trackingPin && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-center">
+            <p className="text-xs text-amber-400 mb-1">{t.deliveryPin}</p>
+            <p className="text-2xl font-mono font-bold text-amber-300 tracking-widest">
+              {order.trackingPin}
+            </p>
+          </div>
+        )}
+
+        {/* Status Action */}
+        {!isPickedUp ? (
+          <button
+            onClick={() => onUpdateStatus('picked_up')}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            <Package className="w-5 h-5" />
+            {t.confirmPickup}
+          </button>
+        ) : (
+          <button
+            onClick={() => onUpdateStatus('delivered')}
+            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            <CheckCircle className="w-5 h-5" />
+            {t.completeDelivery}
+          </button>
         )}
       </div>
     </div>
