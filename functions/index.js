@@ -9,6 +9,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
 
+
 admin.initializeApp();
 
 /* ============================================================
@@ -1451,3 +1452,8 @@ exports.onActiveDeliveryUpdate = functions.firestore
       return null;
     }
   });
+
+const { createTestOrder, updateOrderStatus, deleteTestOrders } = require('./testOrders');
+exports.createTestOrder = createTestOrder;
+exports.updateOrderStatus = updateOrderStatus;
+exports.deleteTestOrders = deleteTestOrders;
