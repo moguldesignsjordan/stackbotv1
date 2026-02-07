@@ -1,41 +1,441 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // PRODUCTS
-    match /products/{id} {
-      allow read: if true;
-      allow create, update, delete: if request.auth != null
-        && request.auth.token.role == 'admin';
+    
+    /* ============================================================
+       HELPER FUNCTIONS
+    ============================================================ */
+    
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isLoggedIn() && (
+        request.auth.token.role == 'admin' || 
+        request.auth.token.admin == true
+      );
+    }
+    
+    function isVendor() {
+      return isLoggedIn() && (
+        request.auth.token.role == 'vendor' ||
+        request.auth.token.vendor == true
+      );
+    }
+    
+    function isOwner(uid) {
+      return isLoggedIn() && request.auth.uid == uid;
+    }
+    
+    // Validate lat/lng coordinates
+    function isValidCoordinates(coords) {
+      return coords is map 
+        && coords.keys().hasAll(['lat', 'lng'])
+        && coords.lat is number 
+        && coords.lng is number
+        && coords.lat >= -90 
+        && coords.lat <= 90
+        && coords.lng >= -180 
+        && coords.lng <= 180;
+    }
+    
+    // Validate vendor location object
+    function isValidVendorLocation(loc) {
+      return loc is map
+        && loc.keys().hasAll(['lat', 'lng', 'location_address'])
+        && loc.lat is number
+        && loc.lng is number
+        && loc.lat >= -90 
+        && loc.lat <= 90
+        && loc.lng >= -180 
+        && loc.lng <= 180
+        && loc.location_address is string
+        && loc.location_address.size() <= 500;
+    }
+    
+    // Validate bank info object (only last 4 digits stored)
+    function isValidBankInfo(bank) {
+      return bank is map
+        && bank.keys().hasOnly(['bank_name', 'account_holder', 'account_last4', 'routing_number', 'account_type'])
+        && bank.bank_name is string
+        && bank.bank_name.size() <= 100
+        && bank.account_holder is string
+        && bank.account_holder.size() <= 100
+        && bank.account_last4 is string
+        && bank.account_last4.size() == 4
+        && bank.routing_number is string
+        && bank.routing_number.size() <= 20
+        && bank.account_type in ['checking', 'savings'];
+    }
+    
+    // Fields vendors cannot modify themselves
+    function vendorProtectedFieldsUnchanged(req, res) {
+      return req.resource.data.verified == res.data.verified
+        && (!res.data.keys().hasAny(['role']) || req.resource.data.role == res.data.role)
+        && (!res.data.keys().hasAny(['stackbot_pin']) || req.resource.data.stackbot_pin == res.data.stackbot_pin)
+        && req.resource.data.uid == res.data.uid;
     }
 
-    // VENDORS — public can CREATE applications
-    match /vendors/{id} {
+    /* ============================================================
+       CUSTOMERS
+    ============================================================ */
+    match /customers/{customerId} {
+      allow read: if isOwner(customerId) || isAdmin();
+      allow create: if isOwner(customerId);
+      allow update: if isOwner(customerId) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /orders/{orderId} {
+        allow read: if isOwner(customerId) || isAdmin();
+        allow create: if isLoggedIn();
+        allow update, delete: if isAdmin();
+      }
+
+      match /addresses/{addressId} {
+        allow read, write: if isOwner(customerId) || isAdmin();
+      }
+    }
+
+    /* ============================================================
+       USERS (General user data & saved locations)
+    ============================================================ */
+    match /users/{userId} {
+      allow read, write: if isAdmin() || isOwner(userId);
+      
+      match /savedLocations/{locationId} {
+        allow read: if isOwner(userId);
+        
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['label', 'address', 'coordinates'])
+          && request.resource.data.label is string
+          && request.resource.data.label.size() <= 50
+          && request.resource.data.address is string
+          && request.resource.data.address.size() <= 500
+          && isValidCoordinates(request.resource.data.coordinates);
+        
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['label', 'address', 'coordinates', 'isDefault', 'updatedAt'])
+          && (!request.resource.data.keys().hasAny(['coordinates']) 
+              || isValidCoordinates(request.resource.data.coordinates));
+        
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    /* ============================================================
+       VENDORS
+    ============================================================ */
+    match /vendors/{vendorId} {
       allow read: if true;
 
-      // Anyone (even not logged in) can submit an application
+      allow create: if isAdmin() || (
+        isOwner(vendorId)
+        && request.resource.data.uid == vendorId
+        && request.resource.data.verified == false
+        && (!request.resource.data.keys().hasAny(['location']) 
+            || isValidVendorLocation(request.resource.data.location))
+        && (!request.resource.data.keys().hasAny(['bank_info']) 
+            || isValidBankInfo(request.resource.data.bank_info))
+      );
+
+      allow update, delete: if isAdmin();
+
+      allow update: if isOwner(vendorId)
+        && vendorProtectedFieldsUnchanged(request, resource)
+        && (!request.resource.data.keys().hasAny(['location']) 
+            || isValidVendorLocation(request.resource.data.location))
+        && (!request.resource.data.keys().hasAny(['bank_info']) 
+            || isValidBankInfo(request.resource.data.bank_info))
+        && (!request.resource.data.keys().hasAny(['serviceRadius']) 
+            || (request.resource.data.serviceRadius is number 
+                && request.resource.data.serviceRadius > 0 
+                && request.resource.data.serviceRadius <= 100));
+
+      /* --------------------------------------------------------
+         PRODUCTS (for restaurants, groceries, retail)
+      -------------------------------------------------------- */
+      match /products/{productId} {
+        allow read: if true;
+
+        allow create: if isAdmin() || (
+          isLoggedIn()
+          && request.auth.uid == vendorId
+          && get(/databases/$(database)/documents/vendors/$(vendorId)).data.verified == true
+        );
+
+        allow update, delete: if isAdmin()
+          || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         SERVICES (for professional services, beauty, cleaning)
+      -------------------------------------------------------- */
+      match /services/{serviceId} {
+        allow read: if true;
+
+        allow create: if isAdmin() || (
+          isLoggedIn()
+          && request.auth.uid == vendorId
+          && get(/databases/$(database)/documents/vendors/$(vendorId)).data.verified == true
+        );
+
+        allow update, delete: if isAdmin()
+          || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         UNITS (for short-term rentals, vacation rentals)
+      -------------------------------------------------------- */
+      match /units/{unitId} {
+        allow read: if true;
+
+        allow create: if isAdmin() || (
+          isLoggedIn()
+          && request.auth.uid == vendorId
+          && get(/databases/$(database)/documents/vendors/$(vendorId)).data.verified == true
+        );
+
+        allow update, delete: if isAdmin()
+          || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         VEHICLES (for taxi, transport, vehicle rentals)
+      -------------------------------------------------------- */
+      match /vehicles/{vehicleId} {
+        allow read: if true;
+
+        allow create: if isAdmin() || (
+          isLoggedIn()
+          && request.auth.uid == vendorId
+          && get(/databases/$(database)/documents/vendors/$(vendorId)).data.verified == true
+        );
+
+        allow update, delete: if isAdmin()
+          || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         EXPERIENCES (for tours, activities)
+      -------------------------------------------------------- */
+      match /experiences/{experienceId} {
+        allow read: if true;
+
+        allow create: if isAdmin() || (
+          isLoggedIn()
+          && request.auth.uid == vendorId
+          && get(/databases/$(database)/documents/vendors/$(vendorId)).data.verified == true
+        );
+
+        allow update, delete: if isAdmin()
+          || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         VENDOR ORDERS
+      -------------------------------------------------------- */
+      match /orders/{orderId} {
+        allow read: if isAdmin() || (isLoggedIn() && request.auth.uid == vendorId);
+        allow create: if isAdmin() || isLoggedIn();
+        allow update, delete: if isAdmin() || (isLoggedIn() && request.auth.uid == vendorId);
+      }
+
+      /* --------------------------------------------------------
+         VENDOR NOTIFICATIONS (NEW - for real-time order alerts)
+      -------------------------------------------------------- */
+      match /notifications/{notificationId} {
+        // Vendors can read their own notifications
+        allow read: if isLoggedIn() && request.auth.uid == vendorId;
+        
+        // Vendors can update (mark as read) their own notifications
+        allow update: if isLoggedIn() 
+          && request.auth.uid == vendorId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+        
+        // Vendors can delete their own notifications
+        allow delete: if isLoggedIn() && request.auth.uid == vendorId;
+        
+        // Only Cloud Functions (admin SDK) should create notifications
+        // But allow logged-in users for testing purposes
+        allow create: if isLoggedIn();
+      }
+
+      /* --------------------------------------------------------
+         VENDOR REVIEWS (Customer reviews for this vendor)
+      -------------------------------------------------------- */
+      match /reviews/{reviewId} {
+        allow read: if true;
+        
+        allow create: if isLoggedIn()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.rating is int
+          && request.resource.data.rating >= 1
+          && request.resource.data.rating <= 5
+          && request.resource.data.comment is string
+          && request.resource.data.comment.size() >= 10
+          && request.resource.data.comment.size() <= 500;
+        
+        allow update: if isLoggedIn() 
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.rating >= 1
+          && request.resource.data.rating <= 5;
+        
+        allow delete: if isAdmin() 
+          || (isLoggedIn() && resource.data.userId == request.auth.uid);
+      }
+    }
+
+    /* ============================================================
+       ORDERS (GLOBAL)
+    ============================================================ */
+    match /orders/{orderId} {
+      allow read, write: if isAdmin();
+
+      allow read: if isLoggedIn()
+        && request.auth.uid == resource.data.customerId;
+
+      allow read: if isLoggedIn()
+        && request.auth.uid == resource.data.vendorId;
+
+      allow update: if isLoggedIn()
+        && request.auth.uid == resource.data.vendorId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.vendorId == resource.data.vendorId;
+
+      allow create: if isLoggedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && (!request.resource.data.keys().hasAny(['deliveryAddress'])
+            || !request.resource.data.deliveryAddress.keys().hasAny(['coordinates'])
+            || isValidCoordinates(request.resource.data.deliveryAddress.coordinates));
+    }
+
+    /* ============================================================
+       CARTS
+    ============================================================ */
+    match /carts/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /items/{itemId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    /* ============================================================
+       CATEGORIES
+    ============================================================ */
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    /* ============================================================
+       DELIVERY ZONES
+    ============================================================ */
+    match /deliveryZones/{zoneId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ============================================================
+       ADMIN AUDIT LOGS
+    ============================================================ */
+    match /admin_audit_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    /* ============================================================
+       PRODUCTS (Global)
+    ============================================================ */
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // *** NEW RULE ADDED FOR SEARCH FIX ***
+    // Allows searching for products across ALL vendor subcollections
+    match /{path=**}/products/{productId} {
+      allow read: if true;
+    }
+
+    /* ============================================================
+       STRIPE (Cloud Functions only)
+    ============================================================ */
+    match /stripe_customers/{customerId} {
+      allow read: if isOwner(customerId) || isAdmin();
+      allow write: if false;
+    }
+    
+    match /stripe_connect/{vendorId} {
+      allow read: if isOwner(vendorId) || isAdmin();
+      allow write: if false;
+    }
+
+    /* ============================================================
+       AFFILIATE APPLICATIONS
+    ============================================================ */
+    match /affiliate_applications/{applicationId} {
+      allow read: if isAdmin();
       allow create: if true;
-
-      // Only admins can change or delete vendor records
-      allow update, delete: if request.auth != null
-        && request.auth.token.role == 'admin';
+      allow update, delete: if isAdmin();
     }
 
-    // CATEGORIES
-    match /categories/{id} {
+    /* ============================================================
+       NOTIFICATIONS (Global - for admin/customer notifications)
+    ============================================================ */
+    match /notifications/{notificationId} {
+      // READ: Allow users to read ONLY their own notifications
+      allow read: if request.auth != null 
+                  && resource.data.userId == request.auth.uid;
+
+      // CREATE: Allow any logged-in user to create a notification
+      allow create: if request.auth != null;
+
+      // UPDATE: Allow users to mark their own notifications as read
+      allow update: if request.auth != null 
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+
+      // DELETE: Allow users to clear (delete) their own notifications
+      allow delete: if request.auth != null 
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    /* ============================================================
+       REVIEWS (Global - keep for backwards compatibility)
+    ============================================================ */
+    match /reviews/{reviewId} {
       allow read: if true;
-      allow write: if request.auth != null
-        && request.auth.token.role == 'admin';
+      allow create: if isLoggedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5;
+      allow update: if isLoggedIn()
+        && request.auth.uid == resource.data.customerId;
+      allow delete: if isAdmin();
     }
 
-    // ORDERS — admin only for now
-    match /orders/{id} {
-      allow read, write: if request.auth != null
-        && request.auth.token.role == 'admin';
+    /* ============================================================
+       PROMO CODES
+    ============================================================ */
+    match /promo_codes/{codeId} {
+      allow read: if isLoggedIn();
+      allow write: if isAdmin();
     }
 
-    // Block everything else by default
+    /* ============================================================
+       PLATFORM SETTINGS
+    ============================================================ */
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    /* ============================================================
+       FALLBACK
+    ============================================================ */
     match /{document=**} {
       allow read, write: if false;
     }

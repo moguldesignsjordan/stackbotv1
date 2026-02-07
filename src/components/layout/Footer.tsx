@@ -265,16 +265,15 @@ export default function Footer() {
                       className="h-4 w-auto object-contain"
                     />
                   </div>
-                  {/* Mastercard */}
+                  {/* Mastercard - Replaced with Image component */}
                   <div className="bg-white rounded px-2 py-1">
-                    <svg className="h-4 w-auto" viewBox="0 0 32 20" fill="none">
-                      <circle cx="10" cy="10" r="10" fill="#EB001B" />
-                      <circle cx="22" cy="10" r="10" fill="#F79E1B" />
-                      <path
-                        d="M16 3.5C17.8 5 19 7.3 19 10C19 12.7 17.8 15 16 16.5C14.2 15 13 12.7 13 10C13 7.3 14.2 5 16 3.5Z"
-                        fill="#FF5F00"
-                      />
-                    </svg>
+                    <Image
+                      src="/mastercard.png"
+                      alt="Mastercard"
+                      width={48}
+                      height={16}
+                      className="h-4 w-auto object-contain"
+                    />
                   </div>
                   {/* Credit Card Icon for others */}
                   <div className="bg-white/10 rounded px-2 py-1 flex items-center gap-1">

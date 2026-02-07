@@ -90,10 +90,11 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   // 'checking'       → user is signed in, waiting for /drivers/{uid} doc check
   // 'authenticated'  → /drivers/{uid} exists, render children
   // 'unauthenticated'→ no user, redirecting to login
-  // 'unauthorized'   → user exists but no driver doc
+  // 'unauthorized'   → user exists but no driver doc OR rules denied
   const [authState, setAuthState] = useState<
     'loading' | 'checking' | 'authenticated' | 'unauthenticated' | 'unauthorized'
   >('loading');
+
   const [userId, setUserId] = useState<string | null>(null);
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -119,10 +120,9 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   };
 
   // ── 1. auth state listener ─────────────────────────────────────
-  // Captures the uid (or null) and moves to 'checking' / 'unauthenticated'.
-  // Does NOT do any Firestore reads itself — that's effect #2's job.
   useEffect(() => {
     if (isPublicRoute) {
+      // public routes render without auth gating
       setAuthState('authenticated');
       return;
     }
@@ -142,36 +142,47 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   }, [router, isPublicRoute]);
 
   // ── 2. driver doc listener ─────────────────────────────────────
-  // Runs only after we have a real uid and only on protected routes.
-  // Single onSnapshot does double duty:
-  //   • first emission decides authenticated vs unauthorized
-  //   • subsequent emissions keep `driver` state fresh for the UI
   useEffect(() => {
     if (!userId || isPublicRoute) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'drivers', userId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setDriver({
-          id: docSnap.id,
-          name: data.name || '',
-          email: data.email || '',
-          phone: data.phone,
-          photoURL: data.photoURL,
-          status: data.status || 'offline',
-          vehicleType: data.vehicleType,
-          vehiclePlate: data.vehiclePlate,
-          verified: data.verified,
-          totalDeliveries: data.totalDeliveries || 0,
-          rating: data.rating,
-        });
-        setAuthState('authenticated');
-      } else {
-        // Doc doesn't exist → not an approved driver
+    const driverRef = doc(db, 'drivers', userId);
+
+    let unsubscribe = () => {};
+    unsubscribe = onSnapshot(
+      driverRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setDriver({
+            id: docSnap.id,
+            name: data.name || '',
+            email: data.email || '',
+            phone: data.phone,
+            photoURL: data.photoURL,
+            status: data.status || 'offline',
+            vehicleType: data.vehicleType,
+            vehiclePlate: data.vehiclePlate,
+            verified: data.verified,
+            totalDeliveries: data.totalDeliveries || 0,
+            rating: data.rating,
+          });
+          setAuthState('authenticated');
+        } else {
+          // Doc doesn't exist → not an approved driver
+          setDriver(null);
+          setAuthState('unauthorized');
+        }
+      },
+      (err) => {
+        console.error('drivers/{uid} snapshot error:', err);
+        // Prevent Firestore internal assertion crash loops:
         setDriver(null);
         setAuthState('unauthorized');
+        try {
+          unsubscribe();
+        } catch {}
       }
-    });
+    );
 
     return () => unsubscribe();
   }, [userId, isPublicRoute]);
@@ -180,10 +191,20 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!userId || authState !== 'authenticated' || isPublicRoute) return;
 
-    const unsubscribe = onSnapshot(
-      doc(db, 'driver_active_deliveries', userId),
+    const activeRef = doc(db, 'driver_active_deliveries', userId);
+
+    let unsubscribe = () => {};
+    unsubscribe = onSnapshot(
+      activeRef,
       (docSnap) => {
         setHasActiveDelivery(docSnap.exists());
+      },
+      (err) => {
+        console.error('driver_active_deliveries/{uid} snapshot error:', err);
+        setHasActiveDelivery(false);
+        try {
+          unsubscribe();
+        } catch {}
       }
     );
 

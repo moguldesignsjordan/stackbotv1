@@ -486,27 +486,346 @@ exports.sendNotification = functions.https.onRequest((req, res) => {
 });
 
 /* ============================================================
-    🚀 SEND PUSH NOTIFICATION (FCM Trigger)
+    🚀 ENHANCED SEND PUSH NOTIFICATION (FCM Trigger)
+    - Better error logging
+    - Token validation
+    - Expired token cleanup
+    - Supports customers, vendors, AND drivers
 ============================================================ */
-exports.sendPushNotification = functions.firestore.document("notifications/{notificationId}").onCreate(async (snap) => {
-  const notification = snap.data();
-  const userId = notification.userId;
-  if (!userId) return;
-  try {
-    const tokenDoc = await admin.firestore().collection("pushTokens").doc(userId).get();
-    if (!tokenDoc.exists) return;
-    const pushToken = tokenDoc.data().token;
-    if (!pushToken) return;
-    const payload = {
-      token: pushToken,
-      notification: { title: notification.title, body: notification.message },
-      android: { notification: { sound: "default", channelId: "default", priority: "high", clickAction: "FCM_PLUGIN_ACTIVITY" } },
-      apns: { payload: { aps: { sound: "default", badge: 1 } } },
-      data: { ...notification.data, url: notification.data?.url || "/" },
+exports.sendPushNotification = functions.firestore
+  .document("notifications/{notificationId}")
+  .onCreate(async (snap) => {
+    const notification = snap.data();
+    const notificationId = snap.id;
+    const userId = notification.userId;
+
+    // ── Validation ────────────────────────────────────────────
+    if (!userId) {
+      console.error(`[FCM] No userId in notification ${notificationId}`);
+      return;
+    }
+
+    console.log(`[FCM] Processing notification ${notificationId} for user ${userId}`);
+    console.log(`[FCM] Type: ${notification.type}, Title: ${notification.title}`);
+
+    try {
+      // ── Get user's FCM token ──────────────────────────────────
+      const tokenDoc = await admin.firestore().collection("pushTokens").doc(userId).get();
+
+      if (!tokenDoc.exists) {
+        console.warn(`[FCM] ❌ No push token found for user ${userId}`);
+        console.warn(`[FCM] User needs to login to mobile app to register FCM token`);
+        
+        // Log this to a collection for admin visibility
+        await admin.firestore().collection("fcmErrors").add({
+          userId,
+          notificationId,
+          error: "NO_TOKEN",
+          message: "User has no FCM token registered",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        
+        return;
+      }
+
+      const tokenData = tokenDoc.data();
+      const pushToken = tokenData.token;
+
+      if (!pushToken) {
+        console.warn(`[FCM] ❌ Empty token for user ${userId}`);
+        return;
+      }
+
+      console.log(`[FCM] ✅ Found token for user ${userId}: ${pushToken.substring(0, 20)}...`);
+
+      // ── Build FCM payload ─────────────────────────────────────
+      const payload = {
+        token: pushToken,
+        notification: {
+          title: notification.title,
+          body: notification.message,
+        },
+        android: {
+          notification: {
+            sound: "default",
+            channelId: "default",
+            priority: notification.priority === "high" ? "high" : "default",
+            clickAction: "FCM_PLUGIN_ACTIVITY",
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+              badge: 1,
+              contentAvailable: true,
+            },
+          },
+        },
+        data: {
+          notificationId,
+          type: notification.type || "general",
+          url: notification.data?.url || "/",
+          ...notification.data,
+        },
+      };
+
+      // ── Send FCM message ──────────────────────────────────────
+      console.log(`[FCM] Sending push to ${userId}...`);
+      const response = await admin.messaging().send(payload);
+      console.log(`[FCM] ✅ Successfully sent to ${userId}. MessageId: ${response}`);
+
+    } catch (error) {
+      console.error(`[FCM] ❌ Error sending push to ${userId}:`, error);
+
+      // ── Handle invalid/expired tokens ─────────────────────────
+      if (
+        error.code === "messaging/invalid-registration-token" ||
+        error.code === "messaging/registration-token-not-registered"
+      ) {
+        console.warn(`[FCM] Token expired/invalid for ${userId}, removing from DB`);
+        
+        // Delete the invalid token
+        await admin.firestore().collection("pushTokens").doc(userId).delete();
+        
+        // Log for admin visibility
+        await admin.firestore().collection("fcmErrors").add({
+          userId,
+          notificationId,
+          error: "INVALID_TOKEN",
+          message: "Token expired or invalid, user needs to re-login",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Log other errors
+        await admin.firestore().collection("fcmErrors").add({
+          userId,
+          notificationId,
+          error: error.code || "UNKNOWN",
+          message: error.message || "Unknown FCM error",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  });
+
+/* ============================================================
+    🚗 DRIVER: Order Assignment Notification
+    Triggers when a driver is assigned to an order
+============================================================ */
+exports.onOrderAssignedToDriver = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // Check if driver was just assigned
+    if (!before.driverId && after.driverId) {
+      console.log(`[Driver Notification] Order ${orderId} assigned to driver ${after.driverId}`);
+
+      try {
+        // Create notification for driver
+        await createNotification({
+          userId: after.driverId,
+          type: "order_assigned",
+          title: "🚗 New Delivery Assignment!",
+          message: `Order #${orderId.slice(0, 8).toUpperCase()} - Pick up from ${after.vendorName || "vendor"}`,
+          priority: "high",
+          data: {
+            orderId,
+            vendorId: after.vendorId,
+            vendorName: after.vendorName,
+            customerName: after.customerName,
+            deliveryAddress: after.deliveryAddress,
+            orderTotal: after.total,
+            url: `/driver/deliveries/${orderId}`,
+          },
+        });
+
+        console.log(`[Driver Notification] ✅ Notification sent to driver ${after.driverId}`);
+
+        // Also notify customer that driver was assigned
+        if (after.customerId) {
+          await createNotification({
+            userId: after.customerId,
+            type: "driver_assigned",
+            title: "Driver Assigned 🚗",
+            message: `Your order is being picked up by ${after.driverName || "a driver"}`,
+            priority: "normal",
+            data: {
+              orderId,
+              driverId: after.driverId,
+              driverName: after.driverName,
+              url: `/account/orders/${orderId}`,
+            },
+          });
+        }
+
+      } catch (error) {
+        console.error(`[Driver Notification] Error:`, error);
+      }
+    }
+
+    return null;
+  });
+
+
+/* ============================================================
+    🚗 DRIVER: Status Change Notifications
+    Notifies driver when order status changes
+============================================================ */
+exports.onDriverOrderStatusChange = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // Only process if there's a driver assigned
+    if (!after.driverId) return null;
+
+    // Status didn't change
+    if (before.status === after.status) return null;
+
+    const statusMessages = {
+      ready: {
+        type: "order_ready_pickup",
+        title: "📦 Order Ready for Pickup",
+        message: `Order #${orderId.slice(0, 8).toUpperCase()} at ${after.vendorName || "vendor"} is ready!`,
+        priority: "high",
+      },
+      out_for_delivery: {
+        type: "delivery_in_progress",
+        title: "🚗 Delivery in Progress",
+        message: `Delivering order #${orderId.slice(0, 8).toUpperCase()} to customer`,
+        priority: "normal",
+      },
+      delivered: {
+        type: "delivery_completed",
+        title: "✅ Delivery Completed!",
+        message: `Order #${orderId.slice(0, 8).toUpperCase()} delivered successfully`,
+        priority: "normal",
+      },
     };
-    await admin.messaging().send(payload);
+
+    const config = statusMessages[after.status];
+    
+    if (config) {
+      try {
+        await createNotification({
+          userId: after.driverId,
+          type: config.type,
+          title: config.title,
+          message: config.message,
+          priority: config.priority,
+          data: {
+            orderId,
+            vendorId: after.vendorId,
+            customerId: after.customerId,
+            status: after.status,
+            url: `/driver/deliveries/${orderId}`,
+          },
+        });
+
+        console.log(`[Driver Notification] ✅ Status change notification sent to driver ${after.driverId}`);
+      } catch (error) {
+        console.error(`[Driver Notification] Error:`, error);
+      }
+    }
+
+    return null;
+  });
+
+
+/* ============================================================
+    🚗 DRIVER: Customer Note Notification
+    Manual function to notify driver of customer messages
+============================================================ */
+exports.notifyDriverOfCustomerNote = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required");
+  }
+
+  const { orderId, note, driverId } = data;
+
+  if (!orderId || !note || !driverId) {
+    throw new functions.https.HttpsError("invalid-argument", "Missing required fields");
+  }
+
+  try {
+    await createNotification({
+      userId: driverId,
+      type: "customer_note",
+      title: "💬 Customer Note",
+      message: note,
+      priority: "normal",
+      data: {
+        orderId,
+        url: `/driver/deliveries/${orderId}`,
+      },
+    });
+
+    return { success: true };
   } catch (error) {
-    console.error("Error sending push notification:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+
+/* ============================================================
+    📊 ADMIN: Get FCM Token Status
+    View which users have FCM tokens and recent errors
+============================================================ */
+exports.getFCMStatus = functions.https.onCall(async (data, context) => {
+  // Admin-only
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Login required");
+  }
+
+  const isAdmin =
+    context.auth.token.role === "admin" ||
+    ADMIN_EMAILS.includes(context.auth.token.email);
+
+  if (!isAdmin) {
+    throw new functions.https.HttpsError("permission-denied", "Admin only");
+  }
+
+  try {
+    // Get all tokens
+    const tokensSnap = await admin.firestore().collection("pushTokens").get();
+    const tokens = [];
+    
+    tokensSnap.forEach((doc) => {
+      const data = doc.data();
+      tokens.push({
+        userId: doc.id,
+        platform: data.platform,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      });
+    });
+
+    // Get recent errors (last 100)
+    const errorsSnap = await admin
+      .firestore()
+      .collection("fcmErrors")
+      .orderBy("timestamp", "desc")
+      .limit(100)
+      .get();
+    
+    const errors = [];
+    errorsSnap.forEach((doc) => {
+      errors.push({ id: doc.id, ...doc.data() });
+    });
+
+    return {
+      totalTokens: tokens.length,
+      tokens,
+      recentErrors: errors,
+    };
+  } catch (error) {
+    throw new functions.https.HttpsError("internal", error.message);
   }
 });
 
@@ -725,3 +1044,410 @@ exports.sendBroadcastNotification = functions.https.onCall(async (data, context)
   console.log(`Broadcast complete: ${successCount} success, ${failureCount} failed`);
   return { success: true, totalUsers: tokens.length, successCount, failureCount };
 });
+/* ============================================================
+    📦 AUTO-POPULATE DELIVERY QUEUE
+    ─────────────────────────────────────────────────────────────
+    Triggers when an order status changes to 'ready' or
+    'ready_for_pickup' AND the fulfillment type is 'delivery'.
+    Creates a doc in delivery_queue so drivers see it instantly.
+    
+    Also handles cleanup: if an order is cancelled, removes the
+    corresponding delivery_queue entry.
+    
+    ADD THIS BLOCK to functions/index.js (after the existing
+    onOrderStatusChange function).
+    
+    ROLLBACK: Delete this function and redeploy:
+      firebase deploy --only functions:onOrderReadyForDelivery
+      firebase deploy --only functions:onOrderCancelledCleanup
+============================================================ */
+
+exports.onOrderReadyForDelivery = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // ── Only trigger on status change ─────────────────────────
+    if (before.status === after.status) return null;
+
+    // ── Only trigger for delivery orders ──────────────────────
+    const fulfillmentType = after.fulfillmentType || after.deliveryMethod || "delivery";
+    if (fulfillmentType === "pickup") return null;
+
+    // ── Only trigger when status becomes ready ────────────────
+    const readyStatuses = ["ready", "ready_for_pickup"];
+    if (!readyStatuses.includes(after.status)) return null;
+
+    // ── Don't trigger if already claimed by a driver ──────────
+    if (after.driverId) {
+      console.log(`[onOrderReadyForDelivery] Order ${orderId} already has driver ${after.driverId}, skipping queue.`);
+      return null;
+    }
+
+    // ── Prevent duplicates — check if queue entry already exists
+    const existingQueue = await admin.firestore()
+      .collection("delivery_queue")
+      .where("orderId", "==", orderId)
+      .where("status", "in", ["pending", "assigned"])
+      .limit(1)
+      .get();
+
+    if (!existingQueue.empty) {
+      console.log(`[onOrderReadyForDelivery] Queue entry already exists for order ${orderId}, skipping.`);
+      return null;
+    }
+
+    // ── Gather vendor info ────────────────────────────────────
+    let vendorData = {};
+    if (after.vendorId) {
+      try {
+        const vendorDoc = await admin.firestore()
+          .collection("vendors")
+          .doc(after.vendorId)
+          .get();
+        if (vendorDoc.exists) {
+          const vd = vendorDoc.data();
+          vendorData = {
+            vendorName: vd.name || after.vendorName || "Unknown Vendor",
+            vendorAddress: vd.address || after.vendorAddress || "",
+            vendorPhone: vd.phone || after.vendorPhone || null,
+            vendorLocation: vd.coordinates || vd.location || after.vendorCoordinates || null,
+          };
+        }
+      } catch (err) {
+        console.error(`[onOrderReadyForDelivery] Error fetching vendor ${after.vendorId}:`, err);
+      }
+    }
+
+    // ── Build customer address string ─────────────────────────
+    const deliveryAddr = after.deliveryAddress || after.shippingAddress || {};
+    const customerAddressParts = [
+      deliveryAddr.street,
+      deliveryAddr.city,
+      deliveryAddr.state,
+      deliveryAddr.zip || deliveryAddr.postalCode,
+    ].filter(Boolean);
+    const customerAddress = customerAddressParts.join(", ") || "Address not provided";
+
+    // ── Calculate estimated distance if coordinates available ──
+    let estimatedDistance = null;
+    let estimatedTime = null;
+    const vendorCoords = vendorData.vendorLocation || after.vendorCoordinates;
+    const customerCoords = deliveryAddr.coordinates || after.customerCoordinates;
+
+    if (isValidCoordinates(vendorCoords) && isValidCoordinates(customerCoords)) {
+      estimatedDistance = calculateDistance(vendorCoords, customerCoords);
+      // Rough estimate: 2 min per km in urban area
+      estimatedTime = Math.max(5, Math.round(estimatedDistance * 2));
+    }
+
+    // ── Calculate delivery fee ─────────────────────────────────
+    let deliveryFee = after.deliveryFee || 0;
+    if (!deliveryFee && estimatedDistance) {
+      // Use dynamic fee if none set on order
+      deliveryFee = calculateDeliveryFee(estimatedDistance);
+    }
+
+    // ── Count items ────────────────────────────────────────────
+    const items = after.items || [];
+    const itemCount = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
+    // ── Determine priority ─────────────────────────────────────
+    // High priority if order has been waiting > 15 min since confirmed
+    let priority = "normal";
+    if (after.confirmedAt) {
+      const confirmedTime = after.confirmedAt.toMillis
+        ? after.confirmedAt.toMillis()
+        : new Date(after.confirmedAt).getTime();
+      const waitMinutes = (Date.now() - confirmedTime) / 60000;
+      if (waitMinutes > 15) priority = "high";
+    }
+
+    // ── Create delivery_queue entry ───────────────────────────
+    const queueEntry = {
+      // Order reference
+      orderId: orderId,
+      orderDisplayId: after.orderId || orderId.slice(0, 8).toUpperCase(),
+
+      // Vendor info
+      vendorId: after.vendorId || null,
+      vendorName: vendorData.vendorName || after.vendorName || "Unknown Vendor",
+      vendorAddress: vendorData.vendorAddress || after.vendorAddress || "",
+      vendorPhone: vendorData.vendorPhone || after.vendorPhone || null,
+      vendorLocation: vendorCoords || null,
+
+      // Customer info
+      customerId: after.customerId || null,
+      customerName: after.customerInfo?.name || after.customerName || "Customer",
+      customerAddress: customerAddress,
+      customerPhone: after.customerInfo?.phone || after.customerPhone || null,
+      customerLocation: customerCoords || null,
+
+      // Order details
+      itemCount: itemCount,
+      orderTotal: after.total || 0,
+      deliveryFee: deliveryFee,
+      tip: after.tip || 0,
+
+      // Logistics
+      estimatedDistance: estimatedDistance ? Math.round(estimatedDistance * 10) / 10 : null,
+      estimatedTime: estimatedTime,
+      priority: priority,
+
+      // Status tracking
+      status: "pending",
+      driverId: null,
+      driverName: null,
+
+      // Timestamps
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      orderCreatedAt: after.createdAt || null,
+      assignedAt: null,
+      pickedUpAt: null,
+      deliveredAt: null,
+      cancelledAt: null,
+      cancelledBy: null,
+      cancellationReason: null,
+    };
+
+    try {
+      const docRef = await admin.firestore()
+        .collection("delivery_queue")
+        .add(queueEntry);
+
+      console.log(`[onOrderReadyForDelivery] Created queue entry ${docRef.id} for order ${orderId} (${itemCount} items, ${priority} priority)`);
+
+      // ── Notify online drivers ───────────────────────────────
+      // Query up to 10 online drivers to notify
+      const onlineDrivers = await admin.firestore()
+        .collection("drivers")
+        .where("status", "==", "online")
+        .where("verified", "==", true)
+        .limit(10)
+        .get();
+
+      if (!onlineDrivers.empty) {
+        const notifications = onlineDrivers.docs.map((driverDoc) =>
+          createNotification({
+            userId: driverDoc.id,
+            type: "system",
+            title: "New Delivery Available! 📦",
+            message: `Pickup from ${queueEntry.vendorName} — ${itemCount} item${itemCount !== 1 ? "s" : ""} — RD$${deliveryFee.toLocaleString()} fee`,
+            priority: priority === "high" ? "high" : "normal",
+            data: {
+              orderId,
+              queueId: docRef.id,
+              vendorName: queueEntry.vendorName,
+              url: "/driver/dashboard",
+            },
+          })
+        );
+
+        await Promise.allSettled(notifications);
+        console.log(`[onOrderReadyForDelivery] Notified ${onlineDrivers.size} online drivers.`);
+      }
+
+      return { success: true, queueId: docRef.id };
+    } catch (err) {
+      console.error(`[onOrderReadyForDelivery] Error creating queue entry for order ${orderId}:`, err);
+      return null;
+    }
+  });
+
+
+/* ============================================================
+    🗑️ CLEANUP DELIVERY QUEUE ON ORDER CANCELLATION
+    ─────────────────────────────────────────────────────────────
+    When an order is cancelled, remove or mark the corresponding
+    delivery_queue entry so drivers don't see stale orders.
+============================================================ */
+exports.onOrderCancelledCleanup = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // Only trigger when status changes to cancelled
+    if (before.status === after.status) return null;
+    if (after.status !== "cancelled") return null;
+
+    try {
+      // Find all queue entries for this order
+      const queueEntries = await admin.firestore()
+        .collection("delivery_queue")
+        .where("orderId", "==", orderId)
+        .get();
+
+      if (queueEntries.empty) {
+        console.log(`[onOrderCancelledCleanup] No queue entries for order ${orderId}.`);
+        return null;
+      }
+
+      const batch = admin.firestore().batch();
+      let assignedDriverId = null;
+
+      queueEntries.docs.forEach((queueDoc) => {
+        const queueData = queueDoc.data();
+        
+        if (queueData.status === "pending") {
+          // Not yet assigned — just delete it
+          batch.delete(queueDoc.ref);
+        } else if (["assigned", "heading_to_pickup", "at_pickup", "picked_up", "heading_to_customer", "at_customer"].includes(queueData.status)) {
+          // Already assigned to a driver — mark cancelled, track driver
+          assignedDriverId = queueData.driverId;
+          batch.update(queueDoc.ref, {
+            status: "cancelled",
+            cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+            cancelledBy: "system",
+            cancellationReason: "Order cancelled by vendor or customer",
+          });
+        }
+        // delivered entries stay as-is
+      });
+
+      await batch.commit();
+
+      // If a driver was assigned, free them up
+      if (assignedDriverId) {
+        // Remove active delivery
+        const activeDeliveryRef = admin.firestore()
+          .collection("driver_active_deliveries")
+          .doc(assignedDriverId);
+        
+        const activeDoc = await activeDeliveryRef.get();
+        if (activeDoc.exists && activeDoc.data().orderId === orderId) {
+          await activeDeliveryRef.delete();
+        }
+
+        // Set driver back to online
+        await admin.firestore()
+          .collection("drivers")
+          .doc(assignedDriverId)
+          .update({
+            status: "online",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+        // Notify driver
+        await createNotification({
+          userId: assignedDriverId,
+          type: "order_cancelled",
+          title: "Delivery Cancelled ❌",
+          message: `Order #${orderId.slice(0, 8).toUpperCase()} has been cancelled. You're back online.`,
+          priority: "high",
+          data: { orderId, url: "/driver/dashboard" },
+        });
+
+        console.log(`[onOrderCancelledCleanup] Freed driver ${assignedDriverId} from cancelled order ${orderId}.`);
+      }
+
+      console.log(`[onOrderCancelledCleanup] Cleaned up ${queueEntries.size} queue entries for order ${orderId}.`);
+      return null;
+    } catch (err) {
+      console.error(`[onOrderCancelledCleanup] Error cleaning up order ${orderId}:`, err);
+      return null;
+    }
+  });
+
+
+/* ============================================================
+    🔄 SYNC QUEUE STATUS WITH DELIVERY PROGRESS
+    ─────────────────────────────────────────────────────────────
+    When driver_active_deliveries updates (driver progressing
+    through delivery stages), sync status back to delivery_queue
+    and orders collection for customer tracking.
+============================================================ */
+exports.onActiveDeliveryUpdate = functions.firestore
+  .document("driver_active_deliveries/{driverId}")
+  .onWrite(async (change, context) => {
+    const driverId = context.params.driverId;
+
+    // ── Document deleted (delivery completed or cancelled) ────
+    if (!change.after.exists) {
+      console.log(`[onActiveDeliveryUpdate] Active delivery removed for driver ${driverId}.`);
+      return null;
+    }
+
+    const data = change.after.data();
+    const orderId = data.orderId;
+    const queueId = data.queueId;
+    const status = data.status;
+
+    if (!orderId) return null;
+
+    try {
+      // ── Sync status to orders collection ─────────────────────
+      const orderUpdates = {
+        delivery_status: status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      // Map active delivery statuses to order-level statuses
+      if (status === "heading_to_pickup" || status === "at_pickup") {
+        orderUpdates.status = "claimed";
+        orderUpdates.deliveryStatus = "claimed";
+      } else if (status === "picked_up" || status === "heading_to_customer") {
+        orderUpdates.status = "out_for_delivery";
+        orderUpdates.deliveryStatus = "in_transit";
+        orderUpdates.pickedUpAt = data.pickedUpAt || admin.firestore.FieldValue.serverTimestamp();
+      } else if (status === "at_customer") {
+        orderUpdates.status = "out_for_delivery";
+        orderUpdates.deliveryStatus = "arriving";
+      }
+
+      await admin.firestore()
+        .collection("orders")
+        .doc(orderId)
+        .update(orderUpdates);
+
+      // ── Sync to vendor subcollection ─────────────────────────
+      if (data.vendorId) {
+        try {
+          await admin.firestore()
+            .collection("vendors")
+            .doc(data.vendorId)
+            .collection("orders")
+            .doc(orderId)
+            .update(orderUpdates);
+        } catch (err) {
+          // Vendor subcollection doc might not exist
+          console.warn(`[onActiveDeliveryUpdate] Could not update vendor subcollection:`, err.message);
+        }
+      }
+
+      // ── Sync to customer subcollection ───────────────────────
+      if (data.customerId) {
+        try {
+          await admin.firestore()
+            .collection("customers")
+            .doc(data.customerId)
+            .collection("orders")
+            .doc(orderId)
+            .update(orderUpdates);
+        } catch (err) {
+          console.warn(`[onActiveDeliveryUpdate] Could not update customer subcollection:`, err.message);
+        }
+      }
+
+      // ── Sync to delivery_queue ───────────────────────────────
+      if (queueId) {
+        await admin.firestore()
+          .collection("delivery_queue")
+          .doc(queueId)
+          .update({
+            status: status,
+            driverId: driverId,
+            driverName: data.driverName || null,
+          });
+      }
+
+      console.log(`[onActiveDeliveryUpdate] Synced status '${status}' for order ${orderId} (driver ${driverId}).`);
+      return null;
+    } catch (err) {
+      console.error(`[onActiveDeliveryUpdate] Error syncing delivery status:`, err);
+      return null;
+    }
+  });
