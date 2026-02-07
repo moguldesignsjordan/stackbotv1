@@ -240,4 +240,128 @@ const deleteTestOrders = functions.https.onCall(async (data, context) => {
   return { success: true, message: `Deleted ${count} test orders.`, deleted: count };
 });
 
-module.exports = { createTestOrder, updateOrderStatus, deleteTestOrders };
+// ... all the function definitions above ...
+
+/**
+ * DEV ONLY: Simple test order creation without auth
+ * ⚠️ REMOVE BEFORE PRODUCTION or add IP whitelist
+ */
+exports.createTestOrderDev = functions.https.onRequest((req, res) => {
+  const cors = require("cors")({ origin: true });
+  
+  cors(req, res, async () => {
+    try {
+      if (req.method === "OPTIONS") return res.status(204).send("");
+      if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+      }
+
+      const { vendorId, status = "ready", amount = 500, items = 2 } = req.body;
+
+      if (!vendorId) {
+        return res.status(400).json({ error: "vendorId required" });
+      }
+
+      const vendorDoc = await admin.firestore().collection("vendors").doc(vendorId).get();
+      if (!vendorDoc.exists) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+
+      const vendorData = vendorDoc.data();
+      const testCustomerId = "test-customer-" + Date.now();
+      
+      const testItems = Array.from({ length: items }, (_, i) => ({
+        id: `test-item-${i + 1}`,
+        name: `Test Item ${i + 1}`,
+        quantity: 1,
+        price: amount / items,
+        total: amount / items
+      }));
+
+      const deliveryFee = 100;
+      const tax = amount * 0.18;
+      const total = amount + deliveryFee + tax;
+
+      const testOrder = {
+        vendorId,
+        vendorName: vendorData.name || vendorData.businessName || "Test Vendor",
+        vendorAddress: vendorData.address || "",
+        vendorCoordinates: vendorData.coordinates || null,
+        
+        customerId: testCustomerId,
+        customerName: "Test Customer",
+        customerInfo: {
+          name: "Test Customer",
+          email: "test@stackbot.com",
+          phone: "809-555-0100"
+        },
+        
+        items: testItems,
+        subtotal: amount,
+        deliveryFee: deliveryFee,
+        tax: tax,
+        total: total,
+        
+        deliveryAddress: {
+          street: "Calle Principal #123",
+          city: "Sosúa",
+          state: "Puerto Plata",
+          country: "Dominican Republic",
+          coordinates: { lat: 19.7521, lng: -70.5132 }
+        },
+        
+        fulfillmentType: "delivery",
+        deliveryMethod: "delivery",
+        status: status,
+        
+        paymentMethod: "card",
+        paymentStatus: "paid",
+        stripePaymentIntentId: "test_pi_" + Date.now(),
+        
+        tracking_pin: Math.floor(100000 + Math.random() * 900000).toString(),
+        
+        notes: "🧪 TEST ORDER - Dev endpoint",
+        isTest: true,
+        
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (status === "confirmed") {
+        testOrder.confirmedAt = admin.firestore.FieldValue.serverTimestamp();
+      } else if (status === "ready") {
+        testOrder.confirmedAt = admin.firestore.FieldValue.serverTimestamp();
+        testOrder.readyAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+
+      const orderRef = await admin.firestore().collection("orders").add(testOrder);
+      const orderId = orderRef.id;
+
+      await admin.firestore()
+        .collection("vendors")
+        .doc(vendorId)
+        .collection("orders")
+        .doc(orderId)
+        .set(testOrder);
+
+      console.log(`✅ Dev test order created: ${orderId}`);
+
+      return res.json({
+        success: true,
+        orderId: orderId,
+        trackingPin: testOrder.tracking_pin,
+        total: total,
+        message: "Test order created (dev endpoint)"
+      });
+
+    } catch (error) {
+      console.error("Dev endpoint error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+});
+
+// ✅ EXPORTS - ADD THIS:
+exports.createTestOrder = createTestOrder;
+exports.updateOrderStatus = updateOrderStatus;
+exports.deleteTestOrders = deleteTestOrders;
