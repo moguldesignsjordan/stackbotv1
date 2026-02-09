@@ -19,12 +19,14 @@ import {
   Package,
   Briefcase,
   BadgeCheck,
+  Clock,
 } from "lucide-react";
 import StorefrontActions from "./StorefrontActions";
 import ReviewsSection from "./ReviewsSection";
 import HeroVideo from "./HeroVideo";
 import BookingSection from "@/components/vendor/BookingSection";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getStoreStatus, formatTime12h, type StoreHours, type DayOfWeek } from "@/lib/utils/store-hours";
 
 // Social Icons
 function InstagramIcon({ className }: { className?: string }) {
@@ -41,6 +43,65 @@ function TwitterIcon({ className }: { className?: string }) {
 }
 function YouTubeIcon({ className }: { className?: string }) {
   return <svg className={className} fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>;
+}
+
+/* ======================================================
+   STORE HOURS DISPLAY (Sidebar)
+====================================================== */
+
+const DAY_ORDER: DayOfWeek[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+const DAY_LABELS: Record<DayOfWeek, { en: string; es: string }> = {
+  monday:    { en: "Mon", es: "Lun" },
+  tuesday:   { en: "Tue", es: "Mar" },
+  wednesday: { en: "Wed", es: "Mié" },
+  thursday:  { en: "Thu", es: "Jue" },
+  friday:    { en: "Fri", es: "Vie" },
+  saturday:  { en: "Sat", es: "Sáb" },
+  sunday:    { en: "Sun", es: "Dom" },
+};
+
+function StoreHoursDisplay({ storeHours, language }: { storeHours: StoreHours; language: string }) {
+  const now = new Date();
+  const drTime = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "America/Santo_Domingo" }).format(now).toLowerCase() as DayOfWeek;
+
+  return (
+    <div className="space-y-1.5">
+      {DAY_ORDER.map((day) => {
+        const schedule = storeHours[day];
+        if (!schedule) return null;
+        const isToday = day === drTime;
+        const label = language === "es" ? DAY_LABELS[day].es : DAY_LABELS[day].en;
+
+        return (
+          <div
+            key={day}
+            className={`flex items-center justify-between text-sm py-1 px-2 rounded-lg ${
+              isToday ? "bg-purple-50 font-medium" : ""
+            }`}
+          >
+            <span className={isToday ? "text-purple-700" : "text-gray-600"}>
+              {label}
+              {isToday && (
+                <span className="ml-1.5 text-[10px] font-bold text-purple-500 uppercase">
+                  {language === "es" ? "hoy" : "today"}
+                </span>
+              )}
+            </span>
+            {schedule.open ? (
+              <span className={isToday ? "text-purple-700" : "text-gray-700"}>
+                {formatTime12h(schedule.openTime)} – {formatTime12h(schedule.closeTime)}
+              </span>
+            ) : (
+              <span className="text-red-400 text-xs font-medium">
+                {language === "es" ? "Cerrado" : "Closed"}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Props passed from page.tsx (Server Component)
@@ -79,6 +140,10 @@ export default function StorefrontClient({
   
   const hasSocialLinks = Object.values(socialLinks).some(Boolean);
   const hasServiceTypes = Object.values(serviceTypes).some(Boolean);
+
+  // ✅ Store hours status
+  const storeStatus = getStoreStatus(vendor.store_hours, language);
+  const isClosed = !storeStatus.isOpen;
 
   // ✅ Bilingual item count
   const itemCountText = language === 'en' 
@@ -177,6 +242,21 @@ export default function StorefrontClient({
                       {vendorCategory}
                     </span>
                   )}
+
+                  {/* Store hours open/closed badge */}
+                  {vendor.store_hours && (
+                    storeStatus.isOpen ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-500/90 backdrop-blur-md text-white text-sm font-semibold rounded-full">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                        {storeStatus.label}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-500/90 backdrop-blur-md text-white text-sm font-semibold rounded-full">
+                        <Clock className="w-3.5 h-3.5" />
+                        {storeStatus.label}
+                      </span>
+                    )
+                  )}
                   
                   {vendor.rating && (
                     <div className="flex items-center gap-1 text-white">
@@ -218,6 +298,21 @@ export default function StorefrontClient({
           </div>
         </div>
       </section>
+
+      {/* CLOSED BANNER */}
+      {isClosed && vendor.store_hours && (
+        <div className="bg-red-50 border-b border-red-100">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 flex items-center justify-center gap-3">
+            <Clock className="w-4 h-4 text-red-500 flex-shrink-0" />
+            <p className="text-sm font-medium text-red-700">
+              {language === "es" ? "Esta tienda está cerrada ahora" : "This store is currently closed"}
+              {storeStatus.detail && (
+                <span className="text-red-500 font-normal"> · {storeStatus.detail}</span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* MAIN CONTENT */}
       <section className="max-w-7xl mx-auto px-4 md:px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-8">
@@ -454,10 +549,17 @@ export default function StorefrontClient({
               )}
             </div>
 
-            {vendor.hours && (
+            {(vendor.store_hours || vendor.hours) && (
               <div className="mt-6 pt-6 border-t border-gray-100">
-                <h4 className="font-medium text-gray-900 mb-2">{t('vendors.hours')}</h4>
-                <p className="text-sm text-gray-600">{vendor.hours}</p>
+                <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-gray-400" />
+                  {language === 'en' ? 'Store Hours' : 'Horario'}
+                </h4>
+                {vendor.store_hours ? (
+                  <StoreHoursDisplay storeHours={vendor.store_hours} language={language} />
+                ) : (
+                  <p className="text-sm text-gray-600">{vendor.hours}</p>
+                )}
               </div>
             )}
 

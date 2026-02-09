@@ -15,8 +15,11 @@ import {
   SlidersHorizontal,
   X,
   Play,
+  Clock,
 } from "lucide-react";
 import MobileBottomNav from "@/components/layout/MobileBottomNav";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { getStoreStatus, type StoreHours } from "@/lib/utils/store-hours";
 
 /* ======================================================
    TYPES
@@ -47,6 +50,7 @@ type Vendor = {
   zip?: string;
   status?: "pending" | "approved" | "rejected" | "suspended";
   created_at?: { toMillis?: () => number };
+  store_hours?: StoreHours;
 };
 
 type SortOption = "newest" | "alphabetical" | "rating";
@@ -96,6 +100,7 @@ function isVideoUrl(url: string | undefined): boolean {
 ====================================================== */
 
 export default function VendorsPage() {
+  const { language } = useLanguage();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -391,7 +396,7 @@ export default function VendorsPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {filteredVendors.map((vendor) => (
-              <VendorCard key={vendor.id} vendor={vendor} />
+              <VendorCard key={vendor.id} vendor={vendor} language={language} />
             ))}
           </div>
         )}
@@ -471,13 +476,17 @@ function CoverMedia({
   url,
   alt,
   isVideo,
+  dimmed = false,
 }: {
   url: string;
   alt: string;
   isVideo: boolean;
+  dimmed?: boolean;
 }) {
   const [imageError, setImageError] = useState(false);
   const [videoError, setVideoError] = useState(false);
+
+  const hoverClass = dimmed ? "" : "group-hover:scale-105";
 
   if (isVideo && !videoError) {
     return (
@@ -488,7 +497,7 @@ function CoverMedia({
           muted
           loop
           playsInline
-          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          className={`absolute inset-0 w-full h-full object-cover ${hoverClass} transition-transform duration-500`}
           onError={() => setVideoError(true)}
         />
         {/* Video indicator */}
@@ -512,7 +521,7 @@ function CoverMedia({
     <img
       src={url}
       alt={alt}
-      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+      className={`absolute inset-0 w-full h-full object-cover ${hoverClass} transition-transform duration-500`}
       onError={() => setImageError(true)}
       loading="lazy"
     />
@@ -523,7 +532,7 @@ function CoverMedia({
    VENDOR CARD
 ====================================================== */
 
-function VendorCard({ vendor }: { vendor: Vendor }) {
+function VendorCard({ vendor, language }: { vendor: Vendor; language: string }) {
   const [logoError, setLogoError] = useState(false);
   
   const displayName = vendor.name || vendor.business_name || "Unnamed Store";
@@ -536,9 +545,14 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
   // Check if cover is a video
   const coverIsVideo = isVideoUrl(coverUrl);
 
+  // Store hours status
+  const status = getStoreStatus(vendor.store_hours, language);
+
   return (
     <Link href={vendorLink} className="group block">
-      <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 h-full">
+      <div className={`bg-white rounded-2xl overflow-hidden shadow-sm transition-all duration-300 h-full ${
+        status.isOpen ? "hover:shadow-lg" : "hover:shadow-md"
+      }`}>
         {/* Cover Image/Video Container - relative for logo positioning */}
         <div className="relative">
           {/* Cover Media - separate overflow-hidden container */}
@@ -548,6 +562,7 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
                 url={coverUrl}
                 alt={displayName}
                 isVideo={coverIsVideo}
+                dimmed={!status.isOpen}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -555,8 +570,20 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
               </div>
             )}
 
+            {/* Closed overlay */}
+            {!status.isOpen && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+                <div className="bg-black/70 backdrop-blur-sm rounded-full px-4 py-1.5 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-white" />
+                  <span className="text-white text-sm font-semibold">
+                    {status.label}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Badges */}
-            <div className="absolute top-3 left-3 flex gap-2 z-10">
+            <div className={`absolute top-3 left-3 flex gap-2 ${!status.isOpen ? "z-20" : "z-10"}`}>
               {vendor.featured && (
                 <span className="px-2.5 py-1 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
@@ -569,6 +596,16 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
                 </span>
               )}
             </div>
+
+            {/* Open Now badge */}
+            {status.isOpen && vendor.store_hours && (
+              <div className="absolute top-3 right-3 z-10">
+                <span className="px-2.5 py-1 bg-green-500/90 backdrop-blur-sm text-white text-[10px] font-bold rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                  {status.label}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Logo - positioned outside overflow-hidden container */}
@@ -589,7 +626,7 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
         </div>
 
         {/* Content */}
-        <div className={`p-4 ${logoUrl && !logoError ? "pt-8" : "pt-4"}`}>
+        <div className={`p-4 ${logoUrl && !logoError ? "pt-8" : "pt-4"} ${!status.isOpen ? "opacity-60" : ""}`}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 truncate group-hover:text-purple-600 transition-colors flex items-center gap-1.5">
@@ -618,10 +655,15 @@ function VendorCard({ vendor }: { vendor: Vendor }) {
             )}
           </div>
 
-          {/* Description */}
-          {displayDesc && (
+          {/* Description or "Opens at" detail */}
+          {!status.isOpen && status.detail ? (
+            <p className="text-sm text-red-500 font-medium mt-2 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" />
+              {status.detail}
+            </p>
+          ) : displayDesc ? (
             <p className="text-sm text-gray-600 mt-2 line-clamp-2">{displayDesc}</p>
-          )}
+          ) : null}
 
           {/* Address */}
           {addressStr && (

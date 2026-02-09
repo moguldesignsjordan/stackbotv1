@@ -1,7 +1,7 @@
-// src/app/driver/page.tsx
+// src/app/driver/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -19,8 +19,8 @@ import {
   runTransaction,
   Timestamp,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebase/config';
-import { signOut } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, auth, storage } from '@/lib/firebase/config';
 import {
   Truck,
   Package,
@@ -29,27 +29,22 @@ import {
   DollarSign,
   Navigation,
   Phone,
-  ChevronRight,
   Power,
   PowerOff,
-  RefreshCw,
   AlertCircle,
   CheckCircle,
   Loader2,
-  Menu,
-  X,
-  User,
-  LogOut,
-  History,
-  Settings,
   Store,
-  Home,
-  ExternalLink,
   Zap,
-  Globe,
-  Bell,
-  MapPinned,
+  Camera,
+  X,
+  ExternalLink,
 } from 'lucide-react';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+const MAX_ORDER_DISTANCE_KM = 8; // Maximum distance in kilometers for order visibility
 
 // ============================================================================
 // TYPES
@@ -109,6 +104,7 @@ interface DeliveryOrder {
   createdAt?: any;
   updatedAt?: any;
   notes?: string;
+  proofOfDeliveryUrl?: string;
 }
 
 // ============================================================================
@@ -132,6 +128,7 @@ const translations = {
     availableOrders: 'Pedidos Disponibles',
     noOrdersTitle: 'Sin pedidos disponibles',
     noOrdersDesc: 'Los nuevos pedidos aparecerán aquí automáticamente',
+    noOrdersInRange: 'No hay pedidos dentro de 8km de tu ubicación',
     refreshing: 'Actualizando...',
 
     // Order Card
@@ -164,14 +161,13 @@ const translations = {
     deliveryPin: 'PIN de Entrega',
     instructions: 'Instrucciones',
 
-    // Menu
-    menu: 'Menú',
-    dashboard: 'Panel Principal',
-    orderHistory: 'Historial de Pedidos',
-    earnings: 'Ganancias',
-    settings: 'Configuración',
-    backToStackBot: 'Volver a StackBot',
-    logout: 'Cerrar Sesión',
+    // Proof of Delivery
+    takePhoto: 'Tomar Foto de Entrega',
+    retakePhoto: 'Volver a Tomar',
+    photoRequired: 'Se requiere foto para completar',
+    uploadingPhoto: 'Subiendo foto...',
+    photoUploaded: 'Foto subida exitosamente',
+    photoError: 'Error al subir foto',
 
     // Stats
     todayDeliveries: 'Entregas Hoy',
@@ -183,6 +179,7 @@ const translations = {
     orderTaken: 'Este pedido ya fue tomado por otro conductor',
     errorUpdating: 'Error al actualizar estado',
     errorGoingOffline: 'No puedes desconectarte con un pedido activo',
+    locationRequired: 'Se necesita tu ubicación para ver pedidos cercanos',
 
     // Success
     orderClaimed: '¡Pedido tomado exitosamente!',
@@ -206,6 +203,7 @@ const translations = {
     availableOrders: 'Available Orders',
     noOrdersTitle: 'No available orders',
     noOrdersDesc: 'New orders will appear here automatically',
+    noOrdersInRange: 'No orders within 8km of your location',
     refreshing: 'Refreshing...',
 
     // Order Card
@@ -238,14 +236,13 @@ const translations = {
     deliveryPin: 'Delivery PIN',
     instructions: 'Instructions',
 
-    // Menu
-    menu: 'Menu',
-    dashboard: 'Dashboard',
-    orderHistory: 'Order History',
-    earnings: 'Earnings',
-    settings: 'Settings',
-    backToStackBot: 'Back to StackBot',
-    logout: 'Logout',
+    // Proof of Delivery
+    takePhoto: 'Take Delivery Photo',
+    retakePhoto: 'Retake Photo',
+    photoRequired: 'Photo required to complete',
+    uploadingPhoto: 'Uploading photo...',
+    photoUploaded: 'Photo uploaded successfully',
+    photoError: 'Error uploading photo',
 
     // Stats
     todayDeliveries: "Today's Deliveries",
@@ -257,6 +254,7 @@ const translations = {
     orderTaken: 'This order was already taken by another driver',
     errorUpdating: 'Error updating status',
     errorGoingOffline: 'Cannot go offline with an active order',
+    locationRequired: 'Your location is needed to see nearby orders',
 
     // Success
     orderClaimed: 'Order claimed successfully!',
@@ -306,6 +304,19 @@ function formatTimeAgo(date: Date, t: typeof translations.es): string {
   return t.daysAgo.replace('{n}', String(Math.floor(diffHours / 24)));
 }
 
+// Build Google Maps navigation URL
+function buildNavigationUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+}
+
+// Build Google Maps location URL (for viewing)
+function buildLocationUrl(address: string, lat?: number, lng?: number): string {
+  if (lat && lng) {
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -314,11 +325,11 @@ export default function DriverDashboard() {
   const [language, setLanguage] = useState<Language>('es');
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [availableOrders, setAvailableOrders] = useState<DeliveryOrder[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<DeliveryOrder[]>([]);
   const [currentOrder, setCurrentOrder] = useState<DeliveryOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
   const [togglingStatus, setTogglingStatus] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -333,13 +344,6 @@ export default function DriverDashboard() {
       setLanguage(savedLang);
     }
   }, []);
-
-  // Toggle language
-  const toggleLanguage = () => {
-    const newLang = language === 'es' ? 'en' : 'es';
-    setLanguage(newLang);
-    localStorage.setItem('stackbot-driver-lang', newLang);
-  };
 
   // Get driver's current location
   useEffect(() => {
@@ -456,6 +460,53 @@ export default function DriverDashboard() {
     return () => unsubscribe();
   }, [driverProfile?.isOnline]);
 
+  // Filter orders by distance (8km radius)
+  useEffect(() => {
+    if (!driverLocation) {
+      setFilteredOrders([]);
+      return;
+    }
+
+    const nearby = availableOrders.filter((order) => {
+      if (!order.vendorCoordinates?.lat || !order.vendorCoordinates?.lng) {
+        // If no coordinates, include the order (fallback)
+        return true;
+      }
+
+      const distance = calculateDistance(
+        driverLocation.lat,
+        driverLocation.lng,
+        order.vendorCoordinates.lat,
+        order.vendorCoordinates.lng
+      );
+
+      return distance <= MAX_ORDER_DISTANCE_KM;
+    });
+
+    // Sort by distance (closest first)
+    nearby.sort((a, b) => {
+      const distA = a.vendorCoordinates
+        ? calculateDistance(
+            driverLocation.lat,
+            driverLocation.lng,
+            a.vendorCoordinates.lat,
+            a.vendorCoordinates.lng
+          )
+        : Infinity;
+      const distB = b.vendorCoordinates
+        ? calculateDistance(
+            driverLocation.lat,
+            driverLocation.lng,
+            b.vendorCoordinates.lat,
+            b.vendorCoordinates.lng
+          )
+        : Infinity;
+      return distA - distB;
+    });
+
+    setFilteredOrders(nearby);
+  }, [availableOrders, driverLocation]);
+
   // Listen for current active order
   useEffect(() => {
     if (!userId) return;
@@ -497,6 +548,7 @@ export default function DriverDashboard() {
           notes: data.notes,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
+          proofOfDeliveryUrl: data.proofOfDeliveryUrl,
         } as DeliveryOrder);
       } else {
         setCurrentOrder(null);
@@ -538,7 +590,7 @@ export default function DriverDashboard() {
   };
 
   // ============================================================================
-  // FIX: Claim an order — use `|| null` for optional fields to prevent
+  // Claim an order — use `|| null` for optional fields to prevent
   //      Firestore "Unsupported field value: undefined" errors
   // ============================================================================
   const claimOrder = async (orderId: string) => {
@@ -564,8 +616,6 @@ export default function DriverDashboard() {
           throw new Error(t.orderTaken);
         }
 
-        // FIX: Use `|| null` instead of bare undefined-prone values.
-        // Firestore rejects `undefined` but accepts `null`.
         transaction.update(orderRef, {
           driverId: userId,
           driverName: driverProfile.name || null,
@@ -597,7 +647,10 @@ export default function DriverDashboard() {
   };
 
   // Update order status
-  const updateOrderStatus = async (newStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
+  const updateOrderStatus = async (
+    newStatus: 'picked_up' | 'out_for_delivery' | 'delivered',
+    proofOfDeliveryUrl?: string
+  ) => {
     if (!currentOrder || !userId) return;
 
     try {
@@ -614,6 +667,9 @@ export default function DriverDashboard() {
         updateData.pickedUpAt = serverTimestamp();
       } else if (newStatus === 'delivered') {
         updateData.deliveredAt = serverTimestamp();
+        if (proofOfDeliveryUrl) {
+          updateData.proofOfDeliveryUrl = proofOfDeliveryUrl;
+        }
       }
 
       await updateDoc(orderRef, updateData);
@@ -641,7 +697,7 @@ export default function DriverDashboard() {
 
   // Open navigation
   const openNavigation = (lat: number, lng: number, label?: string) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    const url = buildNavigationUrl(lat, lng);
     window.open(url, '_blank');
   };
 
@@ -652,91 +708,46 @@ export default function DriverDashboard() {
     }
   };
 
-  // Logout
-  const handleLogout = async () => {
-    try {
-      if (driverProfile?.isOnline) {
-        const driverRef = doc(db, 'drivers', userId!);
-        await updateDoc(driverRef, {
-          isOnline: false,
-          status: 'offline',
-          updatedAt: serverTimestamp(),
-        });
-      }
-      await signOut(auth);
-      router.push('/driver/login');
-    } catch (err) {
-      console.error('Logout error:', err);
-    }
-  };
-
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+      <div className="flex items-center justify-center py-20">
         <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-purple-400 mx-auto" />
-          <p className="text-gray-400 mt-3">Cargando...</p>
+          <Loader2 className="w-10 h-10 animate-spin text-[#55529d] mx-auto" />
+          <p className="text-gray-500 mt-3">
+            {language === 'es' ? 'Cargando...' : 'Loading...'}
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-sm border-b border-gray-800 safe-top">
-        <div className="flex items-center justify-between px-4 py-3">
-          {/* Menu Button */}
-          <button
-            onClick={() => setMenuOpen(true)}
-            className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-
-          {/* Status Badge */}
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2.5 h-2.5 rounded-full ${
-                driverProfile?.isOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
-              }`}
-            />
-            <span className="text-sm font-medium text-gray-300">
-              {driverProfile?.isOnline ? t.online : t.offline}
-            </span>
-          </div>
-
-          {/* Language Toggle */}
-          <button
-            onClick={toggleLanguage}
-            className="p-2 -mr-2 text-gray-400 hover:text-white transition-colors"
-          >
-            <Globe className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="pb-32">
+    <div className="text-gray-900">
+      {/* Main Content — extra bottom padding for the online/offline bar + bottom nav */}
+      <main className="pb-44">
         {/* Welcome Section */}
         <div className="px-4 py-6">
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-gray-900">
             {t.greeting}, {driverProfile?.name?.split(' ')[0] || 'Conductor'} 👋
           </h1>
 
           {/* Quick Stats */}
           <div className="grid grid-cols-3 gap-3 mt-4">
-            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-              <p className="text-2xl font-bold text-white">{driverProfile?.totalDeliveries || 0}</p>
+            <div className="bg-white rounded-xl p-3 text-center shadow-sm border border-gray-100">
+              <p className="text-2xl font-bold text-gray-900">
+                {driverProfile?.totalDeliveries || 0}
+              </p>
               <p className="text-xs text-gray-500">{t.todayDeliveries}</p>
             </div>
-            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-              <p className="text-2xl font-bold text-purple-400">$0.00</p>
+            <div className="bg-white rounded-xl p-3 text-center shadow-sm border border-gray-100">
+              <p className="text-2xl font-bold text-[#55529d]">$0.00</p>
               <p className="text-xs text-gray-500">{t.todayEarnings}</p>
             </div>
-            <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-              <p className="text-2xl font-bold text-amber-400">⭐ {driverProfile?.rating?.toFixed(1) || '5.0'}</p>
+            <div className="bg-white rounded-xl p-3 text-center shadow-sm border border-gray-100">
+              <p className="text-2xl font-bold text-amber-500">
+                ⭐ {driverProfile?.rating?.toFixed(1) || '5.0'}
+              </p>
               <p className="text-xs text-gray-500">{t.rating}</p>
             </div>
           </div>
@@ -744,16 +755,16 @@ export default function DriverDashboard() {
 
         {/* Toast Messages */}
         {error && (
-          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl animate-fade-in">
-            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-300">{error}</p>
+          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
 
         {successMessage && (
-          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl animate-fade-in">
-            <CheckCircle className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-purple-300">{successMessage}</p>
+          <div className="mx-4 mb-4 flex items-start gap-3 p-3 bg-purple-50 border border-purple-200 rounded-xl">
+            <CheckCircle className="w-5 h-5 text-[#55529d] flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-purple-700">{successMessage}</p>
           </div>
         )}
 
@@ -774,23 +785,38 @@ export default function DriverDashboard() {
         {driverProfile?.isOnline && !currentOrder && (
           <div className="px-4">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">{t.availableOrders}</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t.availableOrders}</h2>
               <span className="text-sm text-gray-500">
-                {availableOrders.length} {language === 'es' ? 'disponibles' : 'available'}
+                {filteredOrders.length} {language === 'es' ? 'disponibles' : 'available'}
+                {!driverLocation && (
+                  <span className="text-amber-500 ml-1">
+                    ({language === 'es' ? 'ubicación...' : 'locating...'})
+                  </span>
+                )}
               </span>
             </div>
 
-            {availableOrders.length === 0 ? (
-              <div className="bg-gray-800/30 rounded-2xl p-8 text-center">
-                <div className="w-16 h-16 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Package className="w-8 h-8 text-gray-500" />
+            {/* Location warning */}
+            {!driverLocation && (
+              <div className="mb-4 flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <MapPin className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-700">{t.locationRequired}</p>
+              </div>
+            )}
+
+            {filteredOrders.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Package className="w-8 h-8 text-gray-400" />
                 </div>
-                <h3 className="text-lg font-medium text-gray-300 mb-1">{t.noOrdersTitle}</h3>
-                <p className="text-sm text-gray-500">{t.noOrdersDesc}</p>
+                <h3 className="text-lg font-medium text-gray-700 mb-1">{t.noOrdersTitle}</h3>
+                <p className="text-sm text-gray-500">
+                  {driverLocation ? t.noOrdersInRange : t.noOrdersDesc}
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {availableOrders.map((order) => (
+                {filteredOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
@@ -808,11 +834,11 @@ export default function DriverDashboard() {
         {/* Offline State */}
         {!driverProfile?.isOnline && !currentOrder && (
           <div className="px-4">
-            <div className="bg-gray-800/30 rounded-2xl p-8 text-center">
-              <div className="w-20 h-20 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <PowerOff className="w-10 h-10 text-gray-500" />
+            <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <PowerOff className="w-10 h-10 text-gray-400" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-300 mb-2">
+              <h3 className="text-xl font-semibold text-gray-700 mb-2">
                 {language === 'es' ? 'Estás desconectado' : "You're offline"}
               </h3>
               <p className="text-gray-500 mb-6">
@@ -823,7 +849,7 @@ export default function DriverDashboard() {
               <button
                 onClick={toggleOnlineStatus}
                 disabled={togglingStatus}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl transition-all"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#55529d] hover:bg-[#444280] text-white font-semibold rounded-xl transition-all disabled:opacity-50"
               >
                 {togglingStatus ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -837,16 +863,21 @@ export default function DriverDashboard() {
         )}
       </main>
 
-      {/* Bottom Status Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 safe-bottom z-30">
-        <div className="px-4 py-4">
+      {/* ── Online/Offline Toggle ─────────────────────────────────────
+           Positioned ABOVE the layout's bottom nav (bottom-[4.5rem])
+           so it stays visible and tappable.
+           z-40 keeps it below the layout nav (z-50) stacking context
+           but visually it sits in the gap above it.
+      ─────────────────────────────────────────────────────────────── */}
+      <div className="fixed bottom-[4.5rem] left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-200 z-40 safe-bottom">
+        <div className="px-4 py-3">
           <button
             onClick={toggleOnlineStatus}
             disabled={togglingStatus || (driverProfile?.isOnline && !!currentOrder)}
-            className={`w-full flex items-center justify-center gap-3 py-4 font-semibold rounded-xl transition-all ${
+            className={`w-full flex items-center justify-center gap-3 py-3.5 font-semibold rounded-xl transition-all ${
               driverProfile?.isOnline
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
-                : 'bg-purple-600 text-white hover:bg-purple-700'
+                ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                : 'bg-[#55529d] text-white hover:bg-[#444280]'
             } disabled:opacity-50`}
           >
             {togglingStatus ? (
@@ -860,108 +891,12 @@ export default function DriverDashboard() {
           </button>
         </div>
       </div>
-
-      {/* Slide-out Menu */}
-      <div
-        className={`fixed inset-0 z-50 transition-opacity duration-300 ${
-          menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60" onClick={() => setMenuOpen(false)} />
-
-        {/* Menu Panel */}
-        <div
-          className={`absolute top-0 left-0 bottom-0 w-80 bg-gray-900 border-r border-gray-700 transition-transform duration-300 ${
-            menuOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
-        >
-          {/* Menu Header */}
-          <div className="p-4 border-b border-gray-700 safe-top">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">{t.menu}</h2>
-              <button
-                onClick={() => setMenuOpen(false)}
-                className="p-2 text-gray-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Driver Info */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-purple-400" />
-              </div>
-              <div>
-                <p className="font-medium text-white">{driverProfile?.name}</p>
-                <p className="text-sm text-gray-500">{driverProfile?.email}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Menu Items */}
-          <nav className="p-4 space-y-1">
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                router.push('/driver');
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-            >
-              <Home className="w-5 h-5" />
-              <span>{t.dashboard}</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                router.push('/driver/history');
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-            >
-              <History className="w-5 h-5" />
-              <span>{t.orderHistory}</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                router.push('/driver/settings');
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-            >
-              <Settings className="w-5 h-5" />
-              <span>{t.settings}</span>
-            </button>
-
-            <Link
-              href="/"
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:bg-gray-700/50 rounded-xl transition-colors"
-            >
-              <Home className="w-5 h-5" />
-              <span>{t.backToStackBot}</span>
-            </Link>
-          </nav>
-
-          {/* Logout */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700 safe-bottom">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-            >
-              <LogOut className="w-5 h-5" />
-              <span>{t.logout}</span>
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
 // ============================================================================
-// Order Card Component
+// Order Card Component - WITH NAVIGATION LINK
 // ============================================================================
 interface OrderCardProps {
   order: DeliveryOrder;
@@ -977,32 +912,37 @@ function OrderCard({ order, t, driverLocation, claiming, onClaim }: OrderCardPro
 
   const distanceToPickup =
     driverLocation && order.vendorCoordinates
-      ? `${calculateDistance(
+      ? calculateDistance(
           driverLocation.lat,
           driverLocation.lng,
           order.vendorCoordinates.lat,
           order.vendorCoordinates.lng
-        ).toFixed(1)} km`
+        ).toFixed(1)
       : null;
 
+  // Build navigation URL for vendor pickup
+  const pickupNavUrl = order.vendorCoordinates
+    ? buildNavigationUrl(order.vendorCoordinates.lat, order.vendorCoordinates.lng)
+    : buildLocationUrl(order.vendorAddress || order.vendorName);
+
   return (
-    <div className="bg-gray-800/50 rounded-2xl border border-gray-700/50 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-gray-700/50">
+      <div className="p-4 border-b border-gray-100">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-700 rounded-xl flex items-center justify-center">
-              <Store className="w-5 h-5 text-gray-400" />
+            <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
+              <Store className="w-5 h-5 text-gray-500" />
             </div>
             <div>
-              <p className="font-semibold text-white">{order.vendorName}</p>
+              <p className="font-semibold text-gray-900">{order.vendorName}</p>
               <p className="text-sm text-gray-500">
                 {order.items?.length || 0} {t.items} • ${order.total?.toFixed(2)}
               </p>
             </div>
           </div>
           <div className="text-right">
-            <div className="flex items-center gap-1 text-purple-400 font-semibold">
+            <div className="flex items-center gap-1 text-[#55529d] font-semibold">
               <DollarSign className="w-4 h-4" />
               <span>{order.deliveryFee?.toFixed(2)}</span>
             </div>
@@ -1013,32 +953,41 @@ function OrderCard({ order, t, driverLocation, claiming, onClaim }: OrderCardPro
 
       {/* Locations */}
       <div className="p-4 space-y-3">
-        {/* Pickup */}
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Store className="w-4 h-4 text-blue-400" />
+        {/* Pickup - Clickable Navigation Link */}
+        <a
+          href={pickupNavUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-start gap-3 p-2 -m-2 rounded-xl hover:bg-blue-50 transition-colors group"
+        >
+          <div className="w-8 h-8 bg-blue-50 group-hover:bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors">
+            <Store className="w-4 h-4 text-blue-500" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">{t.pickup}</p>
-            <p className="text-sm text-white truncate">
+            <p className="text-xs text-gray-500 uppercase tracking-wide flex items-center gap-1">
+              {t.pickup}
+              <ExternalLink className="w-3 h-3 text-blue-400" />
+            </p>
+            <p className="text-sm text-gray-900 truncate group-hover:text-blue-600 transition-colors">
               {order.vendorAddress || order.vendorName}
             </p>
             {distanceToPickup && (
-              <p className="text-xs text-purple-400 mt-0.5">
-                ~{distanceToPickup} {t.away}
+              <p className="text-xs text-[#55529d] mt-0.5">
+                ~{distanceToPickup} km {t.away}
               </p>
             )}
           </div>
-        </div>
+          <Navigation className="w-4 h-4 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity mt-2" />
+        </a>
 
         {/* Delivery */}
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-            <MapPin className="w-4 h-4 text-red-400" />
+          <div className="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+            <MapPin className="w-4 h-4 text-red-500" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs text-gray-500 uppercase tracking-wide">{t.deliverTo}</p>
-            <p className="text-sm text-white truncate">
+            <p className="text-sm text-gray-900 truncate">
               {order.deliveryAddress?.street}, {order.deliveryAddress?.city}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">{order.customerName}</p>
@@ -1055,7 +1004,7 @@ function OrderCard({ order, t, driverLocation, claiming, onClaim }: OrderCardPro
         <button
           onClick={onClaim}
           disabled={claiming}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-medium rounded-xl transition-all"
+          className="flex items-center gap-2 px-4 py-2 bg-[#55529d] hover:bg-[#444280] disabled:bg-gray-300 text-white font-medium rounded-xl transition-all"
         >
           {claiming ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -1070,12 +1019,12 @@ function OrderCard({ order, t, driverLocation, claiming, onClaim }: OrderCardPro
 }
 
 // ============================================================================
-// Active Order Card Component
+// Active Order Card Component - WITH PHOTO CAPTURE
 // ============================================================================
 interface ActiveOrderCardProps {
   order: DeliveryOrder;
   t: typeof translations.es;
-  onUpdateStatus: (status: 'picked_up' | 'out_for_delivery' | 'delivered') => void;
+  onUpdateStatus: (status: 'picked_up' | 'out_for_delivery' | 'delivered', proofUrl?: string) => void;
   onNavigate: (lat: number, lng: number, label?: string) => void;
   onCall: (phone: string) => void;
 }
@@ -1087,6 +1036,12 @@ function ActiveOrderCard({
   onNavigate,
   onCall,
 }: ActiveOrderCardProps) {
+  const [proofPhoto, setProofPhoto] = useState<string | null>(null);
+  const [proofPhotoFile, setProofPhotoFile] = useState<File | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const isPickedUp = order.status === 'out_for_delivery' || order.status === 'picked_up';
   const targetLocation = isPickedUp
     ? order.deliveryAddress?.coordinates
@@ -1096,46 +1051,126 @@ function ActiveOrderCard({
     ? `${order.deliveryAddress?.street}, ${order.deliveryAddress?.city}`
     : order.vendorAddress || order.vendorName;
 
+  // Build navigation URL
+  const navUrl = targetLocation
+    ? buildNavigationUrl(targetLocation.lat, targetLocation.lng)
+    : buildLocationUrl(targetAddress);
+
+  // Handle photo capture
+  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file);
+      setProofPhoto(previewUrl);
+      setProofPhotoFile(file);
+      setPhotoError(null);
+    }
+  };
+
+  // Clear photo
+  const clearPhoto = () => {
+    if (proofPhoto) {
+      URL.revokeObjectURL(proofPhoto);
+    }
+    setProofPhoto(null);
+    setProofPhotoFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Upload photo and complete delivery
+  const handleCompleteDelivery = async () => {
+    if (!proofPhotoFile) {
+      setPhotoError(t.photoRequired);
+      return;
+    }
+
+    setUploadingPhoto(true);
+    setPhotoError(null);
+
+    try {
+      // Upload to Firebase Storage
+      const timestamp = Date.now();
+      const fileName = `proof_${order.id}_${timestamp}.jpg`;
+      const storageRef = ref(storage, `deliveries/${order.id}/${fileName}`);
+      
+      // Upload the file
+      await uploadBytes(storageRef, proofPhotoFile, {
+        contentType: proofPhotoFile.type || 'image/jpeg',
+        customMetadata: {
+          orderId: order.id,
+          driverId: auth.currentUser?.uid || '',
+          uploadedAt: new Date().toISOString(),
+        },
+      });
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Complete delivery with proof URL
+      onUpdateStatus('delivered', downloadUrl);
+
+      // Clean up
+      clearPhoto();
+    } catch (error) {
+      console.error('Error uploading proof photo:', error);
+      setPhotoError(t.photoError);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   return (
-    <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 rounded-2xl border border-purple-500/30 overflow-hidden">
+    <div className="bg-gradient-to-br from-[#55529d]/10 to-[#55529d]/5 rounded-2xl border border-[#55529d]/20 overflow-hidden">
       {/* Status Banner */}
-      <div className="bg-purple-500/20 px-4 py-2 border-b border-purple-500/20">
+      <div className="bg-[#55529d]/10 px-4 py-2 border-b border-[#55529d]/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Truck className="w-4 h-4 text-purple-400" />
-            <span className="text-sm font-medium text-purple-400">
+            <Truck className="w-4 h-4 text-[#55529d]" />
+            <span className="text-sm font-medium text-[#55529d]">
               {isPickedUp ? t.deliveringOrder : t.headToPickup}
             </span>
           </div>
-          <span className="text-xs text-gray-400">#{order.orderId}</span>
+          <span className="text-xs text-gray-500">#{order.orderId}</span>
         </div>
       </div>
 
       {/* Content */}
       <div className="p-4 space-y-4">
-        {/* Target Location */}
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
+        {/* Target Location - Clickable Link */}
+        <a
+          href={navUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-start gap-3 p-2 -m-2 rounded-xl hover:bg-[#55529d]/10 transition-colors group"
+        >
+          <div className="w-10 h-10 bg-[#55529d]/10 group-hover:bg-[#55529d]/20 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors">
             {isPickedUp ? (
-              <MapPin className="w-5 h-5 text-purple-400" />
+              <MapPin className="w-5 h-5 text-[#55529d]" />
             ) : (
-              <Store className="w-5 h-5 text-purple-400" />
+              <Store className="w-5 h-5 text-[#55529d]" />
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">
+            <p className="text-xs text-gray-500 uppercase tracking-wide flex items-center gap-1">
               {t.navigateTo} {targetLabel}
+              <ExternalLink className="w-3 h-3 text-[#55529d]" />
             </p>
-            <p className="text-sm text-white font-medium truncate">{targetAddress}</p>
+            <p className="text-sm text-gray-900 font-medium truncate group-hover:text-[#55529d] transition-colors">
+              {targetAddress}
+            </p>
           </div>
-        </div>
+          <Navigation className="w-5 h-5 text-[#55529d] mt-2" />
+        </a>
 
         {/* Action Buttons */}
         <div className="flex gap-2">
           {targetLocation && (
             <button
               onClick={() => onNavigate(targetLocation.lat, targetLocation.lng)}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors"
             >
               <Navigation className="w-4 h-4" />
               <span className="text-sm font-medium">{t.navigate}</span>
@@ -1144,7 +1179,7 @@ function ActiveOrderCard({
           {(isPickedUp ? order.customerPhone : order.vendorPhone) && (
             <button
               onClick={() => onCall((isPickedUp ? order.customerPhone : order.vendorPhone) || '')}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl hover:bg-green-500/30 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-50 text-green-600 border border-green-200 rounded-xl hover:bg-green-100 transition-colors"
             >
               <Phone className="w-4 h-4" />
               <span className="text-sm font-medium">{t.call}</span>
@@ -1153,12 +1188,12 @@ function ActiveOrderCard({
         </div>
 
         {/* Order Summary */}
-        <div className="bg-gray-800/50 rounded-xl p-3">
+        <div className="bg-gray-50 rounded-xl p-3">
           <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">{t.orderSummary}</p>
           <div className="space-y-1">
             {order.items?.slice(0, 3).map((item: any, idx: number) => (
               <div key={idx} className="flex justify-between text-sm">
-                <span className="text-gray-300 truncate">
+                <span className="text-gray-700 truncate">
                   {item.quantity}x {item.name}
                 </span>
                 <span className="text-gray-500 ml-2">${(item.price * item.quantity).toFixed(2)}</span>
@@ -1170,19 +1205,76 @@ function ActiveOrderCard({
               </p>
             )}
           </div>
-          <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-between text-sm font-semibold">
-            <span className="text-gray-300">{t.total}</span>
-            <span className="text-white">${order.total?.toFixed(2)}</span>
+          <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between text-sm font-semibold">
+            <span className="text-gray-700">{t.total}</span>
+            <span className="text-gray-900">${order.total?.toFixed(2)}</span>
           </div>
         </div>
 
         {/* Tracking PIN */}
         {isPickedUp && order.trackingPin && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-center">
-            <p className="text-xs text-amber-400 mb-1">{t.deliveryPin}</p>
-            <p className="text-2xl font-mono font-bold text-amber-300 tracking-widest">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+            <p className="text-xs text-amber-600 mb-1">{t.deliveryPin}</p>
+            <p className="text-2xl font-mono font-bold text-amber-700 tracking-widest">
               {order.trackingPin}
             </p>
+          </div>
+        )}
+
+        {/* Proof of Delivery Photo Section - Only show when delivering */}
+        {isPickedUp && (
+          <div className="space-y-3">
+            {/* Photo Preview */}
+            {proofPhoto ? (
+              <div className="relative">
+                <img
+                  src={proofPhoto}
+                  alt="Proof of delivery"
+                  className="w-full h-48 object-cover rounded-xl border border-gray-200"
+                />
+                <button
+                  onClick={clearPhoto}
+                  className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoCapture}
+                  className="hidden"
+                  id="proof-photo-input"
+                />
+                <label
+                  htmlFor="proof-photo-input"
+                  className="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#55529d] hover:bg-[#55529d]/5 transition-colors"
+                >
+                  <Camera className="w-8 h-8 text-gray-400" />
+                  <span className="text-sm text-gray-600 font-medium">{t.takePhoto}</span>
+                  <span className="text-xs text-gray-400">{t.photoRequired}</span>
+                </label>
+              </div>
+            )}
+
+            {/* Photo Error */}
+            {photoError && (
+              <p className="text-sm text-red-600 text-center">{photoError}</p>
+            )}
+
+            {/* Retake button */}
+            {proofPhoto && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-2 text-sm text-[#55529d] font-medium hover:underline"
+              >
+                {t.retakePhoto}
+              </button>
+            )}
           </div>
         )}
 
@@ -1190,18 +1282,28 @@ function ActiveOrderCard({
         {!isPickedUp ? (
           <button
             onClick={() => onUpdateStatus('picked_up')}
-            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#55529d] hover:bg-[#444280] text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             <Package className="w-5 h-5" />
             {t.confirmPickup}
           </button>
         ) : (
           <button
-            onClick={() => onUpdateStatus('delivered')}
-            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            onClick={handleCompleteDelivery}
+            disabled={uploadingPhoto || !proofPhoto}
+            className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
-            <CheckCircle className="w-5 h-5" />
-            {t.completeDelivery}
+            {uploadingPhoto ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {t.uploadingPhoto}
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-5 h-5" />
+                {t.completeDelivery}
+              </>
+            )}
           </button>
         )}
       </div>

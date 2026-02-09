@@ -40,6 +40,8 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
+import StoreHoursEditor from "@/components/vendor/StoreHoursEditor";
+import type { StoreHours } from "@/lib/utils/store-hours";
 
 // Category keys mapping for translations
 const CATEGORY_KEYS: { key: TranslationKey; value: string }[] = [
@@ -77,7 +79,7 @@ function TikTokIcon({ className }: { className?: string }) {
 }
 
 export default function VendorSettings() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [user, setUser] = useState<any>(null);
   const [vendor, setVendor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +104,7 @@ export default function VendorSettings() {
     whatsapp: "",
     categories: [] as string[],
     hours: "",
+    store_hours: null as StoreHours | null,
     delivery_fee: "",
     min_order: "",
     instagram: "",
@@ -154,6 +157,7 @@ export default function VendorSettings() {
           whatsapp: data.whatsapp || "",
           categories: data.categories || [],
           hours: data.hours || "",
+          store_hours: data.store_hours || null,
           delivery_fee: data.delivery_fee?.toString() || "",
           min_order: data.min_order?.toString() || "",
           instagram: data.instagram || "",
@@ -392,6 +396,7 @@ export default function VendorSettings() {
         whatsapp: form.whatsapp.trim(),
         categories: form.categories,
         hours: form.hours.trim(),
+        store_hours: form.store_hours || null,
         delivery_fee: form.delivery_fee ? parseFloat(form.delivery_fee) : 0,
         min_order: form.min_order ? parseFloat(form.min_order) : 0,
         instagram: form.instagram.trim(),
@@ -790,15 +795,10 @@ export default function VendorSettings() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <Clock className="h-4 w-4 text-gray-400" /> {t('vendor.settings.businessHours' as TranslationKey)}
-            </label>
-            <input
-              type="text"
-              value={form.hours}
-              onChange={(e) => setForm({ ...form, hours: e.target.value })}
-              placeholder={t('vendor.settings.hoursPlaceholder' as TranslationKey)}
-              className="w-full px-4 py-3 border rounded-xl"
+            <StoreHoursEditor
+              value={form.store_hours}
+              onChange={(hours) => setForm({ ...form, store_hours: hours })}
+              language={language}
             />
           </div>
         </div>

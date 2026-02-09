@@ -8,10 +8,10 @@ import { db } from "@/lib/firebase/config";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { 
   getPublicCategory, 
-  vendorMatchesCategory,
   getAllCategories,
   getCategoryBySlug,
 } from "@/lib/config/categories";
+import { vendorMatchesCategoryFilter } from "@/lib/utils/vendor-filters";
 import Footer from "@/components/layout/Footer";
 import {
   ArrowLeft,
@@ -120,41 +120,33 @@ export default function CategoryPage() {
       if (!category) return;
       
       try {
-        // Fetch approved vendors
-        const approvedQuery = query(
-          collection(db, "vendors"),
-          where("status", "==", "approved")
-        );
-        const approvedSnap = await getDocs(approvedQuery);
+        // Always fetch BOTH approved and verified vendors
+        const [approvedSnap, verifiedSnap] = await Promise.all([
+          getDocs(query(collection(db, "vendors"), where("status", "==", "approved"))),
+          getDocs(query(collection(db, "vendors"), where("verified", "==", true))),
+        ]);
 
-        let vendorsList: Vendor[] = approvedSnap.docs.map(doc => ({
+        const approvedVendors: Vendor[] = approvedSnap.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
         })) as Vendor[];
 
-        // Fallback to verified if few approved
-        if (vendorsList.length < 5) {
-          const verifiedQuery = query(
-            collection(db, "vendors"),
-            where("verified", "==", true)
+        // Merge verified vendors that aren't already in approved list
+        const approvedIds = new Set(approvedVendors.map(v => v.id));
+        const legacyVendors = verifiedSnap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Vendor))
+          .filter(v =>
+            !approvedIds.has(v.id) &&
+            v.status !== "suspended" &&
+            v.status !== "rejected" &&
+            v.status !== "deleted"
           );
-          const verifiedSnap = await getDocs(verifiedQuery);
 
-          const legacyVendors = verifiedSnap.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as Vendor))
-            .filter(
-              v =>
-                v.status !== "suspended" &&
-                v.status !== "rejected" &&
-                !vendorsList.find(av => av.id === v.id)
-            );
+        const allVendors = [...approvedVendors, ...legacyVendors];
 
-          vendorsList = [...vendorsList, ...legacyVendors];
-        }
-
-        // Filter by category using the category NAME (not slug) for proper matching
-        const filtered = vendorsList.filter(v => 
-          vendorMatchesCategory(v, category.name)
+        // Filter by category using robust matcher
+        const filtered = allVendors.filter(v => 
+          vendorMatchesCategoryFilter(v, category.name)
         );
         setVendors(filtered);
       } catch (err) {

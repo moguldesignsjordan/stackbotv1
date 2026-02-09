@@ -55,6 +55,11 @@ import {
   Truck,
   Shield,
   Zap,
+  ShoppingBasket,
+  Briefcase,
+  Wrench,
+  Smartphone,
+  Gem,
 } from "lucide-react";
 import LocationSelector, { LocationButton } from "@/components/location/LocationSelector";
 
@@ -132,6 +137,7 @@ export default function HomePage() {
   const { t, language, setLanguage, formatCurrency } = useLanguage();  
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [allVendorsForCount, setAllVendorsForCount] = useState<Vendor[]>([]);
   const [featured, setFeatured] = useState<ProductWithVendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -231,8 +237,13 @@ export default function HomePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const vendorsList = await fetchVendors();
+        // Fetch display vendors (limited) and ALL vendors for category counts
+        const [vendorsList, allVendorsList] = await Promise.all([
+          fetchVendors(),
+          fetchAllVendorsForCounts(),
+        ]);
         setVendors(vendorsList);
+        setAllVendorsForCount(allVendorsList);
 
         if (vendorsList.length > 0) {
           const productsList = await fetchProductsFromVendors(vendorsList);
@@ -470,9 +481,7 @@ export default function HomePage() {
               {language === "en" ? "🇺🇸" : "🇩🇴"}
             </button>
 
-
-
-       <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
+            <Link href="/cart" className="p-2 hover:bg-gray-100 rounded-full relative">
               <ShoppingCart className="w-5 h-5 text-gray-700" />
               {itemCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[var(--sb-primary)] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
@@ -567,12 +576,20 @@ export default function HomePage() {
           language={language}
           t={t}
         />
-{/* Browse Categories */}
+
+        {/* Browse Categories */}
         <section className="px-4 py-6 lg:py-12 lg:max-w-7xl lg:mx-auto lg:px-8">
-          <div className="flex items-center justify-between mb-4 lg:mb-6">
-            <h2 className="text-lg lg:text-2xl font-bold text-gray-900">
-              {language === "es" ? "Explorar categorías" : "Browse Categories"}
-            </h2>
+          <div className="flex items-center justify-between mb-5 lg:mb-8">
+            <div>
+              <h2 className="text-lg lg:text-2xl font-bold text-gray-900">
+                {language === "es" ? "Explorar categorías" : "Browse Categories"}
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5 hidden lg:block">
+                {language === "es"
+                  ? "Encuentra exactamente lo que necesitas"
+                  : "Find exactly what you need"}
+              </p>
+            </div>
             <Link
               href="/categories"
               className="flex items-center text-[var(--sb-primary)] text-sm font-semibold hover:underline"
@@ -582,34 +599,66 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6">
-            <CategoryCard
-              icon={<Utensils className="w-6 h-6" />}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
+            <CategoryCardStyled
+              icon={<Utensils className="w-7 h-7" />}
               label={language === "es" ? "Restaurantes" : "Restaurants"}
-              count={vendors.filter((v) => vendorMatchesCategoryFilter(v, "Restaurants")).length}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Restaurants")).length}
               href="/categories/restaurants"
-              color="bg-orange-50 text-orange-600"
             />
-            <CategoryCard
-              icon={<Car className="w-6 h-6" />}
+            <CategoryCardStyled
+              icon={<ShoppingBasket className="w-7 h-7" />}
+              label={language === "es" ? "Despensa" : "Groceries"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Groceries")).length}
+              href="/categories/groceries"
+            />
+            <CategoryCardStyled
+              icon={<Car className="w-7 h-7" />}
               label={language === "es" ? "Taxi" : "Taxi Service"}
-              count={vendors.filter((v) => vendorMatchesCategoryFilter(v, "Taxi Service")).length}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Taxi Service")).length}
               href="/categories/taxi-service"
-              color="bg-yellow-50 text-yellow-600"
             />
-            <CategoryCard
-              icon={<Shirt className="w-6 h-6" />}
+            <CategoryCardStyled
+              icon={<Gem className="w-7 h-7" />}
+              label={language === "es" ? "Belleza" : "Beauty & Wellness"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Beauty & Wellness")).length}
+              href="/categories/beauty-wellness"
+            />
+            <CategoryCardStyled
+              icon={<Compass className="w-7 h-7" />}
+              label={language === "es" ? "Tours" : "Tours & Activities"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Tours & Activities")).length}
+              href="/categories/tours-activities"
+            />
+            <CategoryCardStyled
+              icon={<Briefcase className="w-7 h-7" />}
+              label={language === "es" ? "Profesional" : "Professional Services"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Professional Services")).length}
+              href="/categories/professional-services"
+            />
+            <CategoryCardStyled
+              icon={<Wrench className="w-7 h-7" />}
+              label={language === "es" ? "Reparación" : "Home Repair"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Home Repair & Maintenance")).length}
+              href="/categories/home-repair"
+            />
+            <CategoryCardStyled
+              icon={<Shirt className="w-7 h-7" />}
               label={language === "es" ? "Tiendas" : "Retail Shops"}
-              count={vendors.filter((v) => vendorMatchesCategoryFilter(v, "Retail Shops")).length}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Retail Shops")).length}
               href="/categories/retail-shops"
-              color="bg-blue-50 text-blue-600"
             />
-            <CategoryCard
-              icon={<Brush className="w-6 h-6" />}
+            <CategoryCardStyled
+              icon={<Smartphone className="w-7 h-7" />}
+              label={language === "es" ? "Electrónica" : "Electronics"}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Electronics & Gadgets")).length}
+              href="/categories/electronics"
+            />
+            <CategoryCardStyled
+              icon={<Sparkles className="w-7 h-7" />}
               label={language === "es" ? "Limpieza" : "Cleaning Services"}
-              count={vendors.filter((v) => vendorMatchesCategoryFilter(v, "Cleaning Services")).length}
+              count={allVendorsForCount.filter((v) => vendorMatchesCategoryFilter(v, "Cleaning Services")).length}
               href="/categories/cleaning-services"
-              color="bg-green-50 text-green-600"
             />
           </div>
         </section>
@@ -725,7 +774,9 @@ export default function HomePage() {
           )}
         </section>
 
-        
+        {/* How It Works */}
+        <HowItWorks language={language} />
+
         {/* Become a Vendor CTA */}
         <VendorCTA language={language} />
       </main>
@@ -811,6 +862,35 @@ async function fetchVendors(): Promise<Vendor[]> {
   }
 
   return allVendors.sort(sortByCreatedAt).slice(0, 12);
+}
+
+/**
+ * Fetch ALL vendors (no limit) for accurate category counts.
+ * Combines approved + legacy verified vendors.
+ */
+async function fetchAllVendorsForCounts(): Promise<Vendor[]> {
+  const approvedSnap = await getDocs(
+    query(collection(db, "vendors"), where("status", "==", "approved"))
+  );
+
+  let all = approvedSnap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  })) as Vendor[];
+
+  // Also include legacy verified vendors
+  const legacySnap = await getDocs(
+    query(collection(db, "vendors"), where("verified", "==", true))
+  );
+
+  const legacyVendors = legacySnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as Vendor)
+    .filter((v) => {
+      if (v.status === "suspended" || v.status === "deleted" || v.status === "rejected") return false;
+      return !all.some((existing) => existing.id === v.id);
+    });
+
+  return [...all, ...legacyVendors];
 }
 
 async function fetchProductsFromVendors(
@@ -1049,7 +1129,7 @@ function DesktopNavbar({
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// DESKTOP HERO - Original Elaborate Version
+// DESKTOP HERO
 ////////////////////////////////////////////////////////////////////////////////
 
 function DesktopHero({
@@ -1222,11 +1302,6 @@ function DesktopHero({
                   </div>
                 </div>
               </div>
-
-          
-            
-             
-             
             </div>
           </div>
         </div>
@@ -1245,28 +1320,6 @@ function DesktopHero({
 ////////////////////////////////////////////////////////////////////////////////
 // UI COMPONENTS
 ////////////////////////////////////////////////////////////////////////////////
-
-function CategoryPill({
-  emoji,
-  label,
-  href,
-}: {
-  emoji: string;
-  label: string;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-    >
-      <span className="text-base">{emoji}</span>
-      <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
-        {label}
-      </span>
-    </Link>
-  );
-}
 
 function PromoBanner({
   title,
@@ -1297,32 +1350,48 @@ function PromoBanner({
   );
 }
 
-function CategoryCard({
+////////////////////////////////////////////////////////////////////////////////
+// RESTYLED CATEGORY CARD
+////////////////////////////////////////////////////////////////////////////////
+
+function CategoryCardStyled({
   icon,
   label,
   count,
   href,
-  color,
 }: {
   icon: React.ReactNode;
   label: string;
   count?: number;
   href: string;
-  color: string;
 }) {
   return (
-    <Link href={href} className="block">
-      <div
-        className={`${color} rounded-xl p-4 flex items-center gap-3 hover:opacity-90 transition-opacity`}
-      >
-        <div className="flex-shrink-0">{icon}</div>
-        <div className="flex-1 min-w-0">
-          <span className="font-semibold text-sm block truncate">{label}</span>
-          {count !== undefined && count > 0 && (
-            <span className="text-xs opacity-70">{count} stores</span>
-          )}
+    <Link href={href} className="block group">
+      <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 lg:p-5 hover:shadow-lg hover:border-[var(--sb-primary)]/20 transition-all duration-300 h-full">
+        {/* Gradient accent strip at top */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[var(--sb-primary)] to-[var(--sb-primary-light)] opacity-60 group-hover:opacity-100 transition-opacity" />
+        
+        {/* Icon */}
+        <div className="bg-[var(--sb-primary)]/10 text-[var(--sb-primary)] w-12 h-12 lg:w-14 lg:h-14 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-[var(--sb-primary)]/15 transition-all duration-300">
+          {icon}
         </div>
-        <ChevronRight className="w-4 h-4 opacity-50" />
+
+        {/* Label */}
+        <h3 className="font-bold text-gray-900 text-sm lg:text-base leading-tight group-hover:text-[var(--sb-primary)] transition-colors">
+          {label}
+        </h3>
+
+        {/* Count */}
+        {count !== undefined && count > 0 && (
+          <p className="text-xs text-gray-400 mt-1 font-medium">
+            {count} {count === 1 ? "store" : "stores"}
+          </p>
+        )}
+
+        {/* Arrow */}
+        <div className="absolute bottom-4 right-4 lg:bottom-5 lg:right-5 w-7 h-7 rounded-full bg-gray-100 group-hover:bg-[var(--sb-primary)] flex items-center justify-center transition-all duration-300">
+          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+        </div>
       </div>
     </Link>
   );
@@ -1413,8 +1482,6 @@ function VendorCard({
               </span>
             </div>
           )}
-
-
         </div>
 
         {/* Info */}
@@ -1636,7 +1703,7 @@ function HowItWorks({ language }: { language: string }) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// VENDOR CTA - Original Elaborate Version
+// VENDOR CTA
 ////////////////////////////////////////////////////////////////////////////////
 
 function VendorCTA({ language }: { language: string }) {
