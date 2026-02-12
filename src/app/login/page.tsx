@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   signInWithEmailAndPassword,
@@ -10,6 +10,8 @@ import {
   OAuthProvider,
   signInWithPopup,
   signInWithCredential,
+  signInWithRedirect,
+  getRedirectResult,
   sendPasswordResetEmail,
   updateProfile,
   User,
@@ -23,13 +25,15 @@ import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 
-// Email validation
+// ============================================================================
+// HELPERS
+// ============================================================================
+
 const isValidEmail = (email: string) => {
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 };
 
-// Error message mapping
 const getAuthErrorMessage = (errorCode: string): string => {
   const errorMessages: Record<string, string> = {
     "auth/invalid-email": "Please enter a valid email address.",
@@ -47,6 +51,26 @@ const getAuthErrorMessage = (errorCode: string): string => {
   };
   return errorMessages[errorCode] || "An error occurred. Please try again.";
 };
+
+/**
+ * Platform detection helpers.
+ * Android Credential Manager API is broken in Capacitor 8 WebView,
+ * so we use signInWithRedirect on Android instead of the native plugin.
+ * iOS native plugin works perfectly.
+ */
+const isAndroidNative = (): boolean => {
+  if (typeof window === "undefined") return false;
+  return Capacitor.isNativePlatform() && /android/i.test(navigator.userAgent);
+};
+
+const isIOSNative = (): boolean => {
+  if (typeof window === "undefined") return false;
+  return Capacitor.isNativePlatform() && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+};
+
+// ============================================================================
+// PAGE
+// ============================================================================
 
 export default function LoginPage() {
   return (
@@ -83,6 +107,8 @@ function LoginPageInner() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isNative, setIsNative] = useState(false);
+  const [checkingRedirect, setCheckingRedirect] = useState(true);
+  const redirectHandled = useRef(false);
 
   useEffect(() => {
     setIsNative(Capacitor.isNativePlatform());
@@ -97,13 +123,48 @@ function LoginPageInner() {
     setSuccess("");
   }, [mode]);
 
-  // MODIFIED: Accepts explicitName to ensure we save the name before redirecting
+  // ========================================================================
+  // Handle Google signInWithRedirect result on page load (Android path)
+  // ========================================================================
+  useEffect(() => {
+    if (redirectHandled.current) return;
+    redirectHandled.current = true;
+
+    const handleRedirectResult = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          console.log("Redirect result received, processing...");
+          setSocialLoading("google");
+          const user = result.user;
+          const userDoc = await getDoc(doc(db, "customers", user.uid));
+          const isNewUser = !userDoc.exists();
+          const googleName = user.displayName || "";
+          await handleRoleBasedRedirect(user, isNewUser, googleName);
+          return;
+        }
+      } catch (err: any) {
+        console.error("Redirect result error:", err);
+        if (err.code && err.code !== "auth/popup-closed-by-user") {
+          setError(getAuthErrorMessage(err.code) || "Google sign-in failed");
+        }
+      } finally {
+        setCheckingRedirect(false);
+        setSocialLoading(null);
+      }
+    };
+
+    handleRedirectResult();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ========================================================================
+  // Role-based redirect
+  // ========================================================================
   const handleRoleBasedRedirect = async (user: User, isNewUser = false, explicitName?: string) => {
     try {
       const token = await getIdTokenResult(user, true);
       const role = token.claims.role as string | undefined;
 
-      // 1. Check for Special Roles
       if (intent === "vendor") {
         router.push("/vendor-signup");
         return;
@@ -117,34 +178,28 @@ function LoginPageInner() {
         return;
       }
 
-      // 2. CUSTOMER LOGIC - BYPASS ONBOARDING
-      // We check if the profile exists. If not, we create it immediately.
       const userRef = doc(db, "customers", user.uid);
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        // Determine the best display name available
         const displayNameToUse = explicitName || user.displayName || (mode === 'signup' ? name : '') || 'App User';
 
-        // Create the profile in the background
         await setDoc(userRef, {
           uid: user.uid,
           email: user.email,
           displayName: displayNameToUse,
           role: 'customer',
-          onboardingCompleted: true, // Mark as done so we never see the onboarding page
+          onboardingCompleted: true,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       } else {
-        // If profile exists, just ensure onboarding is marked true
         if (explicitName && (!userSnap.data().displayName || userSnap.data().displayName === 'App User')) {
              await setDoc(userRef, { displayName: explicitName }, { merge: true });
         }
         await setDoc(userRef, { onboardingCompleted: true }, { merge: true });
       }
 
-      // 3. Redirect DIRECTLY to dashboard/account
       router.push(redirect || "/account");
       
     } catch (e) {
@@ -153,6 +208,9 @@ function LoginPageInner() {
     }
   };
 
+  // ========================================================================
+  // Email Login
+  // ========================================================================
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -178,6 +236,9 @@ function LoginPageInner() {
     }
   };
 
+  // ========================================================================
+  // Email Signup
+  // ========================================================================
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -208,7 +269,6 @@ function LoginPageInner() {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
       
-      // Pass the name from the form to the redirect handler
       await handleRoleBasedRedirect(cred.user, true, name.trim());
     } catch (err: any) {
       console.error("Signup error:", err);
@@ -218,6 +278,9 @@ function LoginPageInner() {
     }
   };
 
+  // ========================================================================
+  // Forgot Password
+  // ========================================================================
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -245,7 +308,12 @@ function LoginPageInner() {
     }
   };
 
-  // Google Sign-In
+  // ========================================================================
+  // Google Sign-In — 3 paths:
+  //   iOS Native  → Capacitor plugin (works)
+  //   Android     → signInWithRedirect via Chrome Custom Tab (bypasses broken Credential Manager)
+  //   Web browser → signInWithPopup (works)
+  // ========================================================================
   const handleGoogleAuth = async () => {
     setSocialLoading("google");
     setError("");
@@ -255,8 +323,9 @@ function LoginPageInner() {
       let isNewUser = false;
       let googleName = "";
       
-      if (isNative) {
-        console.log("Starting native Google Sign-In...");
+      if (isIOSNative()) {
+        // ── iOS: Native Capacitor plugin works perfectly ──
+        console.log("Starting native Google Sign-In (iOS)...");
         const result = await FirebaseAuthentication.signInWithGoogle();
         
         if (!result.credential?.idToken) {
@@ -268,10 +337,24 @@ function LoginPageInner() {
         
         user = authResult.user;
         isNewUser = result.additionalUserInfo?.isNewUser ?? false;
-        // Try to capture name from native result
         if (result.user?.displayName) googleName = result.user.displayName;
 
+        await handleRoleBasedRedirect(user, isNewUser, googleName);
+
+      } else if (isAndroidNative()) {
+        // ── Android: Credential Manager is broken in Capacitor WebView ──
+        // signInWithRedirect opens Chrome Custom Tab (Google allows this)
+        // Result is picked up by useEffect on page reload
+        console.log("Starting Google Sign-In via redirect (Android)...");
+        const provider = new GoogleAuthProvider();
+        provider.addScope('email');
+        provider.addScope('profile');
+        await signInWithRedirect(auth, provider);
+        // Page navigates away — useEffect handles result on return
+        return;
+
       } else {
+        // ── Web: Popup works in real browsers ──
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
         provider.addScope('profile');
@@ -281,11 +364,10 @@ function LoginPageInner() {
         
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
-        // Capture name from web result
         if (user.displayName) googleName = user.displayName;
+
+        await handleRoleBasedRedirect(user, isNewUser, googleName);
       }
-      
-      await handleRoleBasedRedirect(user, isNewUser, googleName);
     } catch (err: any) {
       console.error("Google Auth Error:", err);
       if (err.message?.includes("canceled") || 
@@ -300,7 +382,9 @@ function LoginPageInner() {
     }
   };
 
-  // Apple Sign-In
+  // ========================================================================
+  // Apple Sign-In (unchanged — works on both iOS native + web)
+  // ========================================================================
   const handleAppleAuth = async () => {
     setSocialLoading("apple");
     setError("");
@@ -318,8 +402,6 @@ function LoginPageInner() {
           throw new Error("No credential received from Apple Sign-In");
         }
         
-        // CAPTURE NAME (Native)
-        // FIX: Cast to any to avoid TypeScript error on 'name' property
         const appleUser = result.user as any;
         if (appleUser?.name?.givenName) {
           capturedName = `${appleUser.name.givenName} ${appleUser.name.familyName || ''}`.trim();
@@ -346,7 +428,6 @@ function LoginPageInner() {
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
-        // CAPTURE NAME (Web) - Apple puts it in _tokenResponse on the very first login
         // @ts-ignore
         const appleProfile = result?._tokenResponse; 
         if (appleProfile?.firstName) {
@@ -357,12 +438,10 @@ function LoginPageInner() {
         isNewUser = !userDoc.exists();
       }
       
-      // Update Firebase Profile immediately if we have the name
       if (user && capturedName) {
         await updateProfile(user, { displayName: capturedName });
       }
 
-      // Pass the captured name to the redirect function so it saves to Firestore
       await handleRoleBasedRedirect(user, isNewUser, capturedName);
 
     } catch (err: any) {
@@ -381,10 +460,18 @@ function LoginPageInner() {
     }
   };
 
+  // ========================================================================
+  // RENDER
+  // ========================================================================
   const isLogin = mode === "login";
   const isForgot = mode === "forgot";
   const isSignup = mode === "signup";
   const isAnyLoading = loading || socialLoading !== null;
+
+  // Show loading while checking redirect result (Android Google flow)
+  if (checkingRedirect && isAndroidNative()) {
+    return <LoadingScreen />;
+  }
 
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-white">
