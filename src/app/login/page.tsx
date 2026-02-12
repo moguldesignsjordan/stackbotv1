@@ -255,7 +255,9 @@ function LoginPageInner() {
       let isNewUser = false;
       let googleName = "";
       
-      if (isNative) {
+      // Only use native plugin on iOS - Android Credential Manager is broken in Capacitor 8
+      const useNativePlugin = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+      if (useNativePlugin) {
         console.log("Starting native Google Sign-In...");
         const result = await FirebaseAuthentication.signInWithGoogle();
         
@@ -310,7 +312,9 @@ function LoginPageInner() {
       let isNewUser = false;
       let capturedName = ""; 
       
-      if (isNative) {
+      // Only use native plugin on iOS - Android Credential Manager is broken in Capacitor 8
+      const useNativePlugin = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+      if (useNativePlugin) {
         console.log("Starting native Apple Sign-In...");
         const result = await FirebaseAuthentication.signInWithApple();
         
