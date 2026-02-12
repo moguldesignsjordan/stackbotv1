@@ -1,7 +1,7 @@
 // src/app/driver/delivery/[id]/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   doc,
@@ -10,7 +10,8 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, auth, storage } from '@/lib/firebase/config';
 import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
 import {
@@ -28,9 +29,14 @@ import {
   ChevronDown,
   Copy,
   Check,
+  Camera,
+  X,
+  ImageIcon,
 } from 'lucide-react';
 
-// Local interface to match the full order details used in this view
+// ============================================================================
+// TYPES
+// ============================================================================
 interface DriverOrderDetail {
   id: string;
   orderId: string;
@@ -65,6 +71,62 @@ interface DriverOrderDetail {
   updatedAt?: Timestamp;
 }
 
+// ============================================================================
+// CAPACITOR CAMERA HELPER
+// ============================================================================
+/**
+ * Safely captures a photo using @capacitor/camera when available (native app),
+ * otherwise falls back to a file picker (web).
+ *
+ * The HTML `<input type="file" capture="environment">` attribute crashes
+ * Capacitor WebViews because the native camera intent backgrounds the WebView
+ * Activity/ViewController, and iOS/Android can kill it for memory.
+ *
+ * @capacitor/camera handles the lifecycle correctly within the native shell.
+ */
+async function capturePhotoNative(): Promise<{ blob: Blob; dataUrl: string } | null> {
+  try {
+    const { Camera, CameraResultType, CameraSource } = await import(
+      '@capacitor/camera'
+    );
+    const photo = await Camera.getPhoto({
+      quality: 80,
+      allowEditing: false,
+      resultType: CameraResultType.DataUrl,
+      source: CameraSource.Camera,
+      width: 1200,
+      height: 1200,
+      correctOrientation: true,
+    });
+
+    if (!photo.dataUrl) return null;
+
+    // Convert data URL to Blob for Firebase upload
+    const response = await fetch(photo.dataUrl);
+    const blob = await response.blob();
+
+    return { blob, dataUrl: photo.dataUrl };
+  } catch (err: any) {
+    // User cancelled or plugin not available
+    if (err?.message?.includes('User cancelled') || err?.message?.includes('canceled')) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Detects if we're running inside a Capacitor native shell.
+ */
+function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Capacitor injects this object on native platforms
+  return !!(window as any).Capacitor?.isNativePlatform?.();
+}
+
+// ============================================================================
+// MAP CONFIG
+// ============================================================================
 const mapContainerStyle = {
   width: '100%',
   height: '100%',
@@ -99,6 +161,9 @@ const mapOptions: google.maps.MapOptions = {
   ],
 };
 
+// ============================================================================
+// PAGE WRAPPER
+// ============================================================================
 export default function DeliveryDetailPage() {
   return (
     <GoogleMapsProvider>
@@ -107,22 +172,37 @@ export default function DeliveryDetailPage() {
   );
 }
 
+// ============================================================================
+// MAIN CONTENT
+// ============================================================================
 function DeliveryDetailContent() {
   const params = useParams();
   const router = useRouter();
   const orderId = params.id as string;
 
+  // Core state
   const [order, setOrder] = useState<DriverOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copiedPin, setCopiedPin] = useState(false);
+
+  // Map state
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [map, setMap] = useState<google.maps.Map | null>(null);
 
-  // Watch driver's location
+  // Photo state
+  const [proofPhoto, setProofPhoto] = useState<string | null>(null);
+  const [proofPhotoBlob, setProofPhotoBlob] = useState<Blob | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ========================================================================
+  // GEOLOCATION
+  // ========================================================================
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -140,7 +220,9 @@ function DeliveryDetailContent() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // Subscribe to order updates
+  // ========================================================================
+  // ORDER SUBSCRIPTION
+  // ========================================================================
   useEffect(() => {
     if (!orderId) return;
 
@@ -193,7 +275,9 @@ function DeliveryDetailContent() {
     return () => unsubscribe();
   }, [orderId]);
 
-  // Calculate directions
+  // ========================================================================
+  // DIRECTIONS
+  // ========================================================================
   useEffect(() => {
     if (!driverLocation || !order || !window.google) return;
 
@@ -220,7 +304,9 @@ function DeliveryDetailContent() {
     );
   }, [driverLocation, order]);
 
-  // Fit map to show all markers
+  // ========================================================================
+  // MAP LOAD
+  // ========================================================================
   const onMapLoad = useCallback(
     (mapInstance: google.maps.Map) => {
       setMap(mapInstance);
@@ -246,9 +332,117 @@ function DeliveryDetailContent() {
     [order, driverLocation]
   );
 
-  // Update order status
+  // ========================================================================
+  // PHOTO CAPTURE — Capacitor native or web fallback
+  // ========================================================================
+  const handleTakePhoto = async () => {
+    setPhotoError(null);
+
+    if (isNativeApp()) {
+      // ── Native path: use @capacitor/camera ──
+      try {
+        const result = await capturePhotoNative();
+        if (result) {
+          setProofPhoto(result.dataUrl);
+          setProofPhotoBlob(result.blob);
+        }
+      } catch (err) {
+        console.error('Camera error:', err);
+        setPhotoError('Failed to capture photo. Please try again.');
+      }
+    } else {
+      // ── Web fallback: trigger file input WITHOUT capture attribute ──
+      // The capture attribute is intentionally omitted from the input element
+      // to prevent WebView crashes. On web browsers, this opens a file picker
+      // that still includes camera as an option on mobile browsers.
+      fileInputRef.current?.click();
+    }
+  };
+
+  // Web file input handler (fallback only)
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPhotoError(null);
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please select an image file.');
+      return;
+    }
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoError('Photo must be under 10MB.');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setProofPhoto(previewUrl);
+    setProofPhotoBlob(file);
+  };
+
+  const clearPhoto = () => {
+    if (proofPhoto && proofPhoto.startsWith('blob:')) {
+      URL.revokeObjectURL(proofPhoto);
+    }
+    setProofPhoto(null);
+    setProofPhotoBlob(null);
+    setPhotoError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // ========================================================================
+  // UPLOAD PHOTO + COMPLETE DELIVERY
+  // ========================================================================
+  const handleCompleteDelivery = async () => {
+    if (!order) return;
+
+    if (!proofPhotoBlob) {
+      setPhotoError('Please take a photo before completing delivery.');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    setPhotoError(null);
+
+    try {
+      // Upload to Firebase Storage
+      const timestamp = Date.now();
+      const fileName = `proof_${order.id}_${timestamp}.jpg`;
+      const storageRef = ref(storage, `deliveries/${order.id}/${fileName}`);
+
+      await uploadBytes(storageRef, proofPhotoBlob, {
+        contentType: proofPhotoBlob.type || 'image/jpeg',
+        customMetadata: {
+          orderId: order.id,
+          driverId: auth.currentUser?.uid || '',
+          uploadedAt: new Date().toISOString(),
+        },
+      });
+
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Update order with proof URL and mark delivered
+      await updateOrderStatus('delivered', downloadUrl);
+
+      clearPhoto();
+    } catch (err) {
+      console.error('Error uploading proof photo:', err);
+      setPhotoError('Failed to upload photo. Please try again.');
+      setUploadingPhoto(false);
+    }
+  };
+
+  // ========================================================================
+  // ORDER STATUS UPDATE
+  // ========================================================================
   const updateOrderStatus = async (
-    newStatus: 'picked_up' | 'out_for_delivery' | 'delivered'
+    newStatus: 'picked_up' | 'out_for_delivery' | 'delivered',
+    proofOfDeliveryUrl?: string
   ) => {
     if (!order) return;
 
@@ -267,6 +461,9 @@ function DeliveryDetailContent() {
         updateData.pickedUpAt = serverTimestamp();
       } else if (newStatus === 'delivered') {
         updateData.deliveredAt = serverTimestamp();
+        if (proofOfDeliveryUrl) {
+          updateData.proofOfDeliveryUrl = proofOfDeliveryUrl;
+        }
       }
 
       await updateDoc(orderRef, updateData);
@@ -296,10 +493,13 @@ function DeliveryDetailContent() {
       setError('Failed to update order');
     } finally {
       setUpdating(false);
+      setUploadingPhoto(false);
     }
   };
 
-  // Navigation helpers
+  // ========================================================================
+  // NAVIGATION HELPERS
+  // ========================================================================
   const openNavigation = (lat: number, lng: number) => {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
@@ -314,6 +514,9 @@ function DeliveryDetailContent() {
     setTimeout(() => setCopiedPin(false), 2000);
   };
 
+  // ========================================================================
+  // LOADING / ERROR STATES
+  // ========================================================================
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -337,6 +540,9 @@ function DeliveryDetailContent() {
     );
   }
 
+  // ========================================================================
+  // DERIVED VALUES
+  // ========================================================================
   const isPickedUp = order.status === 'out_for_delivery';
   const targetLocation = isPickedUp
     ? order.deliveryAddress?.coordinates
@@ -347,13 +553,25 @@ function DeliveryDetailContent() {
   const targetName = isPickedUp ? order.customerName : order.vendorName;
   const targetPhone = (isPickedUp ? order.customerPhone : order.vendorPhone) || '';
 
-  // Get ETA from directions
   const eta = directions?.routes?.[0]?.legs?.[0]?.duration?.text || null;
   const distance = directions?.routes?.[0]?.legs?.[0]?.distance?.text || null;
 
+  // ========================================================================
+  // RENDER
+  // ========================================================================
   return (
     <div className="h-screen flex flex-col bg-gray-900">
-      {/* Map Area */}
+      {/* ── Hidden file input for web fallback (NO capture attribute!) ── */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileInputChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+
+      {/* ── Map Area ── */}
       <div className="flex-1 relative">
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
@@ -459,7 +677,7 @@ function DeliveryDetailContent() {
         )}
       </div>
 
-      {/* Bottom Panel */}
+      {/* ── Bottom Panel ── */}
       <div className="bg-gray-800 rounded-t-3xl border-t border-gray-700 safe-bottom">
         {/* Expand Handle */}
         <button
@@ -588,6 +806,53 @@ function DeliveryDetailContent() {
           </button>
         </div>
 
+        {/* ── Proof of Delivery Photo (only visible after pickup) ── */}
+        {isPickedUp && (
+          <div className="px-4 pb-3">
+            {proofPhoto ? (
+              /* Photo preview */
+              <div className="relative rounded-xl overflow-hidden border border-gray-700">
+                <img
+                  src={proofPhoto}
+                  alt="Proof of delivery"
+                  className="w-full h-36 object-cover"
+                />
+                <button
+                  onClick={clearPhoto}
+                  className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                {/* Retake */}
+                <button
+                  onClick={handleTakePhoto}
+                  className="absolute bottom-2 right-2 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-colors"
+                >
+                  <Camera className="w-3 h-3" />
+                  Retake
+                </button>
+              </div>
+            ) : (
+              /* Capture button */
+              <button
+                onClick={handleTakePhoto}
+                className="w-full flex items-center justify-center gap-3 py-4 border-2 border-dashed border-gray-600 hover:border-emerald-500/50 hover:bg-emerald-500/5 rounded-xl transition-colors"
+              >
+                <Camera className="w-6 h-6 text-gray-400" />
+                <div className="text-left">
+                  <p className="text-sm text-white font-medium">Take Delivery Photo</p>
+                  <p className="text-xs text-gray-500">Required to complete delivery</p>
+                </div>
+              </button>
+            )}
+
+            {/* Photo error */}
+            {photoError && (
+              <p className="text-xs text-red-400 text-center mt-2">{photoError}</p>
+            )}
+          </div>
+        )}
+
         {/* Main Action Button */}
         <div className="px-4 pb-4">
           {!isPickedUp ? (
@@ -605,16 +870,24 @@ function DeliveryDetailContent() {
             </button>
           ) : (
             <button
-              onClick={() => updateOrderStatus('delivered')}
-              disabled={updating}
-              className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-600 text-white font-semibold rounded-xl transition-colors"
+              onClick={handleCompleteDelivery}
+              disabled={updating || uploadingPhoto || !proofPhoto}
+              className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-600 disabled:text-gray-400 text-white font-semibold rounded-xl transition-colors"
             >
-              {updating ? (
+              {updating || uploadingPhoto ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <CheckCircle className="w-5 h-5" />
               )}
-              <span>{updating ? 'Completing...' : 'Complete Delivery'}</span>
+              <span>
+                {uploadingPhoto
+                  ? 'Uploading Photo...'
+                  : updating
+                  ? 'Completing...'
+                  : !proofPhoto
+                  ? 'Photo Required'
+                  : 'Complete Delivery'}
+              </span>
             </button>
           )}
         </div>

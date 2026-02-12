@@ -12,7 +12,7 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 
 // Fee configuration (in cents for Stripe)
 export const FEES = {
-  DELIVERY_FEE: 399, // $3.99
+  DELIVERY_FEE: 199, // $1.99
   SERVICE_FEE_PERCENT: 5, // 5%
   TAX_PERCENT: 18, // 18% ITBIS
 };
