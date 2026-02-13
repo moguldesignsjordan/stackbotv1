@@ -258,7 +258,7 @@ function LoginPageInner() {
       // Only use native plugin on iOS - Android Credential Manager is broken in Capacitor 8
       const useNativePlugin = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
       if (useNativePlugin) {
-        console.log("Starting native Google Sign-In...");
+        console.log("Starting Google Sign-In (iOS native)...");
         const result = await FirebaseAuthentication.signInWithGoogle();
         
         if (!result.credential?.idToken) {
