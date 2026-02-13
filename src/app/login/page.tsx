@@ -312,9 +312,9 @@ function LoginPageInner() {
       let isNewUser = false;
       let capturedName = ""; 
       
-      // Only use native plugin on iOS - Android Credential Manager is broken in Capacitor 8
 
-      if (useNativePlugin) {
+
+      if (isNative) {
         console.log("Starting native Apple Sign-In...");
         const result = await FirebaseAuthentication.signInWithApple();
         
