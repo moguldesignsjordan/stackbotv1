@@ -1,4 +1,4 @@
-// src/components/payments/PaymentSheet.tsx
+// src/components/paymets/PaymentSheet.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -198,13 +198,11 @@ export function PaymentSheet({
                 />
               </div>
 
-              {/* Submit Button */}
+              {/* Submit Button — className on single line to prevent SWC unterminated string */}
               <button
                 type="submit"
                 disabled={!stripe || !elements || isProcessing || !isReady}
-                className="w-full mt-6 py-4 px-6 bg-[#55529d] text-white font-semibold rounded-xl 
-                         hover:bg-[#444287] disabled:opacity-50 disabled:cursor-not-allowed 
-                         transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full mt-6 py-4 px-6 bg-[#55529d] text-white font-semibold rounded-xl hover:bg-[#444287] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"
               >
                 {isProcessing ? (
                   <>
