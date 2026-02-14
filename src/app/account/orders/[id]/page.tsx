@@ -19,6 +19,8 @@ import {
   Check,
   Loader2,
   Store,
+  Navigation,
+  Radio,
 } from 'lucide-react';
 
 interface OrderDetail {
@@ -45,6 +47,9 @@ interface OrderDetail {
     instructions?: string 
   } | null;
   trackingPin: string;
+  driverId?: string;
+  driverName?: string;
+  driverPhone?: string;
   notes?: string;
   createdAt: string;
   confirmedAt?: string;
@@ -72,9 +77,24 @@ const pickupStatusSteps = [
 
 const getStatusIndex = (status: string, steps: typeof deliveryStatusSteps) => {
   if (status === 'cancelled') return -1;
-  const index = steps.findIndex((s) => s.key === status);
+  // Map 'ready' to 'ready_for_pickup' and 'claimed' to 'out_for_delivery' for the progress bar
+  const mappedStatus =
+    status === 'ready' ? 'ready_for_pickup' :
+    status === 'claimed' ? 'out_for_delivery' :
+    status;
+  const index = steps.findIndex((s) => s.key === mappedStatus);
   return index >= 0 ? index : 0;
 };
+
+// Statuses where live tracking should be shown for delivery orders
+const TRACKABLE_STATUSES = [
+  'confirmed',
+  'preparing',
+  'ready',
+  'ready_for_pickup',
+  'claimed',
+  'out_for_delivery',
+];
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -156,11 +176,18 @@ export default function OrderDetailPage() {
   const statusSteps = isPickup ? pickupStatusSteps : deliveryStatusSteps;
   const currentStatusIndex = getStatusIndex(order.status, statusSteps);
   const isCancelled = order.status === 'cancelled';
+  const isDelivered = order.status === 'delivered';
+
+  // Show live tracking button for delivery orders in trackable statuses
+  const showLiveTracking = !isPickup && !isCancelled && !isDelivered && TRACKABLE_STATUSES.includes(order.status);
+
+  // Show driver info when a driver has been assigned
+  const showDriverInfo = !isPickup && order.driverId && ['claimed', 'out_for_delivery'].includes(order.status);
 
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Header */}
-      <div className="bg-white  sticky top-0 z-10">
+      <div className="bg-white sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <Link
             href="/account"
@@ -215,6 +242,74 @@ export default function OrderDetailPage() {
             {order.vendorName}
           </Link>
         </div>
+
+        {/* ══════════════════════════════════════════════════════════
+            LIVE TRACKING BANNER — Phase 3+4
+            Shows for delivery orders in active statuses.
+            Links to /track/[orderId] which has the live map.
+        ══════════════════════════════════════════════════════════ */}
+        {showLiveTracking && (
+          <Link
+            href={`/track/${orderId}`}
+            className="block bg-gradient-to-r from-[#55529d] to-[#6d6abf] rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition-shadow active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="relative">
+                  <Navigation className="w-6 h-6" />
+                  {/* Pulsing dot for live indicator */}
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-white/30 animate-pulse" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="font-bold text-lg">Track Your Order Live</p>
+                <p className="text-sm text-white/80 mt-0.5">
+                  {order.driverId
+                    ? 'See your driver on the map in real-time'
+                    : 'Follow your order status live'}
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                  <Radio className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════
+            DRIVER INFO CARD — Shows when driver is assigned
+        ══════════════════════════════════════════════════════════ */}
+        {showDriverInfo && (
+          <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <Truck className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">
+                    {order.driverName || 'Driver assigned'}
+                  </p>
+                  <p className="text-sm text-emerald-700">
+                    {order.status === 'out_for_delivery'
+                      ? 'On the way to you'
+                      : 'Heading to pick up your order'}
+                  </p>
+                </div>
+              </div>
+              {order.driverPhone && (
+                <a
+                  href={`tel:${order.driverPhone}`}
+                  className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center hover:bg-emerald-200 transition-colors"
+                >
+                  <Phone className="w-4 h-4 text-emerald-700" />
+                </a>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Status Progress */}
         <div className="bg-white rounded-xl shadow-sm p-6">
