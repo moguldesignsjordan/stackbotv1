@@ -118,26 +118,22 @@ function LoginPageInner() {
       }
 
       // 2. CUSTOMER LOGIC - BYPASS ONBOARDING
-      // We check if the profile exists. If not, we create it immediately.
       const userRef = doc(db, "customers", user.uid);
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        // Determine the best display name available
         const displayNameToUse = explicitName || user.displayName || (mode === 'signup' ? name : '') || 'App User';
 
-        // Create the profile in the background
         await setDoc(userRef, {
           uid: user.uid,
           email: user.email,
           displayName: displayNameToUse,
           role: 'customer',
-          onboardingCompleted: true, // Mark as done so we never see the onboarding page
+          onboardingCompleted: true,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       } else {
-        // If profile exists, just ensure onboarding is marked true
         if (explicitName && (!userSnap.data().displayName || userSnap.data().displayName === 'App User')) {
              await setDoc(userRef, { displayName: explicitName }, { merge: true });
         }
@@ -208,7 +204,6 @@ function LoginPageInner() {
         await updateProfile(cred.user, { displayName: name.trim() });
       }
       
-      // Pass the name from the form to the redirect handler
       await handleRoleBasedRedirect(cred.user, true, name.trim());
     } catch (err: any) {
       console.error("Signup error:", err);
@@ -245,7 +240,12 @@ function LoginPageInner() {
     }
   };
 
-  // Google Sign-In
+  // ──────────────────────────────────────────────────────────────
+  // Google Sign-In — 3 paths:
+  //   iOS    → native @capacitor-firebase/authentication (works)
+  //   Android → @codetrix-studio/capacitor-google-auth (legacy SDK, bypasses broken Credential Manager)
+  //   Web    → Firebase JS SDK signInWithPopup (works)
+  // ──────────────────────────────────────────────────────────────
   const handleGoogleAuth = async () => {
     setSocialLoading("google");
     setError("");
@@ -254,11 +254,13 @@ function LoginPageInner() {
       let user: User;
       let isNewUser = false;
       let googleName = "";
-      
-      // Only use native plugin on iOS - Android Credential Manager is broken in Capacitor 8
-      const useNativePlugin = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
-      if (useNativePlugin) {
-        console.log("Starting Google Sign-In (iOS native)...");
+
+      const isIOS = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+      const isAndroid = isNative && !isIOS;
+
+      if (isIOS) {
+        // ── iOS: Native Capacitor Firebase plugin ──
+        console.log("Google Sign-In: iOS native path");
         const result = await FirebaseAuthentication.signInWithGoogle();
         
         if (!result.credential?.idToken) {
@@ -270,20 +272,50 @@ function LoginPageInner() {
         
         user = authResult.user;
         isNewUser = result.additionalUserInfo?.isNewUser ?? false;
-        // Try to capture name from native result
         if (result.user?.displayName) googleName = result.user.displayName;
 
+      } else if (isAndroid) {
+        // ── Android: Legacy Google Sign-In SDK via capacitor-google-auth ──
+        console.log("Google Sign-In: Android legacy SDK path");
+        const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
+        
+        // Initialize on first use (safe to call multiple times)
+        await GoogleAuth.initialize({
+          clientId: "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
+          scopes: ["profile", "email"],
+          grantOfflineAccess: true,
+        });
+        
+        const googleUser = await GoogleAuth.signIn();
+        
+        if (!googleUser.authentication?.idToken) {
+          throw new Error("No ID token received from Google Sign-In");
+        }
+        
+        // Exchange Google ID token for Firebase credential
+        const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
+        const authResult = await signInWithCredential(auth, credential);
+        
+        user = authResult.user;
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        isNewUser = !userDoc.exists();
+        if (googleUser.name) googleName = googleUser.name;
+        if (!googleName && googleUser.givenName) {
+          googleName = `${googleUser.givenName} ${googleUser.familyName || ""}`.trim();
+        }
+
       } else {
+        // ── Web: Firebase JS SDK popup ──
+        console.log("Google Sign-In: Web popup path");
         const provider = new GoogleAuthProvider();
-        provider.addScope('email');
-        provider.addScope('profile');
+        provider.addScope("email");
+        provider.addScope("profile");
         
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
-        // Capture name from web result
         if (user.displayName) googleName = user.displayName;
       }
       
@@ -292,6 +324,7 @@ function LoginPageInner() {
       console.error("Google Auth Error:", err);
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
+          err.message?.includes("popup_closed") ||
           err.code === "auth/popup-closed-by-user") {
         setSocialLoading(null);
         return;
@@ -302,7 +335,9 @@ function LoginPageInner() {
     }
   };
 
-  // Apple Sign-In
+  // ──────────────────────────────────────────────────────────────
+  // Apple Sign-In — native on both iOS & Android, popup on web
+  // ──────────────────────────────────────────────────────────────
   const handleAppleAuth = async () => {
     setSocialLoading("apple");
     setError("");
@@ -311,8 +346,6 @@ function LoginPageInner() {
       let user: User;
       let isNewUser = false;
       let capturedName = ""; 
-      
-
 
       if (isNative) {
         console.log("Starting native Apple Sign-In...");
@@ -322,8 +355,6 @@ function LoginPageInner() {
           throw new Error("No credential received from Apple Sign-In");
         }
         
-        // CAPTURE NAME (Native)
-        // FIX: Cast to any to avoid TypeScript error on 'name' property
         const appleUser = result.user as any;
         if (appleUser?.name?.givenName) {
           capturedName = `${appleUser.name.givenName} ${appleUser.name.familyName || ''}`.trim();
@@ -350,69 +381,52 @@ function LoginPageInner() {
         const result = await signInWithPopup(auth, provider);
         user = result.user;
         
-        // CAPTURE NAME (Web) - Apple puts it in _tokenResponse on the very first login
-        // @ts-ignore
-        const appleProfile = result?._tokenResponse; 
-        if (appleProfile?.firstName) {
-            capturedName = `${appleProfile.firstName} ${appleProfile.lastName || ''}`.trim();
-        }
-
         const userDoc = await getDoc(doc(db, "customers", user.uid));
         isNewUser = !userDoc.exists();
+        if (user.displayName) capturedName = user.displayName;
       }
       
-      // Update Firebase Profile immediately if we have the name
-      if (user && capturedName) {
-        await updateProfile(user, { displayName: capturedName });
-      }
-
-      // Pass the captured name to the redirect function so it saves to Firestore
       await handleRoleBasedRedirect(user, isNewUser, capturedName);
-
     } catch (err: any) {
       console.error("Apple Auth Error:", err);
       if (err.message?.includes("canceled") || 
           err.message?.includes("cancelled") ||
-          err.message?.includes("1000") ||
-          err.message?.includes("1001")) {
+          err.code === "auth/popup-closed-by-user") {
         setSocialLoading(null);
         return;
       }
-      const errorMessage = err.message || err.code || "Apple sign-in failed";
-      setError(getAuthErrorMessage(err.code) || errorMessage);
+      setError(getAuthErrorMessage(err.code) || err.message || "Apple sign-in failed");
     } finally {
       setSocialLoading(null);
     }
   };
 
   const isLogin = mode === "login";
-  const isForgot = mode === "forgot";
   const isSignup = mode === "signup";
+  const isForgot = mode === "forgot";
   const isAnyLoading = loading || socialLoading !== null;
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-white">
-      <div className="flex items-center justify-center p-6 md:p-10 pt-safe">
-        <div className="w-full max-w-md space-y-6">
-          <div className="text-center">
-            <div className="md:hidden mb-6">
-              <Image 
-                src="/stackbot-logo-purp.png" 
-                alt="StackBot" 
-                width={60} 
-                height={60} 
-                className="mx-auto"
-              />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {isForgot ? "Reset Password" : isLogin ? "Welcome Back" : "Create Account"}
+    <div className="min-h-screen grid md:grid-cols-2">
+      <div className="flex flex-col justify-center px-6 py-12 md:px-16 lg:px-24">
+        <div className="w-full max-w-md mx-auto space-y-6">
+          <div className="text-center md:text-left">
+            <Image 
+              src="/stackbot-logo.png" 
+              alt="StackBot" 
+              width={120} 
+              height={40} 
+              className="mx-auto md:mx-0 mb-6"
+            />
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isForgot ? "Reset Password" : isLogin ? "Welcome back" : "Create your account"}
             </h1>
             <p className="text-gray-600 mt-2">
-              {isForgot 
-                ? "Enter your email to receive a reset link" 
-                : isLogin 
-                  ? "Sign in to continue to StackBot" 
-                  : "Join StackBot today"}
+              {isForgot
+                ? "Enter your email and we'll send you a reset link."
+                : isLogin
+                ? "Sign in to continue to StackBot"
+                : "Join StackBot to start ordering"}
             </p>
           </div>
 
@@ -635,4 +649,4 @@ function LoginPageInner() {
       </div>
     </div>
   );
-}// cache bust 1771019902
+}
