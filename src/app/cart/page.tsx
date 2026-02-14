@@ -395,7 +395,7 @@ export default function CartPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-6 pb-24 lg:pb-6">
         <div className="lg:grid lg:grid-cols-3 lg:gap-8">
           {/* Cart Items - Grouped by Vendor */}
           <div className="lg:col-span-2 space-y-4 mb-6 lg:mb-0">
@@ -494,7 +494,7 @@ export default function CartPage() {
 
           {/* Order Summary & Checkout */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm p-6 sticky top-24">
+            <div className="bg-white rounded-xl shadow-sm p-6 lg:sticky lg:top-[140px] lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto">
               <h2 className="text-lg font-bold text-gray-900 mb-4">
                 {language === 'en' ? 'Order Summary' : 'Resumen del Pedido'}
               </h2>
