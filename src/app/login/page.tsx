@@ -332,7 +332,8 @@ function LoginPageInner() {
     try {
       if (isNative) {
         const result = await FirebaseAuthentication.signInWithApple();
-        const credential = OAuthProvider.credential({
+        const appleProvider = new OAuthProvider('apple.com');
+        const credential = appleProvider.credential({
           idToken: result.credential?.idToken,
           rawNonce: result.credential?.nonce,
         });
