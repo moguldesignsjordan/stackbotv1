@@ -412,7 +412,7 @@ function LoginPageInner() {
         <div className="w-full max-w-md mx-auto space-y-6">
           <div className="text-center md:text-left">
             <Image 
-              src="/stackbot-logo.png" 
+              src="/stackbot-logo-purp.png" 
               alt="StackBot" 
               width={120} 
               height={40} 
