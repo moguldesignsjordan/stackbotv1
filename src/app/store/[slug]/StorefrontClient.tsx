@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Store,
   ShoppingBag,
+  ShoppingCart,
   ChevronRight,
   Sparkles,
   Truck,
@@ -26,6 +27,7 @@ import ReviewsSection from "./ReviewsSection";
 import HeroVideo from "./HeroVideo";
 import BookingSection from "@/components/vendor/BookingSection";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useCart } from "@/contexts/CartContext";
 import { getStoreStatus, formatTime12h, type StoreHours, type DayOfWeek } from "@/lib/utils/store-hours";
 
 // Social Icons
@@ -138,6 +140,9 @@ export default function StorefrontClient({
   // ✅ Hook for Translation & Currency
   const { t, formatCurrency, language } = useLanguage();
   
+  // ✅ Cart state for floating button
+  const { itemCount } = useCart();
+  
   const hasSocialLinks = Object.values(socialLinks).some(Boolean);
   const hasServiceTypes = Object.values(serviceTypes).some(Boolean);
 
@@ -191,7 +196,6 @@ export default function StorefrontClient({
           <StorefrontActions 
             storeName={vendor.name} 
             storeSlug={storeSlug}
-            phone={vendor.phone}
           />
         </div>
 
@@ -598,30 +602,23 @@ export default function StorefrontClient({
         </aside>
       </section>
 
-      {/* MOBILE CONTACT BAR */}
-      <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-white border-t border-gray-100 p-4 z-50 shadow-lg">
-        <div className="flex gap-3">
-          {whatsappLink ? (
-            <a
-              href={whatsappLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#25D366] text-white rounded-xl font-medium"
-            >
-              <MessageCircle className="w-5 h-5" />
-              WhatsApp
-            </a>
-          ) : vendor.email ? (
-            <a
-              href={`mailto:${vendor.email}`}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#55529d] text-white rounded-xl font-medium"
-            >
-              <Mail className="w-5 h-5" />
-              Email
-            </a>
-          ) : null}
-        </div>
-      </div>
+      {/* FLOATING CART BUTTON - Mobile */}
+      {itemCount > 0 && (
+        <Link
+          href="/cart"
+          className="fixed bottom-6 left-4 right-4 lg:hidden bg-[#55529d] text-white rounded-full py-3.5 px-6 flex items-center justify-between shadow-lg shadow-[#55529d]/30 z-50 hover:bg-[#444287] transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
+            <span className="font-semibold text-sm">
+              {language === "es" ? "Ver carrito" : "View Cart"}
+            </span>
+          </div>
+          <span className="font-bold">{itemCount}</span>
+        </Link>
+      )}
     </div>
   );
 }

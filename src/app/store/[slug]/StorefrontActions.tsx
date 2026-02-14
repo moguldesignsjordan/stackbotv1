@@ -2,17 +2,16 @@
 "use client";
 
 import { useState } from "react";
-import { Share2, Heart, Check, Phone } from "lucide-react";
+import { Share2, Heart, Check } from "lucide-react";
 import { sanitizeSlug } from "@/lib/utils/slug";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface StorefrontActionsProps {
   storeName: string;
   storeSlug: string;
-  phone?: string;
 }
 
-export default function StorefrontActions({ storeName, storeSlug, phone }: StorefrontActionsProps) {
+export default function StorefrontActions({ storeName, storeSlug }: StorefrontActionsProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const { language } = useLanguage();
@@ -88,16 +87,6 @@ export default function StorefrontActions({ storeName, storeSlug, phone }: Store
         <Heart className={`w-4 h-4 ${saved ? "fill-current" : ""}`} />
         <span className="hidden sm:inline">{saved ? savedText : saveText}</span>
       </button>
-
-      {/* Phone Button - Mobile Only */}
-      {phone && (
-        <a
-          href={`tel:${phone}`}
-          className="sm:hidden inline-flex items-center justify-center bg-white/15 backdrop-blur-md text-white p-2.5 rounded-full hover:bg-white/25 transition border border-white/20"
-        >
-          <Phone className="w-4 h-4" />
-        </a>
-      )}
     </div>
   );
 }
