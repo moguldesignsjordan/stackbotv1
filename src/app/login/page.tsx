@@ -18,6 +18,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase/config";
 import Image from "next/image";
 import Link from "next/link";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 // Capacitor imports
 import { Capacitor } from "@capacitor/core";
@@ -29,23 +30,64 @@ const isValidEmail = (email: string) => {
   return emailRegex.test(email);
 };
 
-// Error message mapping
-const getAuthErrorMessage = (errorCode: string): string => {
-  const errorMessages: Record<string, string> = {
-    "auth/invalid-email": "Please enter a valid email address.",
-    "auth/user-disabled": "This account has been disabled.",
-    "auth/user-not-found": "No account found with this email.",
-    "auth/wrong-password": "Incorrect password. Please try again.",
-    "auth/invalid-credential": "Invalid email or password.",
-    "auth/email-already-in-use": "An account already exists with this email.",
-    "auth/weak-password": "Password must be at least 6 characters.",
-    "auth/network-request-failed": "Network error. Please check your connection.",
-    "auth/too-many-requests": "Too many attempts. Please try again later.",
-    "auth/popup-closed-by-user": "Sign-in was cancelled.",
-    "auth/cancelled-popup-request": "Sign-in was cancelled.",
-    "auth/operation-not-allowed": "This sign-in method is not enabled.",
+// Error message mapping - Spanish first
+const getAuthErrorMessage = (errorCode: string, lang: 'en' | 'es'): string => {
+  const errorMessages: Record<string, { es: string; en: string }> = {
+    "auth/invalid-email": {
+      es: "Por favor ingresa un correo electrónico válido.",
+      en: "Please enter a valid email address."
+    },
+    "auth/user-disabled": {
+      es: "Esta cuenta ha sido deshabilitada.",
+      en: "This account has been disabled."
+    },
+    "auth/user-not-found": {
+      es: "No se encontró una cuenta con este correo.",
+      en: "No account found with this email."
+    },
+    "auth/wrong-password": {
+      es: "Contraseña incorrecta. Inténtalo de nuevo.",
+      en: "Incorrect password. Please try again."
+    },
+    "auth/invalid-credential": {
+      es: "Correo o contraseña inválidos.",
+      en: "Invalid email or password."
+    },
+    "auth/email-already-in-use": {
+      es: "Ya existe una cuenta con este correo.",
+      en: "An account already exists with this email."
+    },
+    "auth/weak-password": {
+      es: "La contraseña debe tener al menos 6 caracteres.",
+      en: "Password must be at least 6 characters."
+    },
+    "auth/network-request-failed": {
+      es: "Error de red. Verifica tu conexión.",
+      en: "Network error. Please check your connection."
+    },
+    "auth/too-many-requests": {
+      es: "Demasiados intentos. Inténtalo más tarde.",
+      en: "Too many attempts. Please try again later."
+    },
+    "auth/popup-closed-by-user": {
+      es: "Inicio de sesión cancelado.",
+      en: "Sign-in was cancelled."
+    },
+    "auth/cancelled-popup-request": {
+      es: "Inicio de sesión cancelado.",
+      en: "Sign-in was cancelled."
+    },
+    "auth/operation-not-allowed": {
+      es: "Este método de inicio de sesión no está habilitado.",
+      en: "This sign-in method is not enabled."
+    },
   };
-  return errorMessages[errorCode] || "An error occurred. Please try again.";
+  
+  const message = errorMessages[errorCode];
+  if (message) return message[lang];
+  return lang === 'es' 
+    ? "Ocurrió un error. Inténtalo de nuevo."
+    : "An error occurred. Please try again.";
 };
 
 export default function LoginPage() {
@@ -57,11 +99,15 @@ export default function LoginPage() {
 }
 
 function LoadingScreen() {
+  const { language } = useLanguage();
+  
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="text-center">
         <div className="w-12 h-12 border-4 border-[#55529d] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-gray-600">Loading...</p>
+        <p className="text-gray-600">
+          {language === 'en' ? 'Loading...' : 'Cargando...'}
+        </p>
       </div>
     </div>
   );
@@ -72,6 +118,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const intent = searchParams.get("intent");
   const redirect = searchParams.get("redirect");
+  const { language, setLanguage } = useLanguage();
 
   const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [name, setName] = useState("");
@@ -97,13 +144,11 @@ function LoginPageInner() {
     setSuccess("");
   }, [mode]);
 
-  // MODIFIED: Accepts explicitName to ensure we save the name before redirecting
   const handleRoleBasedRedirect = async (user: User, isNewUser = false, explicitName?: string) => {
     try {
       const token = await getIdTokenResult(user, true);
       const role = token.claims.role as string | undefined;
 
-      // 1. Check for Special Roles
       if (intent === "vendor") {
         router.push("/vendor-signup");
         return;
@@ -117,7 +162,6 @@ function LoginPageInner() {
         return;
       }
 
-      // 2. CUSTOMER LOGIC - BYPASS ONBOARDING
       const userRef = doc(db, "customers", user.uid);
       const userSnap = await getDoc(userRef);
 
@@ -140,7 +184,6 @@ function LoginPageInner() {
         await setDoc(userRef, { onboardingCompleted: true }, { merge: true });
       }
 
-      // 3. Redirect DIRECTLY to dashboard/account
       router.push(redirect || "/account");
       
     } catch (e) {
@@ -152,11 +195,15 @@ function LoginPageInner() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError("Please fill in all fields.");
+      setError(language === 'en' 
+        ? "Please fill in all fields."
+        : "Por favor completa todos los campos.");
       return;
     }
     if (!isValidEmail(email)) {
-      setError("Please enter a valid email address.");
+      setError(language === 'en' 
+        ? "Please enter a valid email address."
+        : "Por favor ingresa un correo electrónico válido.");
       return;
     }
 
@@ -168,7 +215,7 @@ function LoginPageInner() {
       await handleRoleBasedRedirect(cred.user, false);
     } catch (err: any) {
       console.error("Login error:", err);
-      setError(getAuthErrorMessage(err.code));
+      setError(getAuthErrorMessage(err.code, language));
     } finally {
       setLoading(false);
     }
@@ -178,19 +225,27 @@ function LoginPageInner() {
     e.preventDefault();
     
     if (!email || !password || !confirmPassword) {
-      setError("Please fill in all fields.");
+      setError(language === 'en' 
+        ? "Please fill in all fields."
+        : "Por favor completa todos los campos.");
       return;
     }
     if (!isValidEmail(email)) {
-      setError("Please enter a valid email address.");
+      setError(language === 'en' 
+        ? "Please enter a valid email address."
+        : "Por favor ingresa un correo electrónico válido.");
       return;
     }
     if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+      setError(language === 'en' 
+        ? "Password must be at least 6 characters."
+        : "La contraseña debe tener al menos 6 caracteres.");
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(language === 'en' 
+        ? "Passwords do not match."
+        : "Las contraseñas no coinciden.");
       return;
     }
 
@@ -207,7 +262,7 @@ function LoginPageInner() {
       await handleRoleBasedRedirect(cred.user, true, name.trim());
     } catch (err: any) {
       console.error("Signup error:", err);
-      setError(getAuthErrorMessage(err.code));
+      setError(getAuthErrorMessage(err.code, language));
     } finally {
       setLoading(false);
     }
@@ -217,185 +272,80 @@ function LoginPageInner() {
     e.preventDefault();
     
     if (!email) {
-      setError("Please enter your email address.");
+      setError(language === 'en' 
+        ? "Please enter your email address."
+        : "Por favor ingresa tu correo electrónico.");
       return;
     }
     if (!isValidEmail(email)) {
-      setError("Please enter a valid email address.");
+      setError(language === 'en' 
+        ? "Please enter a valid email address."
+        : "Por favor ingresa un correo electrónico válido.");
       return;
     }
 
     setLoading(true);
     setError("");
+    setSuccess("");
     
     try {
       await sendPasswordResetEmail(auth, email);
-      setSuccess("Password reset email sent! Check your inbox.");
-      setTimeout(() => setMode("login"), 3000);
+      setSuccess(language === 'en' 
+        ? "Password reset email sent! Check your inbox."
+        : "¡Correo de restablecimiento enviado! Revisa tu bandeja.");
+      setEmail("");
     } catch (err: any) {
       console.error("Password reset error:", err);
-      setError(getAuthErrorMessage(err.code));
+      setError(getAuthErrorMessage(err.code, language));
     } finally {
       setLoading(false);
     }
   };
 
-  // ──────────────────────────────────────────────────────────────
-  // Google Sign-In — 3 paths:
-  //   iOS    → native @capacitor-firebase/authentication (works)
-  //   Android → @codetrix-studio/capacitor-google-auth (legacy SDK, bypasses broken Credential Manager)
-  //   Web    → Firebase JS SDK signInWithPopup (works)
-  // ──────────────────────────────────────────────────────────────
   const handleGoogleAuth = async () => {
     setSocialLoading("google");
     setError("");
     
     try {
-      let user: User;
-      let isNewUser = false;
-      let googleName = "";
-
-      const isIOS = isNative && /iPad|iPhone|iPod/i.test(navigator.userAgent);
-      const isAndroid = isNative && !isIOS;
-
-      if (isIOS) {
-        // ── iOS: Native Capacitor Firebase plugin ──
-        console.log("Google Sign-In: iOS native path");
+      if (isNative) {
         const result = await FirebaseAuthentication.signInWithGoogle();
-        
-        if (!result.credential?.idToken) {
-          throw new Error("No credential received from Google Sign-In");
-        }
-        
-        const credential = GoogleAuthProvider.credential(result.credential.idToken);
-        const authResult = await signInWithCredential(auth, credential);
-        
-        user = authResult.user;
-        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
-        if (result.user?.displayName) googleName = result.user.displayName;
-
-      } else if (isAndroid) {
-        // ── Android: Legacy Google Sign-In SDK via capacitor-google-auth ──
-        console.log("Google Sign-In: Android legacy SDK path");
-        const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
-        
-        // Initialize on first use (safe to call multiple times)
-        await GoogleAuth.initialize({
-          clientId: "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
-          scopes: ["profile", "email"],
-          grantOfflineAccess: true,
-        });
-        
-        const googleUser = await GoogleAuth.signIn();
-        
-        if (!googleUser.authentication?.idToken) {
-          throw new Error("No ID token received from Google Sign-In");
-        }
-        
-        // Exchange Google ID token for Firebase credential
-        const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
-        const authResult = await signInWithCredential(auth, credential);
-        
-        user = authResult.user;
-        const userDoc = await getDoc(doc(db, "customers", user.uid));
-        isNewUser = !userDoc.exists();
-        if (googleUser.name) googleName = googleUser.name;
-        if (!googleName && googleUser.givenName) {
-          googleName = `${googleUser.givenName} ${googleUser.familyName || ""}`.trim();
-        }
-
+        const credential = GoogleAuthProvider.credential(result.credential?.idToken);
+        const userCred = await signInWithCredential(auth, credential);
+        await handleRoleBasedRedirect(userCred.user, false);
       } else {
-        // ── Web: Firebase JS SDK popup ──
-        console.log("Google Sign-In: Web popup path");
         const provider = new GoogleAuthProvider();
-        provider.addScope("email");
-        provider.addScope("profile");
-        
         const result = await signInWithPopup(auth, provider);
-        user = result.user;
-        
-        const userDoc = await getDoc(doc(db, "customers", user.uid));
-        isNewUser = !userDoc.exists();
-        if (user.displayName) googleName = user.displayName;
+        await handleRoleBasedRedirect(result.user, false);
       }
-      
-      await handleRoleBasedRedirect(user, isNewUser, googleName);
     } catch (err: any) {
-      console.error("Google Auth Error:", err);
-      if (err.message?.includes("canceled") || 
-          err.message?.includes("cancelled") ||
-          err.message?.includes("popup_closed") ||
-          err.code === "auth/popup-closed-by-user") {
-        setSocialLoading(null);
-        return;
-      }
-      setError(getAuthErrorMessage(err.code) || err.message || "Google sign-in failed");
+      console.error("Google auth error:", err);
+      setError(getAuthErrorMessage(err.code, language));
     } finally {
       setSocialLoading(null);
     }
   };
 
-  // ──────────────────────────────────────────────────────────────
-  // Apple Sign-In — native on both iOS & Android, popup on web
-  // ──────────────────────────────────────────────────────────────
   const handleAppleAuth = async () => {
     setSocialLoading("apple");
     setError("");
     
     try {
-      let user: User;
-      let isNewUser = false;
-      let capturedName = ""; 
-
       if (isNative) {
-        console.log("Starting native Apple Sign-In...");
         const result = await FirebaseAuthentication.signInWithApple();
-        
-        if (!result.credential?.idToken) {
-          throw new Error("No credential received from Apple Sign-In");
-        }
-        
-        const appleUser = result.user as any;
-        if (appleUser?.name?.givenName) {
-          capturedName = `${appleUser.name.givenName} ${appleUser.name.familyName || ''}`.trim();
-        }
-
-        const idToken = result.credential.idToken;
-        const rawNonce = result.credential.nonce;
-        
-        const provider = new OAuthProvider('apple.com');
-        const credential = provider.credential({
-          idToken: idToken,
-          rawNonce: rawNonce,
+        const credential = OAuthProvider.credential({
+          idToken: result.credential?.idToken,
+          rawNonce: result.credential?.nonce,
         });
-        
-        const authResult = await signInWithCredential(auth, credential);
-        user = authResult.user;
-        isNewUser = result.additionalUserInfo?.isNewUser ?? false;
-
+        const userCred = await signInWithCredential(auth, credential);
+        await handleRoleBasedRedirect(userCred.user, false);
       } else {
         const provider = new OAuthProvider('apple.com');
-        provider.addScope('email');
-        provider.addScope('name');
-        
         const result = await signInWithPopup(auth, provider);
-        user = result.user;
-        
-        const userDoc = await getDoc(doc(db, "customers", user.uid));
-        isNewUser = !userDoc.exists();
-        if (user.displayName) capturedName = user.displayName;
+        await handleRoleBasedRedirect(result.user, false);
       }
-      
-      await handleRoleBasedRedirect(user, isNewUser, capturedName);
     } catch (err: any) {
-      console.error("Apple Auth Error:", err);
-      if (err.message?.includes("canceled") || 
-          err.message?.includes("cancelled") ||
-          err.code === "auth/popup-closed-by-user") {
-        setSocialLoading(null);
-        return;
-      }
-      setError(getAuthErrorMessage(err.code) || err.message || "Apple sign-in failed");
+      console.error("Apple auth error:", err);
+      setError(getAuthErrorMessage(err.code, language));
     } finally {
       setSocialLoading(null);
     }
@@ -408,28 +358,52 @@ function LoginPageInner() {
 
   return (
     <div className="min-h-screen grid md:grid-cols-2">
-      <div className="flex flex-col justify-center px-6 py-12 md:px-16 lg:px-24">
-        <div className="w-full max-w-md mx-auto space-y-6">
-          <div className="text-center md:text-left">
-            <Image 
-              src="/stackbot-logo-purp.png" 
-              alt="StackBot" 
-              width={120} 
-              height={40} 
-              className="mx-auto md:mx-0 mb-6"
-            />
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isForgot ? "Reset Password" : isLogin ? "Welcome back" : "Create your account"}
+      <div className="flex flex-col items-center justify-center p-6 bg-white">
+        <div className="w-full max-w-md space-y-6">
+          {/* Logo */}
+          <div className="text-center">
+            <Link href="/" className="inline-block">
+              <Image 
+                src="/stackbot-logo-purp.png" 
+                alt="StackBot" 
+                width={180} 
+                height={60} 
+                className="mx-auto mb-2"
+              />
+            </Link>
+          </div>
+
+          {/* Language Toggle - Top Right */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-sm"
+              title={language === 'en' ? 'Cambiar a Español' : 'Switch to English'}
+            >
+              <span className="text-base">{language === 'en' ? '🇺🇸' : '🇩🇴'}</span>
+              <span className="font-medium text-gray-700">{language === 'en' ? 'EN' : 'ES'}</span>
+            </button>
+          </div>
+
+          {/* Title */}
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              {isForgot 
+                ? (language === 'en' ? 'Reset Password' : 'Restablecer Contraseña')
+                : isLogin 
+                  ? (language === 'en' ? 'Welcome Back' : 'Bienvenido de Nuevo')
+                  : (language === 'en' ? 'Create Account' : 'Crear Cuenta')}
             </h1>
-            <p className="text-gray-600 mt-2">
-              {isForgot
-                ? "Enter your email and we'll send you a reset link."
-                : isLogin
-                ? "Sign in to continue to StackBot"
-                : "Join StackBot to start ordering"}
+            <p className="text-gray-500">
+              {isForgot 
+                ? (language === 'en' ? 'Enter your email to reset your password' : 'Ingresa tu correo para restablecer tu contraseña')
+                : isLogin 
+                  ? (language === 'en' ? 'Sign in to continue' : 'Inicia sesión para continuar')
+                  : (language === 'en' ? 'Sign up to get started' : 'Regístrate para comenzar')}
             </p>
           </div>
 
+          {/* Error/Success Messages */}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
               <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -455,14 +429,14 @@ function LoginPageInner() {
             {isSignup && (
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
+                  {language === 'en' ? 'Full Name' : 'Nombre Completo'}
                 </label>
                 <input
                   id="name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder={language === 'en' ? 'John Doe' : 'Juan Pérez'}
                   disabled={isAnyLoading}
                   className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -471,14 +445,14 @@ function LoginPageInner() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
+                {language === 'en' ? 'Email Address' : 'Correo Electrónico'}
               </label>
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={language === 'en' ? 'you@example.com' : 'tu@ejemplo.com'}
                 disabled={isAnyLoading}
                 autoComplete="email"
                 className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-[#55529d] focus:border-transparent outline-none transition disabled:bg-gray-100 disabled:cursor-not-allowed"
@@ -488,7 +462,7 @@ function LoginPageInner() {
             {!isForgot && (
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                  Password
+                  {language === 'en' ? 'Password' : 'Contraseña'}
                 </label>
                 <input
                   id="password"
@@ -506,7 +480,7 @@ function LoginPageInner() {
             {isSignup && (
               <div>
                 <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
-                  Confirm Password
+                  {language === 'en' ? 'Confirm Password' : 'Confirmar Contraseña'}
                 </label>
                 <input
                   id="confirmPassword"
@@ -529,7 +503,7 @@ function LoginPageInner() {
                   disabled={isAnyLoading}
                   className="text-sm text-[#55529d] hover:underline disabled:opacity-50"
                 >
-                  Forgot password?
+                  {language === 'en' ? 'Forgot password?' : '¿Olvidaste tu contraseña?'}
                 </button>
               </div>
             )}
@@ -542,14 +516,14 @@ function LoginPageInner() {
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Processing...</span>
+                  <span>{language === 'en' ? 'Processing...' : 'Procesando...'}</span>
                 </>
               ) : isForgot ? (
-                "Send Reset Link"
+                language === 'en' ? 'Send Reset Link' : 'Enviar Enlace'
               ) : isLogin ? (
-                "Sign In"
+                language === 'en' ? 'Sign In' : 'Iniciar Sesión'
               ) : (
-                "Create Account"
+                language === 'en' ? 'Create Account' : 'Crear Cuenta'
               )}
             </button>
           </form>
@@ -560,7 +534,7 @@ function LoginPageInner() {
               disabled={isAnyLoading}
               className="w-full text-[#55529d] font-semibold hover:underline disabled:opacity-50"
             >
-              ← Back to Sign In
+              {language === 'en' ? '← Back to Sign In' : '← Volver a Iniciar Sesión'}
             </button>
           )}
 
@@ -571,7 +545,9 @@ function LoginPageInner() {
                   <div className="w-full border-t border-gray-200" />
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-white text-gray-500">or continue with</span>
+                  <span className="px-4 bg-white text-gray-500">
+                    {language === 'en' ? 'or continue with' : 'o continuar con'}
+                  </span>
                 </div>
               </div>
 
@@ -589,7 +565,7 @@ function LoginPageInner() {
                       <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
                     </svg>
                   )}
-                  <span>Continue with Apple</span>
+                  <span>{language === 'en' ? 'Continue with Apple' : 'Continuar con Apple'}</span>
                 </button>
 
                 <button
@@ -603,7 +579,7 @@ function LoginPageInner() {
                   ) : (
                     <Image src="/google-icon.png" alt="Google" width={20} height={20} />
                   )}
-                  <span>Continue with Google</span>
+                  <span>{language === 'en' ? 'Continue with Google' : 'Continuar con Google'}</span>
                 </button>
               </div>
             </>
@@ -616,17 +592,25 @@ function LoginPageInner() {
                 disabled={isAnyLoading}
                 className="text-[#55529d] font-semibold hover:underline disabled:opacity-50"
               >
-                {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+                {isLogin 
+                  ? (language === 'en' ? "Don't have an account? Sign Up" : "¿No tienes cuenta? Regístrate")
+                  : (language === 'en' ? "Already have an account? Sign In" : "¿Ya tienes cuenta? Inicia Sesión")}
               </button>
             </div>
           )}
 
           {isSignup && (
             <p className="text-xs text-center text-gray-500 mt-4">
-              By creating an account, you agree to our{" "}
-              <Link href="/terms" className="text-[#55529d] hover:underline">Terms of Service</Link>
-              {" "}and{" "}
-              <Link href="/privacy" className="text-[#55529d] hover:underline">Privacy Policy</Link>
+              {language === 'en' 
+                ? "By creating an account, you agree to our "
+                : "Al crear una cuenta, aceptas nuestros "}
+              <Link href="/terms" className="text-[#55529d] hover:underline">
+                {language === 'en' ? 'Terms of Service' : 'Términos de Servicio'}
+              </Link>
+              {language === 'en' ? " and " : " y "}
+              <Link href="/privacy" className="text-[#55529d] hover:underline">
+                {language === 'en' ? 'Privacy Policy' : 'Política de Privacidad'}
+              </Link>
             </p>
           )}
         </div>
@@ -641,10 +625,12 @@ function LoginPageInner() {
           className="mb-8"
         />
         <h2 className="text-white text-3xl font-bold text-center mb-4">
-          Shop Local, Delivered Fast
+          {language === 'en' ? 'Shop Local, Delivered Fast' : 'Compra Local, Entrega Rápida'}
         </h2>
         <p className="text-white/80 text-center max-w-sm">
-          Discover amazing local vendors and get your favorites delivered right to your door.
+          {language === 'en' 
+            ? 'Discover amazing local vendors and get your favorites delivered right to your door.'
+            : 'Descubre increíbles vendedores locales y recibe tus favoritos en tu puerta.'}
         </p>
       </div>
     </div>
