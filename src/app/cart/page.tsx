@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useInAppPayment } from '@/hooks/useInAppPayment';
+import { CheckoutModal } from '@/components/paymets/CheckoutModal';
 import { SavedAddress } from '@/lib/types/address';
 import { CartItem } from '@/lib/types/order';
 import { doc, getDoc } from 'firebase/firestore';
@@ -55,16 +57,39 @@ export default function CartPage() {
     deliveryFee,
     tax,
     total,
+    vendorGroups,
+    vendorCount,
   } = useCart();
 
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  // In-app payment hook
+  const {
+    isLoading: isPaymentLoading,
+    error: paymentError,
+    paymentData,
+    showPaymentSheet,
+    vendorName: paymentVendorName,
+    createPaymentIntent,
+    handlePaymentSuccess,
+    handlePaymentCancel,
+    handlePaymentError,
+    reset: resetPayment,
+  } = useInAppPayment({
+    onSuccess: (orderId, trackingPin) => {
+      clearCart();
+      router.push(`/order-confirmation?order_id=${orderId}`);
+    },
+    onError: (error) => {
+      setError(error);
+    },
+  });
+
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Fulfillment type (delivery vs pickup)
   const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>('delivery');
-  const [vendorLocation, setVendorLocation] = useState<VendorLocation | null>(null);
-  const [loadingVendorLocation, setLoadingVendorLocation] = useState(false);
+  const [vendorLocations, setVendorLocations] = useState<Record<string, VendorLocation>>({});
+  const [loadingVendorLocations, setLoadingVendorLocations] = useState(false);
 
   // Saved addresses
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
@@ -79,7 +104,7 @@ export default function CartPage() {
     phone: '',
   });
 
-  // Manual Delivery Address Form State (only if no saved address)
+  // Manual Delivery Address Form State
   const [manualAddress, setManualAddress] = useState({
     street: '',
     city: '',
@@ -90,44 +115,51 @@ export default function CartPage() {
   });
 
   const [notes, setNotes] = useState('');
-
-  // Item-specific notes
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
 
   // Calculate adjusted totals based on fulfillment type
   const TAX_PERCENT = 0.18;
+  const DELIVERY_FEE_PER_VENDOR = 1.99;
   const adjustedDeliveryFee = fulfillmentType === 'pickup' ? 0 : deliveryFee;
   const adjustedTax = (subtotal + adjustedDeliveryFee) * TAX_PERCENT;
   const adjustedTotal = subtotal + adjustedDeliveryFee + adjustedTax;
 
-  // Fetch vendor location when cart has items
+  // Sync payment errors to local error state
   useEffect(() => {
-    const fetchVendorLocation = async () => {
-      if (!cart.vendorId) return;
+    if (paymentError) setError(paymentError);
+  }, [paymentError]);
 
-      setLoadingVendorLocation(true);
+  // Fetch vendor locations for pickup
+  useEffect(() => {
+    const fetchVendorLocations = async () => {
+      if (vendorGroups.length === 0) return;
+
+      setLoadingVendorLocations(true);
       try {
-        const vendorRef = doc(db, 'vendors', cart.vendorId);
-        const vendorSnap = await getDoc(vendorRef);
-
-        if (vendorSnap.exists()) {
-          const data = vendorSnap.data();
-          setVendorLocation({
-            address: data.address || data.business_address || '',
-            coordinates: data.coordinates,
-          });
+        const locations: Record<string, VendorLocation> = {};
+        for (const group of vendorGroups) {
+          const vendorRef = doc(db, 'vendors', group.vendorId);
+          const vendorSnap = await getDoc(vendorRef);
+          if (vendorSnap.exists()) {
+            const data = vendorSnap.data();
+            locations[group.vendorId] = {
+              address: data.address || data.business_address || '',
+              coordinates: data.coordinates,
+            };
+          }
         }
+        setVendorLocations(locations);
       } catch (err) {
-        console.error('Failed to fetch vendor location:', err);
+        console.error('Failed to fetch vendor locations:', err);
       } finally {
-        setLoadingVendorLocation(false);
+        setLoadingVendorLocations(false);
       }
     };
 
-    fetchVendorLocation();
-  }, [cart.vendorId]);
+    fetchVendorLocations();
+  }, [vendorGroups.map(g => g.vendorId).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch saved addresses when user is authenticated
+  // Fetch saved addresses
   useEffect(() => {
     const fetchAddresses = async () => {
       if (!user) return;
@@ -142,8 +174,6 @@ export default function CartPage() {
         if (res.ok) {
           const data = await res.json();
           setSavedAddresses(data.addresses || []);
-
-          // Auto-select pinned address
           if (data.pinnedAddressId) {
             setSelectedAddressId(data.pinnedAddressId);
           } else if (data.addresses?.length > 0) {
@@ -159,7 +189,6 @@ export default function CartPage() {
 
     if (user) {
       fetchAddresses();
-      // Pre-fill customer info
       setCustomerInfo({
         name: user.displayName || '',
         email: user.email || '',
@@ -170,7 +199,6 @@ export default function CartPage() {
 
   const handleProceedToCheckout = () => {
     if (!user) {
-      // Redirect to login with cart as redirect destination
       router.push('/login?redirect=/cart');
       return;
     }
@@ -182,13 +210,17 @@ export default function CartPage() {
     return savedAddresses.find((a) => a.id === selectedAddressId);
   };
 
-  const openInMaps = () => {
-    if (!vendorLocation?.coordinates) return;
-    const { lat, lng } = vendorLocation.coordinates;
+  const openInMaps = (vendorId: string) => {
+    const loc = vendorLocations[vendorId];
+    if (!loc?.coordinates) return;
+    const { lat, lng } = loc.coordinates;
     const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     window.open(url, '_blank');
   };
 
+  // =========================================================================
+  // IN-APP PAYMENT CHECKOUT (no redirect!)
+  // =========================================================================
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -207,11 +239,10 @@ export default function CartPage() {
       return;
     }
 
-    // Validate address only for delivery
+    // Validate address for delivery
     if (fulfillmentType === 'delivery') {
       const selectedAddress = getSelectedAddress();
       if (!selectedAddress && !useNewAddress) {
-        // No address selected and not using new address
         if (savedAddresses.length === 0) {
           setUseNewAddress(true);
           setError('Please enter a delivery address');
@@ -220,7 +251,6 @@ export default function CartPage() {
         setError('Please select a delivery address');
         return;
       }
-
       if (useNewAddress) {
         if (!manualAddress.street.trim()) {
           setError('Please enter a street address');
@@ -233,65 +263,40 @@ export default function CartPage() {
       }
     }
 
-    setIsCheckingOut(true);
-
-    try {
-      const token = await user?.getIdToken();
-      if (!token) {
-        throw new Error('Authentication required');
-      }
-
-      // Build delivery address from selected or manual (or null for pickup)
-      let deliveryAddress = null;
-      if (fulfillmentType === 'delivery') {
-        const selectedAddress = getSelectedAddress();
-        deliveryAddress = selectedAddress
-          ? {
-              street: selectedAddress.street,
-              city: selectedAddress.city,
-              state: selectedAddress.state || '',
-              postalCode: selectedAddress.postalCode,
-              country: selectedAddress.country,
-              instructions: selectedAddress.instructions || '',
-            }
-          : manualAddress;
-      }
-
-      // Attach item notes to items
-      const itemsWithNotes = cart.items.map((item: CartItem) => ({
-        ...item,
-        notes: itemNotes[item.productId] || '',
-      }));
-
-      const response = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          items: itemsWithNotes,
-          customerInfo,
-          deliveryAddress,
-          fulfillmentType,
-          notes,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create checkout session');
-      }
-
-      // Redirect to Stripe Checkout
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-      setIsCheckingOut(false);
+    // Build delivery address
+    let deliveryAddress = null;
+    if (fulfillmentType === 'delivery') {
+      const selectedAddress = getSelectedAddress();
+      deliveryAddress = selectedAddress
+        ? {
+            street: selectedAddress.street,
+            city: selectedAddress.city,
+            state: selectedAddress.state || '',
+            postalCode: selectedAddress.postalCode,
+            country: selectedAddress.country,
+            instructions: selectedAddress.instructions || '',
+          }
+        : manualAddress;
     }
+
+    // Attach item notes
+    const itemsWithNotes = cart.items.map((item: CartItem) => ({
+      ...item,
+      notes: itemNotes[item.productId] || '',
+    }));
+
+    // Build vendor name for display
+    const displayVendorName = vendorGroups.map((g) => g.vendorName).join(', ');
+
+    // Create PaymentIntent (stays in-app — no redirect!)
+    await createPaymentIntent({
+      items: itemsWithNotes,
+      customerInfo,
+      deliveryAddress,
+      fulfillmentType,
+      notes,
+      vendorName: displayVendorName,
+    });
   };
 
   // Loading state
@@ -331,6 +336,23 @@ export default function CartPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* ================================================================
+          IN-APP PAYMENT SHEET MODAL
+          Shows Stripe Elements directly in-app — no browser redirect
+      ================================================================ */}
+      {showPaymentSheet && paymentData && (
+        <CheckoutModal
+          clientSecret={paymentData.clientSecret}
+          orderId={paymentData.orderId}
+          trackingPin={paymentData.trackingPin}
+          total={paymentData.total}
+          vendorName={paymentVendorName}
+          onSuccess={handlePaymentSuccess}
+          onCancel={handlePaymentCancel}
+          onError={handlePaymentError}
+        />
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50 pt-[75px]">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -343,7 +365,7 @@ export default function CartPage() {
                 <ArrowLeft className="w-6 h-6" />
               </Link>
               <h1 className="text-xl font-bold text-gray-900">
-                {language === 'en' 
+                {language === 'en'
                   ? `Your Cart (${itemCount} ${itemCount === 1 ? 'item' : 'items'})`
                   : `Tu Carrito (${itemCount} ${itemCount === 1 ? 'artículo' : 'artículos'})`
                 }
@@ -351,20 +373,19 @@ export default function CartPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Language Toggle */}
               <button
                 onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
                 title={language === 'en' ? 'Cambiar a Español' : 'Switch to English'}
               >
                 <span className="text-sm">{language === 'en' ? '🇺🇸' : '🇩🇴'}</span>
-                <span className="text-xs font-medium text-gray-600">{language === 'en' ? 'USD' : 'DOP'}</span>
+                <span className="text-xs font-medium text-gray-600">{language === 'en' ? 'EN' : 'ES'}</span>
               </button>
 
               {cart.items.length > 0 && (
                 <button
                   onClick={clearCart}
-                  className="text-sm text-red-500 hover:text-red-600"
+                  className="text-sm text-red-500 hover:text-red-700 font-medium"
                 >
                   {language === 'en' ? 'Clear Cart' : 'Vaciar'}
                 </button>
@@ -376,81 +397,97 @@ export default function CartPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         <div className="lg:grid lg:grid-cols-3 lg:gap-8">
-          {/* Cart Items */}
+          {/* Cart Items - Grouped by Vendor */}
           <div className="lg:col-span-2 space-y-4 mb-6 lg:mb-0">
-            {/* Vendor Info */}
-            <div className="bg-white rounded-xl shadow-sm p-4">
-              <p className="text-sm text-gray-500">
-                {language === 'en' ? 'Ordering from' : 'Ordenando de'}{' '}
-                <span className="font-medium text-gray-900">{cart.vendorName}</span>
-              </p>
-            </div>
+            {/* Multi-vendor info badge */}
+            {vendorCount > 1 && (
+              <div className="bg-[#55529d]/5 border border-[#55529d]/20 rounded-xl p-3 flex items-center gap-2">
+                <Store className="w-4 h-4 text-[#55529d]" />
+                <p className="text-sm text-[#55529d] font-medium">
+                  {language === 'en'
+                    ? `Ordering from ${vendorCount} vendors — each will be a separate order`
+                    : `Ordenando de ${vendorCount} tiendas — cada una será un pedido separado`
+                  }
+                </p>
+              </div>
+            )}
 
-            {/* Items */}
-            {cart.items.map((item: CartItem) => (
-              <div
-                key={item.productId}
-                className="bg-white rounded-xl shadow-sm p-4"
-              >
-                <div className="flex gap-4">
-                  {item.imageUrl && (
-                    <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-100">
-                      <Image
-                        src={item.imageUrl}
-                        alt={item.name}
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                  )}
+            {/* Vendor Groups */}
+            {vendorGroups.map((group) => (
+              <div key={group.vendorId} className="space-y-3">
+                {/* Vendor Header */}
+                <div className="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Store className="w-4 h-4 text-[#55529d]" />
+                    <p className="text-sm font-medium text-gray-900">{group.vendorName}</p>
+                  </div>
+                  <p className="text-sm text-gray-500">{formatCurrency(group.subtotal)}</p>
+                </div>
 
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-gray-900 truncate">{item.name}</h3>
-                    <p className="text-[#55529d] font-semibold">{formatCurrency(item.price)}</p>
+                {/* Items for this vendor */}
+                {group.items.map((item: CartItem) => (
+                  <div key={item.productId} className="bg-white rounded-xl shadow-sm p-4">
+                    <div className="flex gap-4">
+                      {item.imageUrl && (
+                        <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-100">
+                          <Image
+                            src={item.imageUrl}
+                            alt={item.name}
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      )}
 
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex items-center gap-2 bg-gray-100 rounded-lg">
-                        <button
-                          onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                          className="p-2 text-gray-600 hover:text-gray-900"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                          className="p-2 text-gray-600 hover:text-gray-900"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-gray-900 truncate">{item.name}</h3>
+                        <p className="text-[#55529d] font-semibold">{formatCurrency(item.price)}</p>
+
+                        <div className="flex items-center justify-between mt-2">
+                          <div className="flex items-center gap-2 bg-gray-100 rounded-lg">
+                            <button
+                              onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                              className="p-2 text-gray-600 hover:text-gray-900"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <span className="w-8 text-center font-medium">{item.quantity}</span>
+                            <button
+                              onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                              className="p-2 text-gray-600 hover:text-gray-900"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={() => removeItem(item.productId)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
 
-                      <button
-                        onClick={() => removeItem(item.productId)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+                      <div className="text-right shrink-0">
+                        <p className="font-semibold text-gray-900">
+                          {formatCurrency(item.price * item.quantity)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Item Notes */}
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <input
+                        type="text"
+                        placeholder={language === 'en' ? 'Special instructions (e.g., no onions)' : 'Instrucciones especiales (ej. sin cebolla)'}
+                        value={itemNotes[item.productId] || ''}
+                        onChange={(e) => setItemNotes({ ...itemNotes, [item.productId]: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent placeholder:text-gray-400"
+                      />
                     </div>
                   </div>
-
-                  <div className="text-right shrink-0">
-                    <p className="font-semibold text-gray-900">
-                      {formatCurrency(item.price * item.quantity)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Item Notes */}
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <input
-                    type="text"
-                    placeholder={language === 'en' ? 'Special instructions (e.g., no onions)' : 'Instrucciones especiales (ej. sin cebolla)'}
-                    value={itemNotes[item.productId] || ''}
-                    onChange={(e) => setItemNotes({ ...itemNotes, [item.productId]: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent placeholder:text-gray-400"
-                  />
-                </div>
+                ))}
               </div>
             ))}
           </div>
@@ -500,7 +537,7 @@ export default function CartPage() {
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm text-green-700 font-medium flex items-center gap-2">
                     <Check className="w-4 h-4" />
-                    {language === 'en' 
+                    {language === 'en'
                       ? `You save ${formatCurrency(deliveryFee)} with pickup!`
                       : `¡Ahorras ${formatCurrency(deliveryFee)} al recoger!`
                     }
@@ -508,6 +545,36 @@ export default function CartPage() {
                 </div>
               )}
 
+              {/* Pickup vendor locations */}
+              {fulfillmentType === 'pickup' && Object.keys(vendorLocations).length > 0 && (
+                <div className="mb-4 space-y-2">
+                  <p className="text-sm font-medium text-gray-700">
+                    {language === 'en' ? 'Pickup Locations' : 'Ubicaciones de Recogida'}
+                  </p>
+                  {vendorGroups.map((group) => {
+                    const loc = vendorLocations[group.vendorId];
+                    if (!loc) return null;
+                    return (
+                      <div key={group.vendorId} className="p-3 bg-gray-50 rounded-lg">
+                        <p className="text-sm font-medium text-gray-900">{group.vendorName}</p>
+                        {loc.address && <p className="text-xs text-gray-500 mt-0.5">{loc.address}</p>}
+                        {loc.coordinates && (
+                          <button
+                            type="button"
+                            onClick={() => openInMaps(group.vendorId)}
+                            className="mt-1.5 inline-flex items-center gap-1 text-xs text-[#55529d] font-medium hover:underline"
+                          >
+                            <Navigation className="w-3 h-3" />
+                            {language === 'en' ? 'Get Directions' : 'Obtener Direcciones'}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Totals */}
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">{language === 'en' ? 'Subtotal' : 'Subtotal'}</span>
@@ -516,6 +583,11 @@ export default function CartPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">
                     {language === 'en' ? 'Delivery Fee' : 'Envío'}
+                    {vendorCount > 1 && fulfillmentType === 'delivery' && (
+                      <span className="text-xs text-gray-400 ml-1">
+                        ({formatCurrency(DELIVERY_FEE_PER_VENDOR)} × {vendorCount})
+                      </span>
+                    )}
                   </span>
                   {fulfillmentType === 'pickup' ? (
                     <span className="font-medium text-green-600 flex items-center gap-1">
@@ -523,7 +595,7 @@ export default function CartPage() {
                       {language === 'en' ? 'FREE' : 'GRATIS'}
                     </span>
                   ) : (
-                    <span className="font-medium">{formatCurrency(deliveryFee)}</span>
+                    <span className="font-medium">{formatCurrency(adjustedDeliveryFee)}</span>
                   )}
                 </div>
                 <div className="flex justify-between">
@@ -532,48 +604,40 @@ export default function CartPage() {
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
                   <span className="font-bold text-gray-900">{language === 'en' ? 'Total' : 'Total'}</span>
-                  <span className="font-bold text-[#55529d]">{formatCurrency(adjustedTotal)}</span>
+                  <span className="font-bold text-[#55529d] text-lg">{formatCurrency(adjustedTotal)}</span>
                 </div>
               </div>
 
-              {/* Not logged in prompt */}
-              {!user && !showCheckoutForm && (
-                <div className="mt-6">
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-amber-800">
-                          {language === 'en' ? 'Sign in to checkout' : 'Inicia sesión para pagar'}
-                        </p>
-                        <p className="text-sm text-amber-700 mt-1">
-                          {language === 'en' 
-                            ? 'Create an account to save your addresses and track orders'
-                            : 'Crea una cuenta para guardar direcciones y rastrear pedidos'
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+              {/* Multi-vendor note */}
+              {vendorCount > 1 && (
+                <p className="mt-3 text-xs text-gray-400">
+                  {language === 'en'
+                    ? `This will create ${vendorCount} separate orders — one per vendor.`
+                    : `Esto creará ${vendorCount} pedidos separados — uno por tienda.`
+                  }
+                </p>
+              )}
 
-                  <button
-                    onClick={handleProceedToCheckout}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium"
+              {/* Not logged in */}
+              {!user && (
+                <div className="mt-6 text-center">
+                  <Link
+                    href="/login?redirect=/cart"
+                    className="w-full inline-flex items-center justify-center gap-2 py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium"
                   >
                     <LogIn className="w-5 h-5" />
-                    {language === 'en' ? 'Sign In to Checkout' : 'Iniciar Sesión'}
-                  </button>
-
-                  <p className="text-center text-sm text-gray-500 mt-3">
-                    {language === 'en' ? 'New customer?' : '¿Nuevo cliente?'}{' '}
-                    <Link href="/login?redirect=/cart" className="text-[#55529d] hover:underline">
+                    {language === 'en' ? 'Sign In to Checkout' : 'Inicia Sesión para Pagar'}
+                  </Link>
+                  <p className="text-sm text-gray-500 mt-2">
+                    {language === 'en' ? "New customer? " : '¿Cliente nuevo? '}
+                    <Link href="/register?redirect=/cart" className="text-[#55529d] font-medium hover:underline">
                       {language === 'en' ? 'Create an account' : 'Crear cuenta'}
                     </Link>
                   </p>
                 </div>
               )}
 
-              {/* Logged in - Checkout button or form */}
+              {/* Logged in - Checkout button */}
               {user && !showCheckoutForm && (
                 <button
                   onClick={handleProceedToCheckout}
@@ -598,17 +662,16 @@ export default function CartPage() {
                   <div className="space-y-3">
                     <h3 className="font-medium text-gray-900 flex items-center gap-2">
                       <User className="w-4 h-4" />
-                      Your Details
+                      {language === 'en' ? 'Your Details' : 'Tus Datos'}
                     </h3>
 
                     <input
                       type="text"
-                      placeholder="Full Name"
+                      placeholder={language === 'en' ? 'Full Name' : 'Nombre Completo'}
                       value={customerInfo.name}
                       onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                     />
-
                     <input
                       type="email"
                       placeholder="Email"
@@ -616,187 +679,137 @@ export default function CartPage() {
                       onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                     />
-
                     <input
                       type="tel"
-                      placeholder="Phone Number"
+                      placeholder={language === 'en' ? 'Phone Number' : 'Número de Teléfono'}
                       value={customerInfo.phone}
                       onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                     />
                   </div>
 
-                  {/* Conditional: Delivery Address OR Pickup Location */}
+                  {/* Delivery Address or Pickup */}
                   {fulfillmentType === 'delivery' ? (
-                    /* Delivery Address */
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                          <MapPin className="w-4 h-4" />
-                          Delivery Address
-                        </h3>
-                        <Link
-                          href="/account/addresses"
-                          className="text-sm text-[#55529d] hover:underline"
-                        >
-                          Manage
-                        </Link>
-                      </div>
+                      <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        {language === 'en' ? 'Delivery Address' : 'Dirección de Entrega'}
+                      </h3>
 
                       {loadingAddresses ? (
-                        <div className="flex items-center justify-center py-4">
-                          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {language === 'en' ? 'Loading addresses...' : 'Cargando direcciones...'}
                         </div>
                       ) : savedAddresses.length > 0 && !useNewAddress ? (
                         <div className="space-y-2">
-                          {savedAddresses.map((address) => (
-                            <label
-                              key={address.id}
-                              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                                selectedAddressId === address.id
+                          {savedAddresses.map((addr) => (
+                            <button
+                              key={addr.id}
+                              type="button"
+                              onClick={() => setSelectedAddressId(addr.id)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                selectedAddressId === addr.id
                                   ? 'border-[#55529d] bg-[#55529d]/5'
                                   : 'border-gray-200 hover:border-gray-300'
                               }`}
                             >
-                              <input
-                                type="radio"
-                                name="address"
-                                checked={selectedAddressId === address.id}
-                                onChange={() => setSelectedAddressId(address.id)}
-                                className="mt-1 text-[#55529d] focus:ring-[#55529d]"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-gray-900">{address.label}</span>
-                                  {address.isPinned && (
-                                    <Star className="w-3 h-3 text-[#55529d] fill-current" />
-                                  )}
-                                </div>
-                                <p className="text-sm text-gray-600 truncate">{address.street}</p>
-                                <p className="text-sm text-gray-500">
-                                  {address.city}, {address.country}
-                                </p>
-                              </div>
-                            </label>
+                              <p className="text-sm font-medium">{addr.street}</p>
+                              <p className="text-xs text-gray-500">{addr.city}, {addr.country}</p>
+                            </button>
                           ))}
-
                           <button
                             type="button"
                             onClick={() => setUseNewAddress(true)}
-                            className="w-full p-3 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-[#55529d] hover:text-[#55529d] transition-colors text-sm"
+                            className="text-sm text-[#55529d] font-medium hover:underline"
                           >
-                            + Use a different address
+                            {language === 'en' ? '+ Use a new address' : '+ Usar nueva dirección'}
                           </button>
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {savedAddresses.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setUseNewAddress(false)}
-                              className="text-sm text-[#55529d] hover:underline"
-                            >
-                              ← Use saved address
-                            </button>
-                          )}
-
                           <input
                             type="text"
-                            placeholder="Street Address"
+                            placeholder={language === 'en' ? 'Street Address' : 'Dirección'}
                             value={manualAddress.street}
                             onChange={(e) => setManualAddress({ ...manualAddress, street: e.target.value })}
                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                           />
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="text"
-                              placeholder="City"
-                              value={manualAddress.city}
-                              onChange={(e) => setManualAddress({ ...manualAddress, city: e.target.value })}
-                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Postal Code"
-                              value={manualAddress.postalCode}
-                              onChange={(e) => setManualAddress({ ...manualAddress, postalCode: e.target.value })}
-                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                            />
-                          </div>
-
                           <input
                             type="text"
-                            placeholder="Delivery Instructions (optional)"
+                            placeholder={language === 'en' ? 'City' : 'Ciudad'}
+                            value={manualAddress.city}
+                            onChange={(e) => setManualAddress({ ...manualAddress, city: e.target.value })}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
+                          />
+                          <input
+                            type="text"
+                            placeholder={language === 'en' ? 'Delivery Instructions (optional)' : 'Instrucciones de entrega (opcional)'}
                             value={manualAddress.instructions}
                             onChange={(e) => setManualAddress({ ...manualAddress, instructions: e.target.value })}
                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
                           />
-
-                          {savedAddresses.length === 0 && (
-                            <p className="text-xs text-gray-500">
-                              This address will be saved to your account for future orders.
-                            </p>
+                          {savedAddresses.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setUseNewAddress(false)}
+                              className="text-sm text-[#55529d] font-medium hover:underline"
+                            >
+                              {language === 'en' ? '← Use saved address' : '← Usar dirección guardada'}
+                            </button>
                           )}
                         </div>
                       )}
                     </div>
                   ) : (
-                    /* Pickup Location */
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       <h3 className="font-medium text-gray-900 flex items-center gap-2">
                         <Store className="w-4 h-4" />
-                        Pickup Location
+                        {language === 'en' ? 'Pickup Location(s)' : 'Ubicación(es) de Recogida'}
                       </h3>
-
-                      {loadingVendorLocation ? (
-                        <div className="flex items-center justify-center py-4">
-                          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                      {loadingVendorLocations ? (
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {language === 'en' ? 'Loading locations...' : 'Cargando ubicaciones...'}
                         </div>
-                      ) : vendorLocation?.address ? (
-                        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                          <div className="flex items-start gap-3">
-                            <div className="p-2 bg-[#55529d]/10 rounded-lg shrink-0">
-                              <MapPin className="w-5 h-5 text-[#55529d]" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-gray-900">{cart.vendorName}</p>
-                              <p className="text-sm text-gray-600 mt-1">{vendorLocation.address}</p>
-                              {vendorLocation.coordinates && (
+                      ) : (
+                        vendorGroups.map((group) => {
+                          const loc = vendorLocations[group.vendorId];
+                          return (
+                            <div key={group.vendorId} className="p-3 bg-gray-50 rounded-lg">
+                              <p className="text-sm font-medium text-gray-900">{group.vendorName}</p>
+                              {loc?.address ? (
+                                <p className="text-xs text-gray-500 mt-0.5">{loc.address}</p>
+                              ) : (
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  {language === 'en' ? 'Address not available' : 'Dirección no disponible'}
+                                </p>
+                              )}
+                              {loc?.coordinates && (
                                 <button
                                   type="button"
-                                  onClick={openInMaps}
-                                  className="mt-2 text-sm text-[#55529d] hover:underline flex items-center gap-1"
+                                  onClick={() => openInMaps(group.vendorId)}
+                                  className="mt-1.5 inline-flex items-center gap-1 text-xs text-[#55529d] font-medium hover:underline"
                                 >
-                                  <Navigation className="w-4 h-4" />
-                                  Get directions
+                                  <Navigation className="w-3 h-3" />
+                                  {language === 'en' ? 'Get Directions' : 'Obtener Direcciones'}
                                 </button>
                               )}
                             </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                          <p className="text-sm text-amber-700">
-                            Contact the vendor for pickup location details.
-                          </p>
-                        </div>
+                          );
+                        })
                       )}
-
-                      <p className="text-xs text-gray-500">
-                        You&apos;ll receive a notification when your order is ready for pickup.
-                      </p>
                     </div>
                   )}
 
                   {/* Order Notes */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                  <div className="space-y-2">
+                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
                       <FileText className="w-4 h-4" />
-                      Order Notes (optional)
-                    </label>
+                      {language === 'en' ? 'Order Notes (optional)' : 'Notas del Pedido (opcional)'}
+                    </h3>
                     <textarea
-                      placeholder="Special requests, allergies, etc."
+                      placeholder={language === 'en' ? 'Any special requests...' : 'Solicitudes especiales...'}
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       rows={2}
@@ -804,31 +817,25 @@ export default function CartPage() {
                     />
                   </div>
 
-                  {/* Submit */}
+                  {/* Submit — triggers in-app payment */}
                   <button
                     type="submit"
-                    disabled={isCheckingOut}
-                    className="w-full py-3 bg-[#f97316] text-white rounded-xl hover:bg-[#ea6a10] disabled:opacity-50 transition-colors font-medium flex items-center justify-center gap-2"
+                    disabled={isPaymentLoading}
+                    className="w-full py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {isCheckingOut ? (
+                    {isPaymentLoading ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
+                        {language === 'en' ? 'Preparing payment...' : 'Preparando pago...'}
                       </>
                     ) : (
                       <>
-                        <Check className="w-5 h-5" />
-                        Pay {formatCurrency(adjustedTotal)}
+                        {language === 'en'
+                          ? `Pay ${formatCurrency(adjustedTotal)}`
+                          : `Pagar ${formatCurrency(adjustedTotal)}`
+                        }
                       </>
                     )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowCheckoutForm(false)}
-                    className="w-full py-2 text-gray-500 hover:text-gray-700 text-sm"
-                  >
-                    ← Back to cart
                   </button>
                 </form>
               )}
@@ -838,4 +845,4 @@ export default function CartPage() {
       </main>
     </div>
   );
-} 
+}

@@ -39,6 +39,7 @@ import {
   Camera,
   X,
   ExternalLink,
+  LocateFixed,
 } from 'lucide-react';
 
 // ============================================================================
@@ -50,6 +51,7 @@ const MAX_ORDER_DISTANCE_KM = 8; // Maximum distance in kilometers for order vis
 // TYPES
 // ============================================================================
 type DriverStatus = 'online' | 'offline' | 'busy' | 'break';
+type LocationStatus = 'loading' | 'granted' | 'denied' | 'unavailable' | 'unsupported';
 
 interface DriverProfile {
   id: string;
@@ -181,6 +183,15 @@ const translations = {
     errorGoingOffline: 'No puedes desconectarte con un pedido activo',
     locationRequired: 'Se necesita tu ubicación para ver pedidos cercanos',
 
+    // Location
+    locationBlocked: 'Ubicación bloqueada',
+    locationLoading: 'Obteniendo ubicación...',
+    locationUnavailable: 'Ubicación no disponible',
+    locationDeniedDesc: 'Habilita el GPS en la configuración de tu navegador o dispositivo para ver distancias. Los pedidos se muestran sin filtro de distancia.',
+    locationFallbackDesc: 'Los pedidos se muestran sin filtro de distancia.',
+    retryLocation: 'Reintentar ubicación',
+    locationActive: 'GPS activo',
+
     // Success
     orderClaimed: '¡Pedido tomado exitosamente!',
     pickupConfirmed: 'Recogida confirmada',
@@ -255,6 +266,15 @@ const translations = {
     errorUpdating: 'Error updating status',
     errorGoingOffline: 'Cannot go offline with an active order',
     locationRequired: 'Your location is needed to see nearby orders',
+
+    // Location
+    locationBlocked: 'Location blocked',
+    locationLoading: 'Getting location...',
+    locationUnavailable: 'Location unavailable',
+    locationDeniedDesc: 'Enable GPS in your browser or device settings to see distances. Orders are shown without distance filter.',
+    locationFallbackDesc: 'Orders shown without distance filter.',
+    retryLocation: 'Retry Location',
+    locationActive: 'GPS active',
 
     // Success
     orderClaimed: 'Order claimed successfully!',
@@ -334,6 +354,11 @@ export default function DriverDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // ── NEW: location permission tracking ─────────────────────────
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('loading');
+  const [locationRetryCount, setLocationRetryCount] = useState(0);
+  const watchIdRef = useRef<number | null>(null);
+
   const t = translations[language];
   const userId = auth.currentUser?.uid;
 
@@ -345,28 +370,84 @@ export default function DriverDashboard() {
     }
   }, []);
 
-  // Get driver's current location
-  useEffect(() => {
-    if (!navigator.geolocation) return;
+  // ── FIX 1: Permission-aware geolocation with retry ────────────
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus('unsupported');
+      return;
+    }
 
-    const watchId = navigator.geolocation.watchPosition(
+    setLocationStatus('loading');
+
+    // Clear any existing watcher
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    // One-shot first — triggers the browser/OS permission prompt immediately
+    navigator.geolocation.getCurrentPosition(
       (position) => {
         setDriverLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         });
+        setLocationStatus('granted');
       },
       (err) => {
-        console.error('Geolocation error:', err);
+        console.warn('getCurrentPosition error:', err.code, err.message);
+        if (err.code === 1) {
+          // PERMISSION_DENIED
+          setLocationStatus('denied');
+        } else {
+          setLocationStatus('unavailable');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Continuous watcher for ongoing position updates
+    const id = navigator.geolocation.watchPosition(
+      (position) => {
+        setDriverLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocationStatus('granted');
+      },
+      (err) => {
+        console.warn('watchPosition error:', err.code, err.message);
+        if (err.code === 1) {
+          setLocationStatus('denied');
+        }
+        // Don't overwrite 'granted' if we already have a position
       },
       {
         enableHighAccuracy: true,
         maximumAge: 30000,
-        timeout: 10000,
+        timeout: 15000,
       }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    watchIdRef.current = id;
+  }, []);
+
+  // Initial request + cleanup — re-runs on retry
+  useEffect(() => {
+    requestLocation();
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationRetryCount]);
+
+  // Retry handler for the UI button
+  const retryLocation = useCallback(() => {
+    setLocationRetryCount((c) => c + 1);
   }, []);
 
   // Fetch driver profile
@@ -460,10 +541,12 @@ export default function DriverDashboard() {
     return () => unsubscribe();
   }, [driverProfile?.isOnline]);
 
-  // Filter orders by distance (8km radius)
+  // ── FIX 2: Show ALL orders when no location (fallback) ────────
   useEffect(() => {
     if (!driverLocation) {
-      setFilteredOrders([]);
+      // FALLBACK: show all available orders unsorted so drivers
+      // aren't staring at an empty screen while GPS resolves
+      setFilteredOrders(availableOrders);
       return;
     }
 
@@ -788,19 +871,48 @@ export default function DriverDashboard() {
               <h2 className="text-lg font-semibold text-gray-900">{t.availableOrders}</h2>
               <span className="text-sm text-gray-500">
                 {filteredOrders.length} {language === 'es' ? 'disponibles' : 'available'}
-                {!driverLocation && (
-                  <span className="text-amber-500 ml-1">
-                    ({language === 'es' ? 'ubicación...' : 'locating...'})
+                {driverLocation && (
+                  <span className="text-green-500 ml-1">
+                    <LocateFixed className="w-3 h-3 inline" />
                   </span>
                 )}
               </span>
             </div>
 
-            {/* Location warning */}
+            {/* ── FIX 3: Actionable location banner ──────────────── */}
             {!driverLocation && (
-              <div className="mb-4 flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                <MapPin className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-700">{t.locationRequired}</p>
+              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-800">
+                      {locationStatus === 'denied'
+                        ? t.locationBlocked
+                        : locationStatus === 'loading'
+                        ? t.locationLoading
+                        : t.locationUnavailable}
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      {locationStatus === 'denied'
+                        ? t.locationDeniedDesc
+                        : t.locationFallbackDesc}
+                    </p>
+                  </div>
+                </div>
+                {locationStatus !== 'loading' && (
+                  <button
+                    onClick={retryLocation}
+                    className="mt-3 w-full flex items-center justify-center gap-2 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 text-sm font-medium rounded-lg transition-colors"
+                  >
+                    <Navigation className="w-4 h-4" />
+                    {t.retryLocation}
+                  </button>
+                )}
+                {locationStatus === 'loading' && (
+                  <div className="mt-3 flex items-center justify-center gap-2 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1060,7 +1172,6 @@ function ActiveOrderCard({
   const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Create preview URL
       const previewUrl = URL.createObjectURL(file);
       setProofPhoto(previewUrl);
       setProofPhotoFile(file);

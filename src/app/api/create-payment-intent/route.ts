@@ -1,4 +1,4 @@
-// src/app/api/checkout/route.ts
+// src/app/api/create-payment-intent/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -9,7 +9,7 @@ import { SavedAddress } from '@/lib/types/address';
 
 type FulfillmentType = 'delivery' | 'pickup';
 
-interface CheckoutRequestBody {
+interface CreatePaymentIntentBody {
   items: CartItem[];
   customerInfo: {
     name?: string;
@@ -38,9 +38,6 @@ interface VendorGroup {
   trackingPin: string;
 }
 
-/**
- * Validates a cart item has all required fields
- */
 function validateCartItem(item: CartItem, index: number): string | null {
   if (!item.productId) return `Item ${index + 1}: Missing productId`;
   if (!item.vendorId) return `Item ${index + 1}: Missing vendorId`;
@@ -51,9 +48,6 @@ function validateCartItem(item: CartItem, index: number): string | null {
   return null;
 }
 
-/**
- * Group cart items by vendor
- */
 function groupByVendor(items: CartItem[]): VendorGroup[] {
   const groups: Record<string, VendorGroup> = {};
 
@@ -77,10 +71,11 @@ function groupByVendor(items: CartItem[]): VendorGroup[] {
 
 export async function POST(request: NextRequest) {
   try {
-    // Get auth token from header
+    // ========================================================================
+    // Auth
+    // ========================================================================
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      console.log('[Checkout] Missing Authorization header');
       return NextResponse.json(
         { error: 'Unauthorized - Please sign in to checkout' },
         { status: 401 }
@@ -89,12 +84,11 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.split('Bearer ')[1];
 
-    // Verify Firebase token
     let decodedToken;
     try {
       decodedToken = await admin.auth().verifyIdToken(token);
     } catch (err) {
-      console.error('[Checkout] Token verification failed:', err);
+      console.error('[PaymentIntent] Token verification failed:', err);
       return NextResponse.json(
         { error: 'Session expired - Please sign in again' },
         { status: 401 }
@@ -104,46 +98,26 @@ export async function POST(request: NextRequest) {
     const customerId = decodedToken.uid;
     const customerEmail = decodedToken.email;
 
-    // Parse request body
-    let body: CheckoutRequestBody;
+    // ========================================================================
+    // Parse & validate body
+    // ========================================================================
+    let body: CreatePaymentIntentBody;
     try {
       body = await request.json();
     } catch (err) {
-      console.error('[Checkout] Failed to parse request body:', err);
-      return NextResponse.json(
-        { error: 'Invalid request format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid request format' }, { status: 400 });
     }
 
     const { items, customerInfo, deliveryAddress, fulfillmentType = 'delivery', notes } = body;
-
-    // Validate fulfillment type
     const isPickup = fulfillmentType === 'pickup';
-    console.log('[Checkout] Fulfillment type:', fulfillmentType);
 
-    // Validate items array exists
-    if (!items || !Array.isArray(items)) {
-      console.log('[Checkout] Items is not an array:', typeof items);
-      return NextResponse.json(
-        { error: 'Invalid cart data - please refresh and try again' },
-        { status: 400 }
-      );
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
     }
 
-    if (items.length === 0) {
-      console.log('[Checkout] Cart is empty');
-      return NextResponse.json(
-        { error: 'Cart is empty' },
-        { status: 400 }
-      );
-    }
-
-    // Validate each cart item
     for (let i = 0; i < items.length; i++) {
       const validationError = validateCartItem(items[i], i);
       if (validationError) {
-        console.error('[Checkout] Cart item validation failed:', validationError, items[i]);
         return NextResponse.json(
           { error: 'Cart contains invalid items. Please clear your cart and try again.' },
           { status: 400 }
@@ -151,7 +125,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate required customer info
+    // Validate customer info
     const validatedCustomerInfo = {
       name: customerInfo?.name?.trim() || decodedToken.name || 'Customer',
       email: customerInfo?.email?.trim() || customerEmail || '',
@@ -159,22 +133,17 @@ export async function POST(request: NextRequest) {
     };
 
     if (!validatedCustomerInfo.email) {
-      console.log('[Checkout] Missing email');
-      return NextResponse.json(
-        { error: 'Email is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
     if (!validatedCustomerInfo.phone) {
-      console.log('[Checkout] Missing phone');
       return NextResponse.json(
         { error: 'Phone number is required for order coordination' },
         { status: 400 }
       );
     }
 
-    // Validate delivery address only for delivery orders
+    // Validate delivery address
     let validatedDeliveryAddress = {
       street: '',
       city: '',
@@ -185,13 +154,8 @@ export async function POST(request: NextRequest) {
     };
 
     if (!isPickup) {
-      // Delivery requires address
       if (!deliveryAddress?.street?.trim() || !deliveryAddress?.city?.trim()) {
-        console.log('[Checkout] Missing delivery address:', deliveryAddress);
-        return NextResponse.json(
-          { error: 'Delivery address is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Delivery address is required' }, { status: 400 });
       }
 
       validatedDeliveryAddress = {
@@ -204,7 +168,9 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    // Save address to customer profile if it's new (only for delivery)
+    // ========================================================================
+    // Save address if new
+    // ========================================================================
     const db = admin.firestore();
     const customerRef = db.collection('customers').doc(customerId);
     const customerDoc = await customerRef.get();
@@ -240,86 +206,25 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================================================
-    // MULTI-VENDOR: Group items by vendor
+    // Multi-vendor grouping & totals
     // ========================================================================
     const vendorGroups = groupByVendor(items);
     const vendorCount = vendorGroups.length;
     const isMultiVendor = vendorCount > 1;
 
-    console.log(`[Checkout] ${vendorCount} vendor(s): ${vendorGroups.map(g => g.vendorName).join(', ')}`);
-
-    // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    // Delivery fee per vendor (each vendor requires separate delivery)
     const deliveryFee = isPickup ? 0 : (FEES.DELIVERY_FEE / 100) * vendorCount;
     const taxAmount = (subtotal + deliveryFee) * (FEES.TAX_PERCENT / 100);
     const totalAmount = subtotal + deliveryFee + taxAmount;
 
-    console.log('[Checkout] Order totals:', {
-      subtotal,
-      deliveryFee,
-      vendorCount,
-      taxAmount,
-      totalAmount,
-      fulfillmentType,
-    });
-
-    // Use the first vendor group's orderId as the "primary" order reference
     const primaryOrderId = vendorGroups[0].orderId;
+    const primaryTrackingPin = vendorGroups[0].trackingPin;
+    const primaryVendorName = vendorGroups.map((g) => g.vendorName).join(', ');
 
-    // Create line items for Stripe (amounts in cents)
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
-
-    // Add product items grouped by vendor for clarity
-    for (const group of vendorGroups) {
-      for (const item of group.items) {
-        lineItems.push({
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: isMultiVendor ? `${item.name} (${group.vendorName})` : item.name,
-              description: item.description || undefined,
-              images: item.imageUrl ? [item.imageUrl] : undefined,
-            },
-            unit_amount: Math.round(item.price * 100),
-          },
-          quantity: item.quantity,
-        });
-      }
-    }
-
-    // Add delivery fee per vendor as line items (only for delivery)
-    if (!isPickup) {
-      for (const group of vendorGroups) {
-        lineItems.push({
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: isMultiVendor
-                ? `Delivery Fee (${group.vendorName})`
-                : 'Delivery Fee',
-            },
-            unit_amount: FEES.DELIVERY_FEE, // Already in cents
-          },
-          quantity: 1,
-        });
-      }
-    }
-
-    // Add tax as single line item
-    lineItems.push({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'Tax (ITBIS 18%)',
-        },
-        unit_amount: Math.round(taxAmount * 100),
-      },
-      quantity: 1,
-    });
+    console.log('[PaymentIntent] Creating for', vendorCount, 'vendor(s), total:', totalAmount.toFixed(2));
 
     // ========================================================================
-    // Store full checkout data in Firestore (avoids Stripe metadata size limits)
+    // Store full checkout data in Firestore (same as checkout route)
     // ========================================================================
     const checkoutData = {
       customerId,
@@ -353,13 +258,16 @@ export async function POST(request: NextRequest) {
       },
       vendorCount,
       isMultiVendor,
+      paymentFlow: 'payment_intent', // Flag to distinguish from checkout session flow
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     await db.collection('pending_checkouts').doc(primaryOrderId).set(checkoutData);
-    console.log('[Checkout] Stored pending checkout data:', primaryOrderId);
+    console.log('[PaymentIntent] Stored pending checkout:', primaryOrderId);
 
+    // ========================================================================
     // Get or create Stripe customer
+    // ========================================================================
     let stripeCustomerId: string | undefined;
     const existingStripeId = customerDoc.exists ? customerDoc.data()?.stripeCustomerId : null;
 
@@ -367,9 +275,8 @@ export async function POST(request: NextRequest) {
       try {
         await stripe.customers.retrieve(existingStripeId);
         stripeCustomerId = existingStripeId;
-        console.log('[Checkout] Using existing Stripe customer:', stripeCustomerId);
       } catch (err) {
-        console.log('[Checkout] Stripe customer not found, creating new one. Old ID:', existingStripeId);
+        console.log('[PaymentIntent] Stripe customer not found, creating new');
         stripeCustomerId = undefined;
       }
     }
@@ -379,12 +286,9 @@ export async function POST(request: NextRequest) {
         email: validatedCustomerInfo.email,
         name: validatedCustomerInfo.name,
         phone: validatedCustomerInfo.phone,
-        metadata: {
-          firebaseUid: customerId,
-        },
+        metadata: { firebaseUid: customerId },
       });
       stripeCustomerId = stripeCustomer.id;
-      console.log('[Checkout] Created new Stripe customer:', stripeCustomerId);
 
       await customerRef.set(
         {
@@ -395,57 +299,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create Stripe Checkout Session
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.stackbotglobal.com';
+    // ========================================================================
+    // Create PaymentIntent (NOT a Checkout Session)
+    // ========================================================================
+    const amountInCents = Math.round(totalAmount * 100);
 
-    console.log('[Checkout] Creating Stripe session for checkout:', primaryOrderId);
+    // Build description for the payment
+    const description = isMultiVendor
+      ? `StackBot Order (${vendorCount} vendors: ${primaryVendorName})`
+      : `StackBot Order from ${primaryVendorName}`;
 
-    const session = await stripe.checkout.sessions.create({
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountInCents,
+      currency: 'usd',
       customer: stripeCustomerId,
-      mode: 'payment',
-      payment_method_types: ['card'],
-      line_items: lineItems,
-      success_url: `${baseUrl}/order-confirmation?session_id={CHECKOUT_SESSION_ID}&order_id=${primaryOrderId}`,
-      cancel_url: `${baseUrl}/cart?cancelled=true`,
+      description,
       metadata: {
         // Reference to full checkout data in Firestore
         checkoutDataId: primaryOrderId,
-        // Basic info for quick access / logging
+        // Basic info for logging / quick access
         customerId,
         primaryOrderId,
         vendorCount: String(vendorCount),
         isMultiVendor: String(isMultiVendor),
         fulfillmentType,
         total: totalAmount.toFixed(2),
-        // Keep single-vendor fields for backward compat
+        // Keep single-vendor fields for backward compat with webhook
         orderId: primaryOrderId,
-        trackingPin: vendorGroups[0].trackingPin,
+        trackingPin: primaryTrackingPin,
         vendorId: vendorGroups[0].vendorId,
         vendorName: vendorGroups[0].vendorName,
         customerName: validatedCustomerInfo.name,
         customerEmail: validatedCustomerInfo.email,
         customerPhone: validatedCustomerInfo.phone,
       },
-      shipping_address_collection: undefined,
-      phone_number_collection: {
-        enabled: false,
+      automatic_payment_methods: {
+        enabled: true,
       },
-      billing_address_collection: 'auto',
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 min expiry
     });
 
-    console.log('[Checkout] Session created:', session.id);
+    console.log('[PaymentIntent] Created:', paymentIntent.id, 'for order:', primaryOrderId);
 
+    // ========================================================================
+    // Return clientSecret to the frontend
+    // ========================================================================
     return NextResponse.json({
-      sessionId: session.id,
-      url: session.url,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
       orderId: primaryOrderId,
+      trackingPin: primaryTrackingPin,
+      total: totalAmount.toFixed(2),
+      vendorName: primaryVendorName,
+      vendorCount,
     });
   } catch (error) {
-    console.error('[Checkout] Error:', error);
+    console.error('[PaymentIntent] Error:', error);
 
     if (error instanceof Stripe.errors.StripeError) {
-      console.error('[Checkout] Stripe error:', error.type, error.message);
       return NextResponse.json(
         { error: `Payment error: ${error.message}` },
         { status: 400 }
@@ -453,7 +363,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Failed to create checkout session. Please try again.' },
+      { error: 'Failed to create payment. Please try again.' },
       { status: 500 }
     );
   }

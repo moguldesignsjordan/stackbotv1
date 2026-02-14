@@ -8,8 +8,16 @@ import { CartItem } from '@/lib/types/order';
 // Types
 // ============================================================================
 
+interface VendorGroup {
+  vendorId: string;
+  vendorName: string;
+  items: CartItem[];
+  subtotal: number;
+}
+
 interface Cart {
   items: CartItem[];
+  // DEPRECATED: kept for backward compat — use vendorGroups instead
   vendorId: string | null;
   vendorName: string | null;
 }
@@ -26,6 +34,9 @@ interface CartContextType {
   serviceFee: number; // Keep for backward compatibility, always 0
   tax: number;
   total: number;
+  // Multi-vendor helpers
+  vendorGroups: VendorGroup[];
+  vendorCount: number;
 }
 
 type CartAction =
@@ -41,8 +52,8 @@ type CartAction =
 
 const CART_STORAGE_KEY = 'stackbot_cart';
 const CART_VERSION_KEY = 'stackbot_cart_version';
-const CURRENT_CART_VERSION = 2; // Increment when cart schema changes
-const DELIVERY_FEE = 3.99;
+const CURRENT_CART_VERSION = 3; // Bumped for multi-vendor support
+const DELIVERY_FEE_PER_VENDOR = 1.99; // $1.99 per vendor delivery
 const TAX_PERCENT = 0.18; // 18% ITBIS
 
 const initialCart: Cart = {
@@ -60,9 +71,9 @@ const initialCart: Cart = {
  */
 function isValidCartItem(item: unknown): item is CartItem {
   if (!item || typeof item !== 'object') return false;
-  
+
   const i = item as Record<string, unknown>;
-  
+
   return (
     typeof i.productId === 'string' && i.productId.length > 0 &&
     typeof i.vendorId === 'string' && i.vendorId.length > 0 &&
@@ -79,42 +90,44 @@ function isValidCartItem(item: unknown): item is CartItem {
  */
 function validateAndMigrateCart(data: unknown): Cart | null {
   if (!data || typeof data !== 'object') return null;
-  
+
   const cart = data as Record<string, unknown>;
-  
+
   // Check if items array exists
   if (!Array.isArray(cart.items)) return null;
-  
+
   // Filter out invalid items
   const validItems = cart.items.filter(isValidCartItem);
-  
+
   // If no valid items remain, return empty cart
   if (validItems.length === 0) {
     return initialCart;
   }
-  
+
   // Log if we filtered out items
   if (validItems.length !== cart.items.length) {
     console.warn(
       `[Cart] Filtered out ${cart.items.length - validItems.length} invalid cart items`
     );
   }
-  
-  // Ensure all items are from the same vendor
+
+  // Multi-vendor: keep ALL valid items (no longer filter to single vendor)
   const firstItem = validItems[0];
-  const sameVendorItems = validItems.filter(
-    item => item.vendorId === firstItem.vendorId
-  );
-  
-  if (sameVendorItems.length !== validItems.length) {
-    console.warn('[Cart] Found items from multiple vendors, keeping only first vendor');
-  }
-  
+
   return {
-    items: sameVendorItems,
+    items: validItems,
+    // Backward compat: use first item's vendor
     vendorId: firstItem.vendorId,
     vendorName: firstItem.vendorName,
   };
+}
+
+/**
+ * Derive vendorId/vendorName from items for backward compatibility
+ */
+function deriveVendorInfo(items: CartItem[]): { vendorId: string | null; vendorName: string | null } {
+  if (items.length === 0) return { vendorId: null, vendorName: null };
+  return { vendorId: items[0].vendorId, vendorName: items[0].vendorName };
 }
 
 // ============================================================================
@@ -125,54 +138,49 @@ function cartReducer(state: Cart, action: CartAction): Cart {
   switch (action.type) {
     case 'ADD_ITEM': {
       const newItem = action.payload;
-      
+
       // Validate the new item
       if (!isValidCartItem(newItem)) {
         console.error('[Cart] Attempted to add invalid item:', newItem);
         return state;
       }
 
-      // If cart has items from different vendor, clear and start fresh
-      if (state.vendorId && state.vendorId !== newItem.vendorId) {
-        return {
-          items: [newItem],
-          vendorId: newItem.vendorId,
-          vendorName: newItem.vendorName,
-        };
-      }
+      // MULTI-VENDOR: No longer clear cart for different vendors!
+      // Just add the item regardless of vendor.
 
-      // Check if item already exists
+      // Check if item already exists (same productId)
       const existingIndex = state.items.findIndex(
         (item) => item.productId === newItem.productId
       );
 
+      let updatedItems: CartItem[];
+
       if (existingIndex > -1) {
-        // Update quantity
-        const updatedItems = [...state.items];
+        // Update quantity of existing item
+        updatedItems = [...state.items];
         updatedItems[existingIndex] = {
           ...updatedItems[existingIndex],
           quantity: updatedItems[existingIndex].quantity + newItem.quantity,
         };
-        return { ...state, items: updatedItems };
+      } else {
+        // Add new item
+        updatedItems = [...state.items, newItem];
       }
 
-      // Add new item
-      return {
-        ...state,
-        items: [...state.items, newItem],
-        vendorId: newItem.vendorId,
-        vendorName: newItem.vendorName,
-      };
+      const { vendorId, vendorName } = deriveVendorInfo(updatedItems);
+      return { items: updatedItems, vendorId, vendorName };
     }
 
-    case 'REMOVE_ITEM':
+    case 'REMOVE_ITEM': {
       const filteredItems = state.items.filter(
         (item) => item.productId !== action.payload
       );
       if (filteredItems.length === 0) {
         return initialCart;
       }
-      return { ...state, items: filteredItems };
+      const { vendorId, vendorName } = deriveVendorInfo(filteredItems);
+      return { items: filteredItems, vendorId, vendorName };
+    }
 
     case 'UPDATE_QUANTITY': {
       const { productId, quantity } = action.payload;
@@ -181,14 +189,13 @@ function cartReducer(state: Cart, action: CartAction): Cart {
         if (remaining.length === 0) {
           return initialCart;
         }
-        return { ...state, items: remaining };
+        const { vendorId, vendorName } = deriveVendorInfo(remaining);
+        return { items: remaining, vendorId, vendorName };
       }
-      return {
-        ...state,
-        items: state.items.map((item) =>
-          item.productId === productId ? { ...item, quantity } : item
-        ),
-      };
+      const updatedItems = state.items.map((item) =>
+        item.productId === productId ? { ...item, quantity } : item
+      );
+      return { ...state, items: updatedItems };
     }
 
     case 'CLEAR_CART':
@@ -200,6 +207,29 @@ function cartReducer(state: Cart, action: CartAction): Cart {
     default:
       return state;
   }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function groupItemsByVendor(items: CartItem[]): VendorGroup[] {
+  const groups: Record<string, VendorGroup> = {};
+
+  for (const item of items) {
+    if (!groups[item.vendorId]) {
+      groups[item.vendorId] = {
+        vendorId: item.vendorId,
+        vendorName: item.vendorName,
+        items: [],
+        subtotal: 0,
+      };
+    }
+    groups[item.vendorId].items.push(item);
+    groups[item.vendorId].subtotal += item.price * item.quantity;
+  }
+
+  return Object.values(groups);
 }
 
 // ============================================================================
@@ -220,27 +250,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
     try {
       const savedVersion = localStorage.getItem(CART_VERSION_KEY);
       const saved = localStorage.getItem(CART_STORAGE_KEY);
-      
+
       if (saved) {
         const parsed = JSON.parse(saved);
-        
+
         // Check version and migrate if needed
         const version = savedVersion ? parseInt(savedVersion, 10) : 1;
-        
+
         if (version < CURRENT_CART_VERSION) {
           console.log(`[Cart] Migrating cart from v${version} to v${CURRENT_CART_VERSION}`);
         }
-        
+
         // Validate and migrate cart data
         const validatedCart = validateAndMigrateCart(parsed);
-        
+
         if (validatedCart) {
           dispatch({ type: 'LOAD_CART', payload: validatedCart });
         } else {
           console.warn('[Cart] Invalid cart data, clearing');
           localStorage.removeItem(CART_STORAGE_KEY);
         }
-        
+
         // Update version
         localStorage.setItem(CART_VERSION_KEY, String(CURRENT_CART_VERSION));
       }
@@ -259,33 +289,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   }, [cart]);
 
+  // Multi-vendor grouping
+  const vendorGroups = groupItemsByVendor(cart.items);
+  const vendorCount = vendorGroups.length;
+
   // Calculate totals
   const subtotal = cart.items.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
-  const deliveryFee = cart.items.length > 0 ? DELIVERY_FEE : 0;
-  const serviceFee = 0; // Removed, kept for backward compat
+  // Delivery fee per vendor (each vendor = separate delivery)
+  const deliveryFee = cart.items.length > 0 ? DELIVERY_FEE_PER_VENDOR * vendorCount : 0;
+  const serviceFee = 0; // Removed
   const tax = (subtotal + deliveryFee) * TAX_PERCENT;
   const total = subtotal + deliveryFee + tax;
-
   const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
 
-  const addItem = (item: CartItem) => {
-    dispatch({ type: 'ADD_ITEM', payload: item });
-  };
-
-  const removeItem = (productId: string) => {
-    dispatch({ type: 'REMOVE_ITEM', payload: productId });
-  };
-
-  const updateQuantity = (productId: string, quantity: number) => {
+  const addItem = (item: CartItem) => dispatch({ type: 'ADD_ITEM', payload: item });
+  const removeItem = (productId: string) => dispatch({ type: 'REMOVE_ITEM', payload: productId });
+  const updateQuantity = (productId: string, quantity: number) =>
     dispatch({ type: 'UPDATE_QUANTITY', payload: { productId, quantity } });
-  };
-
-  const clearCart = () => {
-    dispatch({ type: 'CLEAR_CART' });
-  };
+  const clearCart = () => dispatch({ type: 'CLEAR_CART' });
 
   return (
     <CartContext.Provider
@@ -301,6 +325,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         serviceFee,
         tax,
         total,
+        vendorGroups,
+        vendorCount,
       }}
     >
       {children}
@@ -308,13 +334,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ============================================================================
-// Hook
-// ============================================================================
-
 export function useCart() {
   const context = useContext(CartContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useCart must be used within a CartProvider');
   }
   return context;
