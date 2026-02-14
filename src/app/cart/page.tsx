@@ -272,7 +272,7 @@ export default function CartPage() {
             street: selectedAddress.street,
             city: selectedAddress.city,
             state: selectedAddress.state || '',
-            postalCode: selectedAddress.postalCode,
+            postalCode: selectedAddress.postalCode || '',
             country: selectedAddress.country,
             instructions: selectedAddress.instructions || '',
           }
