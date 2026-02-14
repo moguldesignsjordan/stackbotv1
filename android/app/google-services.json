@@ -22,10 +22,46 @@
           }
         },
         {
-          "client_id": "443911086980-o8nd5hmpg2vcds0se3gkucspmqvh6obr.apps.googleusercontent.com",
+          "client_id": "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5f3G-SfO7aCL_Xc_BpbNuhdYlCPa_75Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "443911086980-3kcmk2kenug5evq8fe9td6r603ctp3g2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "443911086980-f8l4q8c9gdieheinda2hvcim33mqbqn1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.stackbotglobal.app"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:443911086980:android:f61f8734656990f822b3d1",
+        "android_client_info": {
+          "package_name": "com.stackbotglobal.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "443911086980-pssivc3frqa4bhu7vq1o9eq14dk29usm.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.stackbotglobal.app",
+            "package_name": "com.stackbotglobal.driver",
             "certificate_hash": "3514f06c2bb82d77c794359916f7b6671dcb427f"
           }
         },
