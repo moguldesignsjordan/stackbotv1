@@ -2,9 +2,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
-import Link from 'next/link';
 import {
   collection,
   query,
@@ -12,7 +9,6 @@ import {
   orderBy,
   onSnapshot,
   doc,
-  getDoc,
   updateDoc,
   setDoc,
   serverTimestamp,
@@ -39,7 +35,7 @@ import {
   Camera,
   X,
   ExternalLink,
-  LocateFixed,
+  Locate,
 } from 'lucide-react';
 
 // ============================================================================
@@ -341,7 +337,6 @@ function buildLocationUrl(address: string, lat?: number, lng?: number): string {
 // MAIN COMPONENT
 // ============================================================================
 export default function DriverDashboard() {
-  const router = useRouter();
   const [language, setLanguage] = useState<Language>('es');
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [availableOrders, setAvailableOrders] = useState<DeliveryOrder[]>([]);
@@ -873,7 +868,7 @@ export default function DriverDashboard() {
                 {filteredOrders.length} {language === 'es' ? 'disponibles' : 'available'}
                 {driverLocation && (
                   <span className="text-green-500 ml-1">
-                    <LocateFixed className="w-3 h-3 inline" />
+                    <Locate className="w-3 h-3 inline" />
                   </span>
                 )}
               </span>
