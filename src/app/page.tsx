@@ -773,10 +773,6 @@ export default function HomePage() {
             />
           )}
         </section>
-
-        {/* How It Works */}
-        <HowItWorks language={language} />
-
         {/* Become a Vendor CTA */}
         <VendorCTA language={language} />
       </main>
