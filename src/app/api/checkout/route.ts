@@ -221,21 +221,27 @@ export async function POST(request: NextRequest) {
       );
 
       if (!addressExists) {
+        const isFirst = existingAddresses.length === 0;
         const newAddress: SavedAddress = {
           id: `addr_${Date.now()}`,
           ...validatedDeliveryAddress,
           label: 'Home',
-          isDefault: existingAddresses.length === 0,
+          isPinned: isFirst,
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
 
-        await customerRef.set(
-          {
-            savedAddresses: [...existingAddresses, newAddress],
-            updatedAt: admin.firestore.Timestamp.now(),
-          },
-          { merge: true }
-        );
+        const saveData: Record<string, unknown> = {
+          savedAddresses: [...existingAddresses, newAddress],
+          updatedAt: admin.firestore.Timestamp.now(),
+        };
+
+        if (isFirst) {
+          saveData.pinnedAddressId = newAddress.id;
+          saveData.defaultAddress = validatedDeliveryAddress;
+        }
+
+        await customerRef.set(saveData, { merge: true });
       }
     }
 
