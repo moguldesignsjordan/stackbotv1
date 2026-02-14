@@ -427,7 +427,7 @@ export default function DriverLoginPage() {
 
           <div className="mt-6 text-center text-sm text-gray-600">
             {t.noAccount}{' '}
-            <Link href="/driver/signup" className="text-[#55529d] font-semibold hover:underline">
+            <Link href="/driver/apply" className="text-[#55529d] font-semibold hover:underline">
               {t.signUp}
             </Link>
           </div>
