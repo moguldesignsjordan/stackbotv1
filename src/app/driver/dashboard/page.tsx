@@ -12,11 +12,11 @@ import {
   updateDoc,
   setDoc,
   serverTimestamp,
-  runTransaction,
   Timestamp,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, auth, storage } from '@/lib/firebase/config';
+import { db, auth, storage, functions } from '@/lib/firebase/config';
 import {
   Truck,
   Package,
@@ -668,8 +668,10 @@ export default function DriverDashboard() {
   };
 
   // ============================================================================
-  // Claim an order — use `|| null` for optional fields to prevent
-  //      Firestore "Unsupported field value: undefined" errors
+  // Claim an order via Cloud Function
+  // The CF handles: driver verification, status validation, cross-collection
+  // sync (orders, vendors/orders, customers/orders, drivers), and customer
+  // notification — all via Admin SDK (bypasses Firestore rules).
   // ============================================================================
   const claimOrder = async (orderId: string) => {
     if (!userId || !driverProfile) return;
@@ -678,45 +680,17 @@ export default function DriverDashboard() {
     setError(null);
 
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      const driverRef = doc(db, 'drivers', userId);
-
-      await runTransaction(db, async (transaction) => {
-        const orderDoc = await transaction.get(orderRef);
-
-        if (!orderDoc.exists()) {
-          throw new Error('Order not found');
-        }
-
-        const orderData = orderDoc.data();
-
-        if (orderData.driverId) {
-          throw new Error(t.orderTaken);
-        }
-
-        transaction.update(orderRef, {
-          driverId: userId,
-          driverName: driverProfile.name || null,
-          driverPhone: driverProfile.phone || null,
-          status: 'claimed',
-          deliveryStatus: 'claimed',
-          claimedAt: serverTimestamp(),
-          driverLocation: driverLocation || null,
-          updatedAt: serverTimestamp(),
-        });
-
-        transaction.update(driverRef, {
-          status: 'busy',
-          currentOrderId: orderId,
-          updatedAt: serverTimestamp(),
-        });
-      });
+      const claimOrderFn = httpsCallable(functions, 'claimOrder');
+      await claimOrderFn({ orderId });
 
       setSuccessMessage(t.orderClaimed);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: unknown) {
       console.error('Error claiming order:', err);
-      const errorMessage = (err as Error)?.message || t.errorClaiming;
+      // httpsCallable errors expose .message (general) and .details (HttpsError reason)
+      const firebaseErr = err as { message?: string; code?: string; details?: string };
+      const errorMessage =
+        firebaseErr.details || firebaseErr.message || t.errorClaiming;
       setError(errorMessage);
       setTimeout(() => setError(null), 3000);
     } finally {
