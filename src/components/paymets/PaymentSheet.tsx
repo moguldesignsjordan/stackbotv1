@@ -72,7 +72,7 @@ export function PaymentSheet({
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          return_url: `${window.location.origin}/order-confirmation?order_id=${orderId}`,
+          return_url: `${window.location.origin}/checkout/success?order_id=${orderId}`,
         },
         redirect: 'if_required',
       });

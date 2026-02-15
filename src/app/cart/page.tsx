@@ -76,7 +76,7 @@ export default function CartPage() {
   } = useInAppPayment({
     onSuccess: (orderId, trackingPin) => {
       clearCart();
-      router.push(`/order-confirmation?order_id=${orderId}`);
+      router.push(`/checkout/success?order_id=${orderId}`);
     },
     onError: (error) => {
       setError(error);

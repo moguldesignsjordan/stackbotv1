@@ -249,6 +249,28 @@ async function handleMultiVendorCheckout(
   const batch = db.batch();
   const createdOrderIds: string[] = [];
 
+  // Pre-fetch all vendor coordinates in parallel for live tracking
+  const vendorInfoMap: Record<string, { coordinates: { lat: number; lng: number } | null; phone: string | null; address: string | null }> = {};
+  await Promise.all(
+    vendorGroups.map(async (g: { vendorId: string }) => {
+      try {
+        const vDoc = await db.collection('vendors').doc(g.vendorId).get();
+        if (vDoc.exists) {
+          const vData = vDoc.data();
+          vendorInfoMap[g.vendorId] = {
+            coordinates: vData?.coordinates?.lat && vData?.coordinates?.lng
+              ? { lat: vData.coordinates.lat, lng: vData.coordinates.lng }
+              : null,
+            phone: vData?.phone || null,
+            address: vData?.address || null,
+          };
+        }
+      } catch (err) {
+        console.error(`[Webhook] Failed to fetch vendor ${g.vendorId} info:`, err);
+      }
+    })
+  );
+
   for (const group of vendorGroups) {
     const {
       vendorId,
@@ -259,6 +281,7 @@ async function handleMultiVendorCheckout(
       items,
     } = group;
 
+    const vendorInfo = vendorInfoMap[vendorId];
     const perVendorDeliveryFee = isPickup ? 0 : totals.deliveryFeePerVendor;
     const perVendorTax = (vendorSubtotal + perVendorDeliveryFee) * 0.18;
     const perVendorTotal = vendorSubtotal + perVendorDeliveryFee + perVendorTax;
@@ -294,6 +317,11 @@ async function handleMultiVendorCheckout(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       ...stripeIds,
     };
+
+    // Attach vendor location data for live tracking
+    if (vendorInfo?.coordinates) orderData.vendorCoordinates = vendorInfo.coordinates;
+    if (vendorInfo?.phone) orderData.vendorPhone = vendorInfo.phone;
+    if (vendorInfo?.address) orderData.vendorAddress = vendorInfo.address;
 
     if (!isPickup && deliveryAddress) {
       orderData.deliveryAddress = deliveryAddress;
@@ -405,6 +433,21 @@ async function createOrderFromLegacyMetadata(
 
   if (!isPickup && deliveryAddress) {
     orderData.deliveryAddress = deliveryAddress;
+  }
+
+  // Fetch vendor coordinates for live tracking map
+  try {
+    const vendorDoc = await db.collection('vendors').doc(metadata.vendorId).get();
+    if (vendorDoc.exists) {
+      const vData = vendorDoc.data();
+      if (vData?.coordinates?.lat && vData?.coordinates?.lng) {
+        orderData.vendorCoordinates = { lat: vData.coordinates.lat, lng: vData.coordinates.lng };
+      }
+      if (vData?.phone) orderData.vendorPhone = vData.phone;
+      if (vData?.address) orderData.vendorAddress = vData.address;
+    }
+  } catch (err) {
+    console.error(`[Webhook] Failed to fetch vendor coordinates:`, err);
   }
 
   console.log(`Creating legacy order ${metadata.orderId} with fulfillmentType: ${fulfillmentType}`);

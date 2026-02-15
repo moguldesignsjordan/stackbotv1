@@ -8,13 +8,13 @@ import { Loader2 } from 'lucide-react';
 import OrderConfirmationClient from '@/components/orders/OrderConfirmationClient';
 
 /**
- * Checkout success page.
- * - Clears the cart once on mount (idempotent via ref guard).
- * - Redirects to home if no session_id is present.
- * - Renders the shared OrderConfirmationClient which handles:
- *   • Initial order fetch via /api/orders/confirm
- *   • Real-time Firestore listener for status, driver location, etc.
- *   • Embedded LiveDeliveryMap with live driver tracking
+ * Unified checkout success page.
+ * Handles BOTH payment flows:
+ *  - Stripe Checkout redirect → ?session_id=cs_xxx
+ *  - In-app PaymentIntent    → ?order_id=SB-xxx
+ *
+ * Clears the cart once on mount (idempotent via ref guard).
+ * Renders OrderConfirmationClient which handles fetching, real-time updates, and live map.
  */
 function SuccessContent() {
   const searchParams = useSearchParams();
@@ -23,10 +23,14 @@ function SuccessContent() {
   const cartCleared = useRef(false);
 
   const sessionId = searchParams.get('session_id');
+  const orderId = searchParams.get('order_id');
+
+  // Must have at least one identifier
+  const hasRef = !!(sessionId || orderId);
 
   // Clear cart once on successful checkout
   useEffect(() => {
-    if (!sessionId) {
+    if (!hasRef) {
       router.push('/');
       return;
     }
@@ -35,10 +39,10 @@ function SuccessContent() {
       cartCleared.current = true;
       clearCart();
     }
-  }, [sessionId, clearCart, router]);
+  }, [hasRef, clearCart, router]);
 
-  // If no session_id, don't render anything (redirect above handles it)
-  if (!sessionId) {
+  // If no reference, redirect (handled above)
+  if (!hasRef) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-[#55529d]" />
@@ -46,7 +50,6 @@ function SuccessContent() {
     );
   }
 
-  // Render the shared confirmation client which handles everything else
   return <OrderConfirmationClient />;
 }
 
