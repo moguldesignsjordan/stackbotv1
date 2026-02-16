@@ -369,9 +369,10 @@ function LiveTrackingContent() {
     }
   };
 
+  // FIX 1: Show map for ALL active delivery statuses, not just claimed/out_for_delivery
   const showMap =
     order &&
-    ['claimed', 'out_for_delivery'].includes(order.status) &&
+    ['confirmed', 'preparing', 'ready', 'ready_for_pickup', 'claimed', 'out_for_delivery'].includes(order.status) &&
     (order.vendorCoordinates || order.deliveryAddress?.coordinates);
 
   const showDriver =

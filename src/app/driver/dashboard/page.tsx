@@ -493,7 +493,7 @@ export default function DriverDashboard() {
     const ordersQuery = query(
       collection(db, 'orders'),
       where('fulfillmentType', '==', 'delivery'),
-      where('status', 'in', ['ready', 'confirmed', 'preparing']),
+      where('status', 'in', ['ready', 'ready_for_pickup', 'confirmed', 'preparing']),
       orderBy('createdAt', 'desc')
     );
 

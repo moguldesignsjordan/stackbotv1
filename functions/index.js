@@ -902,26 +902,78 @@ exports.updateDriverLocation = functions.https.onCall(async (data, context) => {
 
 /* ============================================================
     🎯 CLAIM ORDER
+    ─────────────────────────────────────────────────────────────
+    FIX 2: Added 'ready_for_pickup' to claimableStatuses
+    FIX 3: Smart stale-order detection for currentOrderId —
+           if the referenced order is delivered/cancelled/missing
+           or reassigned, auto-clear and allow the new claim.
+    
+    ROLLBACK: Revert claimableStatuses to ["ready","confirmed","preparing"]
+              and replace stale-check block with:
+              if (driverData.currentOrderId) throw ...
 ============================================================ */
 exports.claimOrder = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Login required.");
   const userId = context.auth.uid;
   const { orderId } = data;
   if (!orderId) throw new functions.https.HttpsError("invalid-argument", "Order ID required.");
+
   const driverRef = admin.firestore().collection("drivers").doc(userId);
   const driverDoc = await driverRef.get();
   if (!driverDoc.exists) throw new functions.https.HttpsError("permission-denied", "Not a driver.");
   const driverData = driverDoc.data();
   if (!driverData.isVerified) throw new functions.https.HttpsError("permission-denied", "Driver not verified.");
-  if (driverData.currentOrderId) throw new functions.https.HttpsError("failed-precondition", "You already have an active order.");
+
+  // ══════════════════════════════════════════════════════════════
+  // FIX 3: Smart stale-order detection
+  // Instead of blindly blocking, verify the referenced order is
+  // actually still active. If terminal/missing, auto-clear.
+  // ══════════════════════════════════════════════════════════════
+  if (driverData.currentOrderId) {
+    const terminalStatuses = ["delivered", "cancelled"];
+    try {
+      const existingOrderRef = admin.firestore().collection("orders").doc(driverData.currentOrderId);
+      const existingOrderDoc = await existingOrderRef.get();
+
+      if (!existingOrderDoc.exists) {
+        // Order deleted — clear stale reference
+        console.log(`[claimOrder] Clearing stale currentOrderId=${driverData.currentOrderId} (not found) for driver ${userId}`);
+        await driverRef.update({ currentOrderId: null, status: "online", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+      } else {
+        const existingOrderData = existingOrderDoc.data();
+        if (terminalStatuses.includes(existingOrderData.status)) {
+          // Order delivered/cancelled — clear stale reference
+          console.log(`[claimOrder] Clearing stale currentOrderId=${driverData.currentOrderId} (status=${existingOrderData.status}) for driver ${userId}`);
+          await driverRef.update({ currentOrderId: null, status: "online", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } else if (existingOrderData.driverId !== userId) {
+          // Order reassigned to another driver — clear
+          console.log(`[claimOrder] Clearing stale currentOrderId=${driverData.currentOrderId} (reassigned to ${existingOrderData.driverId}) for driver ${userId}`);
+          await driverRef.update({ currentOrderId: null, status: "online", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } else {
+          // Order is genuinely active and assigned to this driver
+          throw new functions.https.HttpsError("failed-precondition", "You already have an active order.");
+        }
+      }
+    } catch (err) {
+      // Re-throw HttpsErrors (the genuine "active order" case)
+      if (err.code && String(err.code).includes("failed-precondition")) throw err;
+      // For unexpected errors, log and clear to avoid permanent blocking
+      console.error(`[claimOrder] Error checking stale order, clearing:`, err);
+      await driverRef.update({ currentOrderId: null, status: "online", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    }
+  }
+
   const result = await admin.firestore().runTransaction(async (transaction) => {
     const orderRef = admin.firestore().collection("orders").doc(orderId);
     const orderDoc = await transaction.get(orderRef);
     if (!orderDoc.exists) throw new functions.https.HttpsError("not-found", "Order not found.");
     const orderData = orderDoc.data();
     if (orderData.driverId) throw new functions.https.HttpsError("already-exists", "Order already claimed.");
-    const claimableStatuses = ["ready", "confirmed", "preparing"];
+
+    // FIX 2: Added 'ready_for_pickup' — vendor flow sets this status
+    const claimableStatuses = ["ready", "ready_for_pickup", "confirmed", "preparing"];
     if (!claimableStatuses.includes(orderData.status)) throw new functions.https.HttpsError("failed-precondition", `Cannot claim. Status: ${orderData.status}`);
+
     const updateData = {
       driverId: userId, driverName: driverData.name, driverPhone: driverData.phone || null,
       status: "claimed", deliveryStatus: "claimed",
@@ -933,13 +985,19 @@ exports.claimOrder = functions.https.onCall(async (data, context) => {
     transaction.update(driverRef, { status: "busy", currentOrderId: orderId, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     return { orderId, vendorId: orderData.vendorId, customerId: orderData.customerId };
   });
-  await createNotification({
-    userId: result.customerId,
-    type: "driver_assigned",
-    title: "Driver Assigned 🚗",
-    message: `${driverData.name} has been assigned to your order.`,
-    data: { orderId, driverId: userId, driverName: driverData.name, url: "/account" },
-  });
+
+  try {
+    await createNotification({
+      userId: result.customerId,
+      type: "driver_assigned",
+      title: "Driver Assigned 🚗",
+      message: `${driverData.name} has been assigned to your order.`,
+      data: { orderId, driverId: userId, driverName: driverData.name, url: "/account" },
+    });
+  } catch (notifErr) {
+    console.error("[claimOrder] Notification error (non-blocking):", notifErr);
+  }
+
   return { success: true, orderId, message: "Order claimed successfully" };
 });
 
@@ -1263,6 +1321,9 @@ exports.onOrderReadyForDelivery = functions.firestore
     ─────────────────────────────────────────────────────────────
     When an order is cancelled, remove or mark the corresponding
     delivery_queue entry so drivers don't see stale orders.
+    
+    FIX 3b: Also clears currentOrderId on the assigned driver
+            to prevent stale blocking on next claim attempt.
 ============================================================ */
 exports.onOrderCancelledCleanup = functions.firestore
   .document("orders/{orderId}")
@@ -1323,12 +1384,13 @@ exports.onOrderCancelledCleanup = functions.firestore
           await activeDeliveryRef.delete();
         }
 
-        // Set driver back to online
+        // FIX 3b: Set driver back to online AND clear currentOrderId
         await admin.firestore()
           .collection("drivers")
           .doc(assignedDriverId)
           .update({
             status: "online",
+            currentOrderId: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 

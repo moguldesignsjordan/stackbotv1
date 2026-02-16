@@ -468,8 +468,12 @@ export default function ActiveDeliveryPage() {
         });
       }
 
-      // Set driver back to online
-      await updateDoc(doc(db, 'drivers', userId), { status: 'online' });
+      // Set driver back to online AND clear stale order reference (FIX 3b)
+      await updateDoc(doc(db, 'drivers', userId), {
+        status: 'online',
+        currentOrderId: null,
+        updatedAt: serverTimestamp(),
+      });
 
       // Remove active delivery
       await deleteDoc(doc(db, 'driver_active_deliveries', userId));

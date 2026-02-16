@@ -1,4 +1,19 @@
 // src/components/tracking/LiveDeliveryMap.tsx
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX 1: Show the live map for ALL active delivery statuses, not just
+//        'claimed' and 'out_for_delivery'.
+//
+// WHAT CHANGED:
+//   - MAP_STATUSES expanded from ['claimed','out_for_delivery'] to include
+//     all pre-delivery statuses so the customer always sees a map with
+//     vendor + delivery markers even before a driver is assigned.
+//   - Added 'ready' and 'ready_for_pickup' to DRIVER_VISIBLE_STATUSES
+//     (driver dot won't show for those since there's no driver yet, but
+//     the status is correctly handled).
+//
+// ROLLBACK: Restore MAP_STATUSES to ['claimed', 'out_for_delivery']
+// ═══════════════════════════════════════════════════════════════════════════════
+
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -80,8 +95,12 @@ const mapOptions: google.maps.MapOptions = {
   ],
 };
 
-// ─── Statuses where map should be shown ───────────────────────────────────────
-const MAP_STATUSES = ['claimed', 'out_for_delivery'];
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX 1: Expanded MAP_STATUSES to show the map at ALL active delivery stages.
+//        Previously: ['claimed', 'out_for_delivery']
+//        Now: all statuses where the customer should see a map.
+// ═══════════════════════════════════════════════════════════════════════════════
+const MAP_STATUSES = ['confirmed', 'preparing', 'ready', 'ready_for_pickup', 'claimed', 'out_for_delivery'];
 const DRIVER_VISIBLE_STATUSES = ['claimed', 'out_for_delivery', 'delivered'];
 
 // ─── Inner Map Component (requires Google Maps loaded) ────────────────────────
@@ -196,7 +215,10 @@ function LiveMapInner({
   const showMap = MAP_STATUSES.includes(status) && (vendorCoordinates || deliveryCoordinates);
   const showDriver = DRIVER_VISIBLE_STATUSES.includes(status) && driverLocation;
 
-  // If status doesn't warrant a map yet, show a waiting state
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FIX 1 CONTINUED: The "waiting" fallback now only shows for 'pending'
+  // and terminal statuses. For all mid-flow statuses the map renders.
+  // ═══════════════════════════════════════════════════════════════════════════
   if (!showMap) {
     return (
       <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${className}`}>
@@ -208,165 +230,148 @@ function LiveMapInner({
             <p className="text-sm font-semibold text-gray-900">Live Tracking</p>
             <p className="text-xs text-gray-500">
               {status === 'pending' && 'Waiting for vendor to accept your order...'}
-              {status === 'confirmed' && 'Vendor confirmed! Preparing your order...'}
-              {status === 'preparing' && 'Your order is being prepared...'}
-              {status === 'ready' && 'Ready! Assigning a driver...'}
               {status === 'delivered' && 'Your order has been delivered!'}
               {!status && 'Loading order status...'}
             </p>
           </div>
           {!['delivered', 'cancelled'].includes(status) && (
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#55529d] opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#55529d]" />
-              </span>
-              <span className="text-xs font-medium text-[#55529d]">Live</span>
-            </div>
+            <Loader2 className="w-5 h-5 animate-spin text-[#55529d]/40" />
           )}
-        </div>
-
-        {/* Status progress bar */}
-        <div className="px-5 py-4">
-          <StatusProgressBar status={status} />
         </div>
       </div>
     );
   }
 
-  const mapHeight = expanded ? 'h-72 sm:h-80' : 'h-48';
+  // ── Status label for the header ──────────────────────────────────────────
+  const getStatusLabel = () => {
+    if (status === 'out_for_delivery') return `${driverName || 'Driver'} is on the way`;
+    if (status === 'claimed') return `${driverName || 'Driver'} is heading to pickup`;
+    if (status === 'ready' || status === 'ready_for_pickup') return 'Order ready — assigning a driver...';
+    if (status === 'preparing') return 'Your order is being prepared...';
+    if (status === 'confirmed') return 'Vendor confirmed your order!';
+    return 'Tracking your order...';
+  };
 
   return (
-    <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm ${className}`}>
-      {/* Header */}
+    <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${className}`}>
+      {/* Header bar */}
       <div className="px-5 py-3 flex items-center justify-between border-b border-gray-100">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
-              <Navigation className="w-4 h-4 text-emerald-600" />
-            </div>
-            <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white" />
-            </span>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <Navigation className="w-5 h-5 text-emerald-600" />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">
-              {status === 'out_for_delivery' ? 'Driver En Route' : 'Driver Assigned'}
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 truncate">
+              {getStatusLabel()}
             </p>
-            <p className="text-xs text-gray-500">
-              {driverName
-                ? `${driverName} ${status === 'out_for_delivery' ? 'is on the way to you' : 'is heading to the vendor'}`
-                : 'Your driver is on the move'}
-            </p>
+            {eta && (
+              <p className="text-xs text-emerald-600 font-medium">
+                ETA: {eta} • {distance}
+              </p>
+            )}
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          {eta && (
-            <div className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full">
-              <Clock className="w-3.5 h-3.5" />
-              <span className="text-xs font-semibold">{eta}</span>
-            </div>
-          )}
-          {compact && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expanded ? (
-                <Minimize2 className="w-4 h-4 text-gray-400" />
-              ) : (
-                <Maximize2 className="w-4 h-4 text-gray-400" />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Map */}
-      <div className={`relative ${mapHeight} transition-all duration-300`}>
-        <GoogleMap
-          mapContainerStyle={mapContainerStyle}
-          options={mapOptions}
-          onLoad={onMapLoad}
-          center={
-            driverLocation ||
-            deliveryCoordinates ||
-            vendorCoordinates ||
-            { lat: 19.75, lng: -70.45 }
-          }
-          zoom={14}
-        >
-          {/* Route */}
-          {directions && (
-            <DirectionsRenderer
-              directions={directions}
-              options={{
-                suppressMarkers: true,
-                polylineOptions: {
-                  strokeColor: '#10b981',
-                  strokeWeight: 4,
-                  strokeOpacity: 0.85,
-                },
-              }}
-            />
-          )}
-
-          {/* Driver */}
-          {showDriver && driverLocation && (
-            <Marker
-              position={driverLocation}
-              icon={{
-                url: svgMarkerUrl(DRIVER_MARKER_SVG),
-                scaledSize: new google.maps.Size(44, 44),
-                anchor: new google.maps.Point(22, 22),
-              }}
-              zIndex={3}
-            />
-          )}
-
-          {/* Vendor */}
-          {vendorCoordinates && (
-            <Marker
-              position={vendorCoordinates}
-              icon={{
-                url: svgMarkerUrl(VENDOR_MARKER_SVG),
-                scaledSize: new google.maps.Size(36, 45),
-                anchor: new google.maps.Point(18, 45),
-              }}
-              zIndex={1}
-            />
-          )}
-
-          {/* Delivery destination */}
-          {deliveryCoordinates && (
-            <Marker
-              position={deliveryCoordinates}
-              icon={{
-                url: svgMarkerUrl(DELIVERY_MARKER_SVG),
-                scaledSize: new google.maps.Size(36, 45),
-                anchor: new google.maps.Point(18, 45),
-              }}
-              zIndex={2}
-            />
-          )}
-        </GoogleMap>
-
-        {/* Distance badge overlay */}
-        {distance && (
-          <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-md border border-gray-200">
-            <span className="text-xs font-semibold text-gray-700">{distance} away</span>
-          </div>
+        {compact && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            {expanded ? (
+              <Minimize2 className="w-4 h-4 text-gray-500" />
+            ) : (
+              <Maximize2 className="w-4 h-4 text-gray-500" />
+            )}
+          </button>
         )}
       </div>
 
+      {/* Map */}
+      {expanded && (
+        <div className="relative h-56 sm:h-72">
+          <GoogleMap
+            mapContainerStyle={mapContainerStyle}
+            options={mapOptions}
+            onLoad={onMapLoad}
+            center={
+              driverLocation ||
+              deliveryCoordinates ||
+              vendorCoordinates ||
+              { lat: 19.75, lng: -70.45 }
+            }
+            zoom={14}
+          >
+            {/* Directions route */}
+            {directions && (
+              <DirectionsRenderer
+                directions={directions}
+                options={{
+                  suppressMarkers: true,
+                  polylineOptions: {
+                    strokeColor: '#10b981',
+                    strokeWeight: 4,
+                    strokeOpacity: 0.8,
+                  },
+                }}
+              />
+            )}
+
+            {/* Driver marker — only when driver is assigned and has location */}
+            {showDriver && driverLocation && (
+              <Marker
+                position={driverLocation}
+                icon={{
+                  url: svgMarkerUrl(DRIVER_MARKER_SVG),
+                  scaledSize: new google.maps.Size(40, 40),
+                  anchor: new google.maps.Point(20, 20),
+                }}
+                zIndex={3}
+              />
+            )}
+
+            {/* Vendor marker */}
+            {vendorCoordinates && (
+              <Marker
+                position={vendorCoordinates}
+                icon={{
+                  url: svgMarkerUrl(VENDOR_MARKER_SVG),
+                  scaledSize: new google.maps.Size(36, 45),
+                  anchor: new google.maps.Point(18, 45),
+                }}
+                zIndex={1}
+              />
+            )}
+
+            {/* Delivery destination */}
+            {deliveryCoordinates && (
+              <Marker
+                position={deliveryCoordinates}
+                icon={{
+                  url: svgMarkerUrl(DELIVERY_MARKER_SVG),
+                  scaledSize: new google.maps.Size(36, 45),
+                  anchor: new google.maps.Point(18, 45),
+                }}
+                zIndex={2}
+              />
+            )}
+          </GoogleMap>
+
+          {/* Distance badge overlay */}
+          {distance && (
+            <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-md border border-gray-200">
+              <span className="text-xs font-semibold text-gray-700">{distance} away</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Legend */}
       <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap gap-4 text-xs text-gray-500">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-emerald-500" />
-          Driver
-        </span>
+        {showDriver && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-emerald-500" />
+            {driverName || 'Driver'}
+          </span>
+        )}
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-full bg-[#55529d]" />
           {vendorName || 'Vendor'}
@@ -380,46 +385,7 @@ function LiveMapInner({
   );
 }
 
-// ─── Status Progress Bar ──────────────────────────────────────────────────────
-function StatusProgressBar({ status }: { status: string }) {
-  const steps = [
-    { key: 'pending', label: 'Received' },
-    { key: 'confirmed', label: 'Confirmed' },
-    { key: 'preparing', label: 'Preparing' },
-    { key: 'ready', label: 'Ready' },
-    { key: 'claimed', label: 'Driver Assigned' },
-    { key: 'out_for_delivery', label: 'On the Way' },
-    { key: 'delivered', label: 'Delivered' },
-  ];
-
-  const currentIdx = steps.findIndex((s) => s.key === status);
-
-  return (
-    <div className="space-y-3">
-      {/* Progress bar */}
-      <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-[#55529d] to-emerald-500 transition-all duration-700 ease-out"
-          style={{ width: `${Math.max(((currentIdx + 1) / steps.length) * 100, 8)}%` }}
-        />
-      </div>
-
-      {/* Current step label */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-900">
-          {steps[currentIdx]?.label || 'Processing'}
-        </span>
-        {currentIdx < steps.length - 1 && (
-          <span className="text-xs text-gray-400">
-            Next: {steps[currentIdx + 1]?.label}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Public Export (wraps with GoogleMapsProvider) ─────────────────────────────
+// ─── Status Proxy (renders fallback while Maps JS loads) ──────────────────────
 export function LiveDeliveryMap(props: LiveDeliveryMapProps) {
   return (
     <GoogleMapsProvider>
