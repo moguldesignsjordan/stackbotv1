@@ -174,14 +174,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate delivery address only for delivery orders
-    let validatedDeliveryAddress = {
+let validatedDeliveryAddress: {
+      street: string;
+      city: string;
+      state: string;
+      postalCode: string;
+      country: string;
+      instructions: string;
+      coordinates: { lat: number; lng: number } | null;
+    } = {
       street: '',
       city: '',
       state: '',
       postalCode: '',
       country: 'Dominican Republic',
       instructions: '',
+      coordinates: null,
     };
 
     if (!isPickup) {
@@ -194,16 +202,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      validatedDeliveryAddress = {
+ validatedDeliveryAddress = {
         street: deliveryAddress.street.trim(),
         city: deliveryAddress.city.trim(),
         state: deliveryAddress.state?.trim() || '',
         postalCode: deliveryAddress.postalCode?.trim() || '',
         country: deliveryAddress.country?.trim() || 'Dominican Republic',
         instructions: deliveryAddress.instructions?.trim() || '',
+        coordinates: deliveryAddress.coordinates?.lat && deliveryAddress.coordinates?.lng
+          ? { lat: deliveryAddress.coordinates.lat, lng: deliveryAddress.coordinates.lng }
+          : null,
       };
-    }
-
+      
     // Save address to customer profile if it's new (only for delivery)
     const db = admin.firestore();
     const customerRef = db.collection('customers').doc(customerId);

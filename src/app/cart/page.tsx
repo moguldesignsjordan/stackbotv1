@@ -275,6 +275,7 @@ export default function CartPage() {
             postalCode: selectedAddress.postalCode || '',
             country: selectedAddress.country,
             instructions: selectedAddress.instructions || '',
+            coordinates: selectedAddress.coordinates || null,
           }
         : manualAddress;
     }

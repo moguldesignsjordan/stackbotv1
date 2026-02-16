@@ -23,6 +23,7 @@ interface CreatePaymentIntentBody {
     postalCode?: string;
     country?: string;
     instructions?: string;
+    coordinates?: { lat: number; lng: number } | null; // FIX: Accept coordinates from frontend
   } | null;
   fulfillmentType?: FulfillmentType;
   notes?: string;
@@ -143,14 +144,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ========================================================================
     // Validate delivery address
-    let validatedDeliveryAddress = {
+    // FIX: Now preserves coordinates from the frontend (saved address or map pin)
+    //
+    // ROLLBACK: Remove `coordinates` field from both the type and assignment
+    // ========================================================================
+    let validatedDeliveryAddress: {
+      street: string;
+      city: string;
+      state: string;
+      postalCode: string;
+      country: string;
+      instructions: string;
+      coordinates: { lat: number; lng: number } | null;
+    } = {
       street: '',
       city: '',
       state: '',
       postalCode: '',
       country: 'Dominican Republic',
       instructions: '',
+      coordinates: null,
     };
 
     if (!isPickup) {
@@ -165,6 +180,9 @@ export async function POST(request: NextRequest) {
         postalCode: deliveryAddress.postalCode?.trim() || '',
         country: deliveryAddress.country?.trim() || 'Dominican Republic',
         instructions: deliveryAddress.instructions?.trim() || '',
+        coordinates: deliveryAddress.coordinates?.lat && deliveryAddress.coordinates?.lng
+          ? { lat: deliveryAddress.coordinates.lat, lng: deliveryAddress.coordinates.lng }
+          : null,
       };
     }
 

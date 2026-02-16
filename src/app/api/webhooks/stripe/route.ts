@@ -206,6 +206,50 @@ async function handlePaymentIntentSucceeded(
 }
 
 // ============================================================================
+// SHARED HELPER: Extract vendor coordinates from vendor doc data
+// Checks multiple possible field names to handle schema variations.
+//
+// ROLLBACK: Revert to only checking vData.coordinates
+// ============================================================================
+
+function extractVendorCoordinates(
+  vData: Record<string, unknown> | undefined
+): { lat: number; lng: number } | null {
+  if (!vData) return null;
+
+  // Check common nested object field names
+  const coordSources = [
+    vData.coordinates,
+    vData.location,
+    vData.vendorCoordinates,
+  ] as Array<Record<string, unknown> | undefined>;
+
+  for (const source of coordSources) {
+    if (
+      source &&
+      typeof source === 'object' &&
+      typeof (source as { lat?: unknown }).lat === 'number' &&
+      typeof (source as { lng?: unknown }).lng === 'number'
+    ) {
+      return {
+        lat: (source as { lat: number }).lat,
+        lng: (source as { lng: number }).lng,
+      };
+    }
+  }
+
+  // Check flat latitude/longitude fields
+  if (
+    typeof vData.latitude === 'number' &&
+    typeof vData.longitude === 'number'
+  ) {
+    return { lat: vData.latitude as number, lng: vData.longitude as number };
+  }
+
+  return null;
+}
+
+// ============================================================================
 // MULTI-VENDOR CHECKOUT HANDLER (shared by session + payment_intent)
 // ============================================================================
 
@@ -250,19 +294,18 @@ async function handleMultiVendorCheckout(
   const createdOrderIds: string[] = [];
 
   // Pre-fetch all vendor coordinates in parallel for live tracking
+  // FIX: Uses extractVendorCoordinates() to check multiple field names
   const vendorInfoMap: Record<string, { coordinates: { lat: number; lng: number } | null; phone: string | null; address: string | null }> = {};
   await Promise.all(
     vendorGroups.map(async (g: { vendorId: string }) => {
       try {
         const vDoc = await db.collection('vendors').doc(g.vendorId).get();
         if (vDoc.exists) {
-          const vData = vDoc.data();
+          const vData = vDoc.data() as Record<string, unknown> | undefined;
           vendorInfoMap[g.vendorId] = {
-            coordinates: vData?.coordinates?.lat && vData?.coordinates?.lng
-              ? { lat: vData.coordinates.lat, lng: vData.coordinates.lng }
-              : null,
-            phone: vData?.phone || null,
-            address: vData?.address || null,
+            coordinates: extractVendorCoordinates(vData),
+            phone: (vData?.phone as string) || null,
+            address: (vData?.address as string) || null,
           };
         }
       } catch (err) {
@@ -323,11 +366,28 @@ async function handleMultiVendorCheckout(
     if (vendorInfo?.phone) orderData.vendorPhone = vendorInfo.phone;
     if (vendorInfo?.address) orderData.vendorAddress = vendorInfo.address;
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // FIX: Preserve delivery address coordinates from pending_checkouts.
+    // Previously just did: orderData.deliveryAddress = deliveryAddress
+    // which works IF the checkout API stored coordinates. Now we explicitly
+    // ensure the coordinates sub-field is carried through.
+    //
+    // ROLLBACK: Revert to `orderData.deliveryAddress = deliveryAddress;`
+    // ═══════════════════════════════════════════════════════════════════════
     if (!isPickup && deliveryAddress) {
-      orderData.deliveryAddress = deliveryAddress;
+      orderData.deliveryAddress = {
+        ...deliveryAddress,
+        // Ensure coordinates are preserved (may come as .coordinates or .coords)
+        coordinates:
+          (deliveryAddress.coordinates?.lat && deliveryAddress.coordinates?.lng)
+            ? { lat: deliveryAddress.coordinates.lat, lng: deliveryAddress.coordinates.lng }
+            : (deliveryAddress.coords?.lat && deliveryAddress.coords?.lng)
+              ? { lat: deliveryAddress.coords.lat, lng: deliveryAddress.coords.lng }
+              : null,
+      };
     }
 
-    console.log(`[Webhook] Creating order ${orderId} for vendor ${vendorName} ($${perVendorTotal.toFixed(2)})`);
+    console.log(`[Webhook] Creating order ${orderId} for vendor ${vendorName} ($${perVendorTotal.toFixed(2)}) | vendorCoords: ${vendorInfo?.coordinates ? 'YES' : 'MISSING'} | deliveryCoords: ${orderData.deliveryAddress && (orderData.deliveryAddress as Record<string, unknown>).coordinates ? 'YES' : 'MISSING'}`);
 
     const orderRef = db.collection('orders').doc(orderId);
     batch.set(orderRef, orderData);
@@ -390,6 +450,10 @@ async function createOrderFromLegacyMetadata(
     phone: metadata.customerPhone || '',
   };
 
+  // NOTE: Legacy metadata only has flat string fields for the address.
+  // Coordinates cannot be reconstructed here — they must be stored at
+  // checkout time. The track page has a fallback that fetches vendor
+  // coordinates from the vendor doc directly.
   const deliveryAddress = isPickup
     ? null
     : {
@@ -399,6 +463,7 @@ async function createOrderFromLegacyMetadata(
         postalCode: metadata.deliveryPostalCode || '',
         country: metadata.deliveryCountry || 'Dominican Republic',
         instructions: metadata.deliveryInstructions || '',
+        coordinates: null, // Legacy flow cannot recover coordinates
       };
 
   const orderData: Record<string, unknown> = {
@@ -435,14 +500,22 @@ async function createOrderFromLegacyMetadata(
     orderData.deliveryAddress = deliveryAddress;
   }
 
-  // Fetch vendor coordinates for live tracking map
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FIX: Use extractVendorCoordinates() to check multiple field names
+  // (coordinates, location, vendorCoordinates, latitude/longitude).
+  //
+  // ROLLBACK: Revert to checking only vData.coordinates.lat/lng
+  // ═══════════════════════════════════════════════════════════════════════════
   try {
     const vendorDoc = await db.collection('vendors').doc(metadata.vendorId).get();
     if (vendorDoc.exists) {
-      const vData = vendorDoc.data();
-      if (vData?.coordinates?.lat && vData?.coordinates?.lng) {
-        orderData.vendorCoordinates = { lat: vData.coordinates.lat, lng: vData.coordinates.lng };
+      const vData = vendorDoc.data() as Record<string, unknown> | undefined;
+
+      const coords = extractVendorCoordinates(vData);
+      if (coords) {
+        orderData.vendorCoordinates = coords;
       }
+
       if (vData?.phone) orderData.vendorPhone = vData.phone;
       if (vData?.address) orderData.vendorAddress = vData.address;
     }
@@ -450,7 +523,7 @@ async function createOrderFromLegacyMetadata(
     console.error(`[Webhook] Failed to fetch vendor coordinates:`, err);
   }
 
-  console.log(`Creating legacy order ${metadata.orderId} with fulfillmentType: ${fulfillmentType}`);
+  console.log(`Creating legacy order ${metadata.orderId} with fulfillmentType: ${fulfillmentType} | vendorCoords: ${orderData.vendorCoordinates ? 'YES' : 'MISSING'}`);
 
   const batch = db.batch();
 
