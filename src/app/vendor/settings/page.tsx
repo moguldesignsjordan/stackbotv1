@@ -45,16 +45,16 @@ import type { StoreHours } from "@/lib/utils/store-hours";
 
 // Category keys mapping for translations
 const CATEGORY_KEYS: { key: TranslationKey; value: string }[] = [
-  { key: 'vendor.categories.restaurants' as TranslationKey, value: "Restaurants" },
-  { key: 'vendor.categories.groceries' as TranslationKey, value: "Groceries" },
-  { key: 'vendor.categories.beauty' as TranslationKey, value: "Beauty & Wellness" },
-  { key: 'vendor.categories.taxi' as TranslationKey, value: "Taxi & Transport" },
-  { key: 'vendor.categories.tours' as TranslationKey, value: "Tours & Activities" },
-  { key: 'vendor.categories.professional' as TranslationKey, value: "Professional Services" },
-  { key: 'vendor.categories.homeRepair' as TranslationKey, value: "Home Repair & Maintenance" },
-  { key: 'vendor.categories.electronics' as TranslationKey, value: "Electronics & Gadgets" },
-  { key: 'vendor.categories.cleaning' as TranslationKey, value: "Cleaning Services" },
-  { key: 'vendor.categories.retail' as TranslationKey, value: "Retail Shops" },
+  { key: 'vendor.settings.categories.restaurants' as TranslationKey, value: "Restaurants" },
+  { key: 'vendor.settings.categories.groceries' as TranslationKey, value: "Groceries" },
+  { key: 'vendor.settings.categories.beauty' as TranslationKey, value: "Beauty & Wellness" },
+  { key: 'vendor.settings.categories.taxi' as TranslationKey, value: "Taxi & Transport" },
+  { key: 'vendor.settings.categories.tours' as TranslationKey, value: "Tours & Activities" },
+  { key: 'vendor.settings.categories.professional' as TranslationKey, value: "Professional Services" },
+  { key: 'vendor.settings.categories.homeRepair' as TranslationKey, value: "Home Repair & Maintenance" },
+  { key: 'vendor.settings.categories.electronics' as TranslationKey, value: "Electronics & Gadgets" },
+  { key: 'vendor.settings.categories.cleaning' as TranslationKey, value: "Cleaning Services" },
+  { key: 'vendor.settings.categories.retail' as TranslationKey, value: "Retail Shops" },
 ];
 
 // Video compression settings
@@ -458,10 +458,10 @@ export default function VendorSettings() {
       setShowBankEdit(false);
       setCompressionStatus("");
 
-      setMessage({ type: "success", text: t('vendor.settings.settingsSaved' as TranslationKey) });
+      setMessage({ type: "success", text: t('vendor.settings.saved' as TranslationKey) });
     } catch (err: any) {
       console.error("Save error:", err);
-      setMessage({ type: "error", text: err.message || t('vendor.settings.saveFailed' as TranslationKey) });
+      setMessage({ type: "error", text: err.message || t('vendor.settings.error' as TranslationKey) });
     }
 
     setSaving(false);
@@ -497,7 +497,7 @@ export default function VendorSettings() {
     }));
   };
 
-  if (loading) return <LoadingSpinner text={t('vendor.settings.loading' as TranslationKey)} />;
+  if (loading) return <LoadingSpinner text={t('common.loading' as TranslationKey)} />;
 
   const currentCoverUrl = vendor?.cover_video_url || vendor?.cover_image_url;
   const isCurrentCoverVideo = !!vendor?.cover_video_url;
@@ -640,7 +640,7 @@ export default function VendorSettings() {
       </Card>
 
       {/* LOGO */}
-      <Card title={t('vendor.settings.storeLogo' as TranslationKey)}>
+      <Card title={t('vendor.settings.logo' as TranslationKey)}>
         <div className="flex items-center gap-6">
           <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0">
             {logoPreview || vendor?.logoUrl ? (
@@ -681,7 +681,7 @@ export default function VendorSettings() {
       </Card>
 
       {/* BASIC INFO */}
-      <Card title={t('vendor.settings.basicInfo' as TranslationKey)}>
+      <Card title={t('vendor.settings.storeInfo' as TranslationKey)}>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -909,7 +909,7 @@ export default function VendorSettings() {
           >
             <Locate className={`h-4 w-4 ${gettingLocation ? "animate-spin" : ""}`} />
             {gettingLocation 
-              ? t('vendor.settings.gettingLocation' as TranslationKey) 
+              ? t('vendor.settings.getting' as TranslationKey) 
               : t('vendor.settings.useCurrentLocation' as TranslationKey)
             }
           </button>

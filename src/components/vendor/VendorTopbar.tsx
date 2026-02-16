@@ -110,20 +110,26 @@ export default function VendorTopbar() {
     fetchVendor();
   }, [currentUser]);
 
-  // Subscribe to notifications
+  // =========================================================================
+  // FIX: Query the ROOT 'notifications' collection filtered by userId
+  // instead of the vendor subcollection 'vendors/{uid}/notifications'.
+  // All notification writers (Cloud Functions, Stripe webhook, client helpers)
+  // write to the root collection. The subcollection is rarely populated.
+  // =========================================================================
   useEffect(() => {
     if (!currentUser) return;
 
     const q = query(
-      collection(db, 'vendors', currentUser.uid, 'notifications'),
+      collection(db, 'notifications'),
+      where('userId', '==', currentUser.uid),
       orderBy('createdAt', 'desc'),
       limit(20)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notifs: Notification[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
+      const notifs: Notification[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
       })) as Notification[];
 
       setNotifications(notifs);
@@ -155,6 +161,9 @@ export default function VendorTopbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // =========================================================================
+  // FIX: Mark all as read in the ROOT 'notifications' collection
+  // =========================================================================
   const markAllAsRead = async () => {
     if (!currentUser || notifications.length === 0) return;
 
@@ -162,21 +171,24 @@ export default function VendorTopbar() {
     notifications
       .filter((n) => !n.read)
       .forEach((n) => {
-        const ref = doc(db, 'vendors', currentUser.uid, 'notifications', n.id);
-        batch.update(ref, { read: true });
+        const ref = doc(db, 'notifications', n.id);
+        batch.update(ref, { read: true, readAt: Timestamp.now() });
       });
 
     await batch.commit();
   };
 
+  // =========================================================================
+  // FIX: Mark single notification as read in the ROOT collection
+  // =========================================================================
   const handleNotificationClick = async (notification: Notification) => {
     if (!currentUser) return;
 
     // Mark as read
     if (!notification.read) {
       await updateDoc(
-        doc(db, 'vendors', currentUser.uid, 'notifications', notification.id),
-        { read: true }
+        doc(db, 'notifications', notification.id),
+        { read: true, readAt: Timestamp.now() }
       );
     }
 
@@ -362,10 +374,10 @@ export default function VendorTopbar() {
                                     {notification.title}
                                   </p>
                                   <span className="text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
-                                    {timestamp ? formatTimeAgo(timestamp, t) : t('vendor.orders.justNow' as TranslationKey)}
+                                    {timestamp ? formatTimeAgo(timestamp, t) : ''}
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-500 line-clamp-2">
+                                <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
                                   {notification.message}
                                 </p>
                               </div>
@@ -380,54 +392,38 @@ export default function VendorTopbar() {
             )}
           </div>
 
-          {/* Profile Menu */}
-          <div className="relative" ref={menuRef}>
+          {/* Desktop: Settings & Logout Menu */}
+          <div className="hidden lg:block relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="flex items-center gap-2 p-1.5 pr-3 hover:bg-gray-50 active:bg-gray-100 rounded-xl transition"
+              className={`flex items-center gap-1.5 p-2.5 rounded-xl transition-all ${
+                showMenu
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-500 hover:bg-gray-50'
+              }`}
             >
-              <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-sb-primary to-violet-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
-                {vendor?.name?.charAt(0)?.toUpperCase() || 'V'}
-              </div>
-              <ChevronDown className="h-4 w-4 text-gray-400 hidden sm:block" />
+              <Settings className="h-5 w-5" />
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showMenu ? 'rotate-180' : ''}`} />
             </button>
 
             {showMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50">
-                  {vendor?.slug && (
-                    <Link
-                      href={`/store/${vendor.slug}`}
-                      target="_blank"
-                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 sm:hidden"
-                      onClick={() => setShowMenu(false)}
-                    >
-                      <Eye className="h-4 w-4" />
-                      {t('vendor.nav.viewStore' as TranslationKey)}
-                    </Link>
-                  )}
-
-                  <Link
-                    href="/vendor/settings"
-                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => setShowMenu(false)}
-                  >
-                    <Settings className="h-4 w-4" />
-                    {t('vendor.nav.settings' as TranslationKey)}
-                  </Link>
-
-                  <div className="border-t border-gray-100 my-1" />
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {t('vendor.nav.logout' as TranslationKey)}
-                  </button>
-                </div>
-              </>
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+                <Link
+                  href="/vendor/settings"
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => setShowMenu(false)}
+                >
+                  <Settings className="h-4 w-4" />
+                  {t('vendor.nav.settings' as TranslationKey)}
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 w-full"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {t('vendor.nav.logout' as TranslationKey)}
+                </button>
+              </div>
             )}
           </div>
         </div>

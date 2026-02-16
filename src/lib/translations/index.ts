@@ -653,6 +653,19 @@ export const translations = {
     'vendor.settings.categories.cleaning': 'Cleaning Services',
     'vendor.settings.categories.retail': 'Retail Shops',
 
+    // Vendor Settings - Missing keys (add after 'vendor.settings.uploadCover')
+    'vendor.settings.coverMedia': 'Cover Media',
+    'vendor.settings.coverMediaDesc': 'Upload an image or video for your store hero section. Videos will autoplay on loop.',
+    'vendor.settings.uploadImage': 'Image',
+    'vendor.settings.uploadVideo': 'Video',
+    'vendor.settings.selectCategories': 'Select all categories that apply to your store',
+    'vendor.settings.removeLogo': 'Remove store logo? This cannot be undone.',
+    'vendor.settings.logoRemoved': 'Logo removed successfully',
+    'vendor.settings.removeCover': 'Remove cover media? This cannot be undone.',
+    'vendor.settings.coverRemoved': 'Cover media removed successfully',
+    'vendor.settings.viewStorefront': 'View Store',
+    'vendor.settings.bank': 'Bank',
+    'vendor.settings.account': 'Account',
 
   },
 
@@ -1301,6 +1314,20 @@ export const translations = {
     'vendor.productForm.saveFailed': 'Error al guardar producto. Por favor intenta de nuevo.',
     'vendor.productForm.deleteFailed': 'Error al eliminar producto. Por favor intenta de nuevo.',
     'vendor.productForm.createFailed': 'Error al crear producto. Por favor intenta de nuevo.',
+
+    // Configuración de Vendedor - Claves faltantes
+    'vendor.settings.coverMedia': 'Portada',
+    'vendor.settings.coverMediaDesc': 'Sube una imagen o video para la sección principal de tu tienda. Los videos se reproducirán en bucle.',
+    'vendor.settings.uploadImage': 'Imagen',
+    'vendor.settings.uploadVideo': 'Video',
+    'vendor.settings.selectCategories': 'Selecciona todas las categorías que aplican a tu tienda',
+    'vendor.settings.removeLogo': '¿Eliminar logo de la tienda? Esto no se puede deshacer.',
+    'vendor.settings.logoRemoved': 'Logo eliminado exitosamente',
+    'vendor.settings.removeCover': '¿Eliminar portada? Esto no se puede deshacer.',
+    'vendor.settings.coverRemoved': 'Portada eliminada exitosamente',
+    'vendor.settings.viewStorefront': 'Ver Tienda',
+    'vendor.settings.bank': 'Banco',
+    'vendor.settings.account': 'Cuenta',
 
 
   },
