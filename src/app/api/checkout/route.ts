@@ -23,6 +23,7 @@ interface CheckoutRequestBody {
     postalCode?: string;
     country?: string;
     instructions?: string;
+    coordinates?: { lat: number; lng: number } | null; // FIX: Accept coordinates from frontend
   } | null;
   fulfillmentType?: FulfillmentType;
   notes?: string;
@@ -174,7 +175,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-let validatedDeliveryAddress: {
+    // ========================================================================
+    // Validate delivery address only for delivery orders
+    // FIX: Now preserves coordinates from the frontend (saved address or map pin)
+    //
+    // ROLLBACK: Remove `coordinates` field from both the type and assignment
+    // ========================================================================
+    let validatedDeliveryAddress: {
       street: string;
       city: string;
       state: string;
@@ -202,7 +209,7 @@ let validatedDeliveryAddress: {
         );
       }
 
- validatedDeliveryAddress = {
+      validatedDeliveryAddress = {
         street: deliveryAddress.street.trim(),
         city: deliveryAddress.city.trim(),
         state: deliveryAddress.state?.trim() || '',
@@ -213,7 +220,11 @@ let validatedDeliveryAddress: {
           ? { lat: deliveryAddress.coordinates.lat, lng: deliveryAddress.coordinates.lng }
           : null,
       };
-      
+    }
+    // ^^^ FIX: Restored missing closing brace. Without this, everything below
+    // (address saving, vendor grouping, Stripe session) was trapped inside
+    // the if(!isPickup) block — pickup orders would return no response.
+
     // Save address to customer profile if it's new (only for delivery)
     const db = admin.firestore();
     const customerRef = db.collection('customers').doc(customerId);
