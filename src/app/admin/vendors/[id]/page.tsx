@@ -23,6 +23,9 @@ import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { formatPrice } from "@/lib/utils/currency";
 import { useAuth } from "@/hooks/useAuth";
+import StoreHoursEditor from "@/components/vendor/StoreHoursEditor";
+import type { StoreHours } from "@/lib/utils/store-hours";
+import { DAYS_OF_WEEK, DAY_LABELS, formatTime12h } from "@/lib/utils/store-hours";
 import {
   Store,
   ArrowLeft,
@@ -99,6 +102,7 @@ interface Vendor {
   status?: "approved" | "suspended" | "pending";
   verified?: boolean;
   hours?: string;
+  store_hours?: StoreHours;
   whatsapp?: string;
   instagram?: string;
   facebook?: string;
@@ -164,6 +168,7 @@ export default function AdminVendorDetailPage() {
     website: "",
     whatsapp: "",
     hours: "",
+    store_hours: null as StoreHours | null,
     categories: [] as string[],
     instagram: "",
     facebook: "",
@@ -219,6 +224,7 @@ export default function AdminVendorDetailPage() {
           website: vendorData.website || "",
           whatsapp: vendorData.whatsapp || "",
           hours: vendorData.hours || "",
+          store_hours: vendorData.store_hours || null,
           categories: vendorData.categories || [],
           instagram: vendorData.instagram || "",
           facebook: vendorData.facebook || "",
@@ -370,6 +376,7 @@ export default function AdminVendorDetailPage() {
         website: form.website.trim(),
         whatsapp: form.whatsapp.trim(),
         hours: form.hours.trim(),
+        store_hours: form.store_hours || null,
         categories: form.categories,
         instagram: form.instagram.trim(),
         facebook: form.facebook.trim(),
@@ -757,13 +764,20 @@ export default function AdminVendorDetailPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Business Hours</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Hours (text)</label>
                 <input
                   type="text"
                   value={form.hours}
                   placeholder="e.g. Mon-Fri 9am-5pm"
                   onChange={(e) => setForm({ ...form, hours: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <StoreHoursEditor
+                  value={form.store_hours}
+                  onChange={(hours) => setForm({ ...form, store_hours: hours })}
+                  language="en"
                 />
               </div>
               <div className="md:col-span-2">
@@ -1042,10 +1056,35 @@ export default function AdminVendorDetailPage() {
                         </a>
                       </div>
                     )}
-                    {vendor.hours && (
+                    {vendor.hours && !vendor.store_hours && (
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
                         <span>{vendor.hours}</span>
+                      </div>
+                    )}
+                    {vendor.store_hours && (
+                      <div className="pt-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          <span className="font-medium text-gray-700 text-sm">Store Hours</span>
+                        </div>
+                        <div className="grid gap-1 ml-6">
+                          {DAYS_OF_WEEK.map((day) => {
+                            const schedule = vendor.store_hours![day];
+                            return (
+                              <div key={day} className="flex items-center gap-2 text-sm">
+                                <span className="w-20 text-gray-500">{DAY_LABELS[day].en}</span>
+                                {schedule.open ? (
+                                  <span className="text-gray-900">
+                                    {formatTime12h(schedule.openTime)} – {formatTime12h(schedule.closeTime)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 italic">Closed</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>

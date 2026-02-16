@@ -392,8 +392,11 @@ export default function VendorTopbar() {
             )}
           </div>
 
-          {/* Desktop: Settings & Logout Menu */}
-          <div className="hidden lg:block relative" ref={menuRef}>
+          {/* ============================================================= */}
+          {/* FIX: Settings & Logout Menu — visible on ALL screen sizes      */}
+          {/* Was: "hidden lg:block relative" which hid it on mobile/tablet  */}
+          {/* ============================================================= */}
+          <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
               className={`flex items-center gap-1.5 p-2.5 rounded-xl transition-all ${
