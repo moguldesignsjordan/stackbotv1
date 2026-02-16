@@ -1,16 +1,22 @@
 // src/app/driver/delivery/page.tsx
 // ============================================================================
-// ACTIVE DELIVERY PAGE — Phase 3: GPS Broadcasting Added
+// ACTIVE DELIVERY PAGE — Phase 5: Embedded Mini-Map Added
 //
 // Reads from driver_active_deliveries/{driverId} for current delivery state.
 // Broadcasts driver GPS to:
 //   - orders/{orderId}.driverLocation  (customer tracking picks this up)
 //   - drivers/{driverId}.currentLocation (admin visibility)
 //
+// Shows embedded Google Map with:
+//   - Driver position (green dot)
+//   - Vendor location (blue pin during pickup phase)
+//   - Customer location (red pin during delivery phase)
+//   - Driving route with ETA and distance
+//
 // Status flow: heading_to_pickup → at_pickup → picked_up →
 //              heading_to_customer → at_customer → delivered → complete
 //
-// ROLLBACK: Revert this file from git to remove GPS broadcasting.
+// ROLLBACK: Revert this file from git to remove embedded map / GPS broadcasting.
 // ============================================================================
 'use client';
 
@@ -27,6 +33,8 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
+import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
+import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
 import {
   Package,
   MapPin,
@@ -38,6 +46,9 @@ import {
   AlertCircle,
   Locate,
   X,
+  Clock,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 // ============================================================================
@@ -120,6 +131,11 @@ const translations = {
     keepDelivery: 'No, Continuar',
     gpsActive: 'GPS activo',
     gpsInactive: 'GPS inactivo',
+    eta: 'Tiempo est.',
+    distance: 'Distancia',
+    liveMap: 'Mapa en Vivo',
+    loadingMap: 'Cargando mapa...',
+    noGps: 'Esperando señal GPS...',
   },
   en: {
     headingToPickup: 'Head to Restaurant',
@@ -159,6 +175,11 @@ const translations = {
     keepDelivery: 'No, Continue',
     gpsActive: 'GPS active',
     gpsInactive: 'GPS inactive',
+    eta: 'ETA',
+    distance: 'Distance',
+    liveMap: 'Live Map',
+    loadingMap: 'Loading map...',
+    noGps: 'Waiting for GPS signal...',
   },
 };
 
@@ -178,6 +199,51 @@ const STATUS_CONFIG: Record<DeliveryStatus, { step: number; color: string; bgCol
 };
 
 // ============================================================================
+// SVG MARKER HELPERS (matching existing codebase patterns)
+// ============================================================================
+
+const svgMarkerUrl = (svg: string) =>
+  'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+
+const DRIVER_MARKER_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <circle cx="20" cy="20" r="18" fill="#10b981" stroke="#fff" stroke-width="3"/>
+  <circle cx="20" cy="20" r="6" fill="#fff"/>
+</svg>`;
+
+const VENDOR_MARKER_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="54" viewBox="0 0 44 54">
+  <path d="M22 0C10 0 0 10 0 22c0 16.5 22 32 22 32s22-15.5 22-32C44 10 34 0 22 0z" fill="#3b82f6"/>
+  <circle cx="22" cy="20" r="12" fill="white"/>
+  <rect x="16" y="14" width="12" height="12" rx="2" fill="#3b82f6"/>
+</svg>`;
+
+const CUSTOMER_MARKER_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="54" viewBox="0 0 44 54">
+  <path d="M22 0C10 0 0 10 0 22c0 16.5 22 32 22 32s22-15.5 22-32C44 10 34 0 22 0z" fill="#ef4444"/>
+  <circle cx="22" cy="20" r="12" fill="white"/>
+  <circle cx="22" cy="20" r="6" fill="#ef4444"/>
+</svg>`;
+
+// ============================================================================
+// MAP CONFIG
+// ============================================================================
+
+const mapContainerStyle = { width: '100%', height: '100%' };
+
+const mapOptions: google.maps.MapOptions = {
+  disableDefaultUI: true,
+  zoomControl: false,
+  mapTypeControl: false,
+  streetViewControl: false,
+  fullscreenControl: false,
+  clickableIcons: false,
+  styles: [
+    { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  ],
+};
+
+// ============================================================================
 // GPS BROADCASTING HOOK
 // ============================================================================
 
@@ -186,7 +252,7 @@ const STATUS_CONFIG: Record<DeliveryStatus, { step: number; color: string; bgCol
  * Writes to:
  *   - orders/{orderId}.driverLocation + driverLocationUpdatedAt
  *   - drivers/{driverId}.currentLocation + lastLocationUpdate
- * 
+ *
  * Stops broadcasting when delivery is null or status is 'delivered'.
  */
 function useGPSBroadcast(
@@ -280,22 +346,142 @@ function useGPSBroadcast(
 }
 
 // ============================================================================
-// MAIN COMPONENT
+// DIRECTIONS HOOK — Fetches route + ETA, throttled to 30s
+// ============================================================================
+
+function useDirections(
+  driverLocation: { lat: number; lng: number } | null,
+  destination: { lat: number; lng: number } | null | undefined,
+  isActive: boolean
+) {
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [eta, setEta] = useState<string | null>(null);
+  const [distance, setDistance] = useState<string | null>(null);
+  const lastFetchRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isActive || !driverLocation || !destination || !window.google) return;
+
+    const now = Date.now();
+    if (now - lastFetchRef.current < 30_000) return; // 30s throttle
+    lastFetchRef.current = now;
+
+    const svc = new google.maps.DirectionsService();
+    svc.route(
+      {
+        origin: driverLocation,
+        destination,
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === 'OK' && result) {
+          setDirections(result);
+          const leg = result.routes[0]?.legs[0];
+          setEta(leg?.duration?.text || null);
+          setDistance(leg?.distance?.text || null);
+        }
+      }
+    );
+  }, [driverLocation, destination, isActive]);
+
+  return { directions, eta, distance };
+}
+
+// ============================================================================
+// PAGE WRAPPER — GoogleMapsProvider must be above GoogleMap usage
 // ============================================================================
 
 export default function ActiveDeliveryPage() {
+  return (
+    <GoogleMapsProvider>
+      <ActiveDeliveryContent />
+    </GoogleMapsProvider>
+  );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+function ActiveDeliveryContent() {
   const router = useRouter();
   const [language, setLanguage] = useState<Language>('es');
   const [delivery, setDelivery] = useState<ActiveDelivery | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(true);
 
   const t = translations[language];
   const userId = auth.currentUser?.uid;
 
   // ── Phase 3: GPS Broadcasting ────────────────────────────────
   const { driverLocation, gpsActive } = useGPSBroadcast(userId, delivery);
+
+  // ── Phase 5: Determine destination for directions ────────────
+  const isPickupPhase = delivery
+    ? ['heading_to_pickup', 'at_pickup', 'picked_up'].includes(delivery.status)
+    : true;
+
+  const routeDestination = delivery
+    ? isPickupPhase
+      ? delivery.vendorLocation
+      : delivery.customerLocation
+    : null;
+
+  const isDelivered = delivery?.status === 'delivered';
+
+  const { directions, eta, distance } = useDirections(
+    driverLocation,
+    routeDestination,
+    !isDelivered && !!delivery
+  );
+
+  // ── Map ref for fitBounds ────────────────────────────────────
+  const mapRef = useRef<google.maps.Map | null>(null);
+
+  const fitMapBounds = useCallback(
+    (mapInstance?: google.maps.Map) => {
+      const map = mapInstance || mapRef.current;
+      if (!map) return;
+
+      const bounds = new google.maps.LatLngBounds();
+      let hasPoints = false;
+
+      if (driverLocation) {
+        bounds.extend(driverLocation);
+        hasPoints = true;
+      }
+      if (delivery?.vendorLocation) {
+        bounds.extend(delivery.vendorLocation);
+        hasPoints = true;
+      }
+      if (delivery?.customerLocation && !isPickupPhase) {
+        bounds.extend(delivery.customerLocation);
+        hasPoints = true;
+      }
+
+      if (hasPoints) {
+        map.fitBounds(bounds, { top: 40, bottom: 40, left: 20, right: 20 });
+      }
+    },
+    [driverLocation, delivery?.vendorLocation, delivery?.customerLocation, isPickupPhase]
+  );
+
+  const onMapLoad = useCallback(
+    (map: google.maps.Map) => {
+      mapRef.current = map;
+      fitMapBounds(map);
+    },
+    [fitMapBounds]
+  );
+
+  // Re-fit bounds when driver moves or phase changes
+  useEffect(() => {
+    if (mapRef.current && driverLocation) {
+      fitMapBounds();
+    }
+  }, [driverLocation, isPickupPhase, fitMapBounds]);
 
   // ── Language persistence ─────────────────────────────────────
   useEffect(() => {
@@ -532,12 +718,14 @@ export default function ActiveDeliveryPage() {
   // ── Render active delivery ───────────────────────────────────
   const statusInfo = getStatusInfo(delivery.status);
   const nextAction = getNextAction(delivery.status);
-  const isPickupPhase = ['heading_to_pickup', 'at_pickup', 'picked_up'].includes(delivery.status);
 
-  // Determine target address for navigation
+  // Determine target for navigation buttons
   const targetAddress = isPickupPhase ? delivery.vendorAddress : delivery.customerAddress;
   const targetName = isPickupPhase ? delivery.vendorName : (delivery.customerName || 'Customer');
   const targetPhone = isPickupPhase ? delivery.vendorPhone : delivery.customerPhone;
+
+  // Map has at least one coordinate to show
+  const hasMapData = !!(driverLocation || delivery.vendorLocation || delivery.customerLocation);
 
   return (
     <div className="pb-32">
@@ -558,8 +746,8 @@ export default function ActiveDeliveryPage() {
 
           {/* GPS Indicator */}
           <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-            gpsActive 
-              ? 'bg-green-100 text-green-700' 
+            gpsActive
+              ? 'bg-green-100 text-green-700'
               : 'bg-gray-200 text-gray-500'
           }`}>
             <Locate className="w-3 h-3" />
@@ -581,6 +769,132 @@ export default function ActiveDeliveryPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Embedded Mini-Map (Phase 5) ───────────────────────── */}
+      {!isDelivered && (
+        <div className="px-4 mt-4">
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            {/* Map header with ETA/Distance badges */}
+            <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#55529d]/10 flex items-center justify-center">
+                  <Navigation className="w-4 h-4 text-[#55529d]" />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">{t.liveMap}</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* ETA badge */}
+                {eta && (
+                  <div className="flex items-center gap-1 bg-green-50 text-green-700 px-2 py-1 rounded-full text-xs font-medium">
+                    <Clock className="w-3 h-3" />
+                    {eta}
+                  </div>
+                )}
+                {/* Distance badge */}
+                {distance && (
+                  <div className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded-full text-xs font-medium">
+                    <MapPin className="w-3 h-3" />
+                    {distance}
+                  </div>
+                )}
+                {/* Expand/collapse toggle */}
+                <button
+                  onClick={() => setMapExpanded(!mapExpanded)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  {mapExpanded ? (
+                    <Minimize2 className="w-4 h-4 text-gray-500" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4 text-gray-500" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Map canvas */}
+            {mapExpanded && (
+              <div className="relative h-48 sm:h-56">
+                {hasMapData ? (
+                  <GoogleMap
+                    mapContainerStyle={mapContainerStyle}
+                    options={mapOptions}
+                    onLoad={onMapLoad}
+                    center={
+                      driverLocation ||
+                      delivery.vendorLocation ||
+                      delivery.customerLocation ||
+                      { lat: 19.75, lng: -70.45 }
+                    }
+                    zoom={14}
+                  >
+                    {/* Directions route */}
+                    {directions && (
+                      <DirectionsRenderer
+                        directions={directions}
+                        options={{
+                          suppressMarkers: true,
+                          polylineOptions: {
+                            strokeColor: '#10b981',
+                            strokeWeight: 4,
+                            strokeOpacity: 0.8,
+                          },
+                        }}
+                      />
+                    )}
+
+                    {/* Driver marker (green dot) */}
+                    {driverLocation && (
+                      <Marker
+                        position={driverLocation}
+                        icon={{
+                          url: svgMarkerUrl(DRIVER_MARKER_SVG),
+                          scaledSize: new google.maps.Size(40, 40),
+                          anchor: new google.maps.Point(20, 20),
+                        }}
+                        zIndex={3}
+                      />
+                    )}
+
+                    {/* Vendor marker (blue pin) — always visible during pickup */}
+                    {delivery.vendorLocation && isPickupPhase && (
+                      <Marker
+                        position={delivery.vendorLocation}
+                        icon={{
+                          url: svgMarkerUrl(VENDOR_MARKER_SVG),
+                          scaledSize: new google.maps.Size(44, 54),
+                          anchor: new google.maps.Point(22, 54),
+                        }}
+                        zIndex={1}
+                      />
+                    )}
+
+                    {/* Customer marker (red pin) — visible during delivery phase */}
+                    {delivery.customerLocation && !isPickupPhase && (
+                      <Marker
+                        position={delivery.customerLocation}
+                        icon={{
+                          url: svgMarkerUrl(CUSTOMER_MARKER_SVG),
+                          scaledSize: new google.maps.Size(44, 54),
+                          anchor: new google.maps.Point(22, 54),
+                        }}
+                        zIndex={2}
+                      />
+                    )}
+                  </GoogleMap>
+                ) : (
+                  <div className="flex items-center justify-center h-full bg-gray-50">
+                    <div className="text-center">
+                      <Locate className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">{t.noGps}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Delivery Info Cards ───────────────────────────────── */}
       <div className="px-4 space-y-3 mt-4">
