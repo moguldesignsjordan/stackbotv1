@@ -264,7 +264,8 @@ export default function CartPage() {
     }
 
     // Build delivery address
-    let deliveryAddress = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let deliveryAddress: any = null;
     if (fulfillmentType === 'delivery') {
       const selectedAddress = getSelectedAddress();
       deliveryAddress = selectedAddress
