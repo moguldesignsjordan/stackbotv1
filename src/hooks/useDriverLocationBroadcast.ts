@@ -1,9 +1,16 @@
 // src/hooks/useDriverLocationBroadcast.ts
+// ═══════════════════════════════════════════════════════════════════════════════
+// UPDATED: Uses @capacitor/geolocation via useNativeGeolocation for reliable
+//          GPS on iOS native. Falls back to web API automatically.
+//
+// ROLLBACK: Revert to previous version using navigator.geolocation directly
+// ═══════════════════════════════════════════════════════════════════════════════
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '@/lib/firebase/config';
+import { useNativeGeolocation, type GeoCoords } from '@/hooks/useNativeGeolocation';
 
 interface DriverLocationBroadcastOptions {
   /** Whether broadcasting is enabled (e.g., driver has an active delivery) */
@@ -30,41 +37,55 @@ interface BroadcastState {
 }
 
 /**
- * Hook that watches driver GPS and broadcasts to Firestore via
- * the `updateDriverLocation` Cloud Function at a throttled interval.
- *
- * The CF handles:
- * - Writing to `drivers/{uid}.currentLocation`
- * - Writing to `orders/{orderId}.driverLocation` (if driver has currentOrderId)
- * - Storing location history in `drivers/{uid}/locationHistory`
+ * Hook that watches driver GPS (via native Capacitor plugin on iOS/Android)
+ * and broadcasts to Firestore via the `updateDriverLocation` Cloud Function
+ * at a throttled interval.
  */
 export function useDriverLocationBroadcast({
   enabled,
   intervalMs = 12000,
   highAccuracy = true,
 }: DriverLocationBroadcastOptions): BroadcastState {
-  const [state, setState] = useState<BroadcastState>({
-    location: null,
-    heading: null,
-    speed: null,
-    isWatching: false,
-    error: null,
-    lastBroadcast: null,
+  // ── Native geolocation (handles iOS CoreLocation properly) ────
+  const {
+    location: geoLocation,
+    heading: geoHeading,
+    speed: geoSpeed,
+    status: geoStatus,
+    error: geoError,
+  } = useNativeGeolocation({
+    watch: true,
+    enableHighAccuracy: highAccuracy,
+    timeoutMs: 15000,
+    maximumAgeMs: 10000,
+    autoStart: enabled,
   });
 
+  // ── Broadcast state ───────────────────────────────────────────
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
+  const [lastBroadcast, setLastBroadcast] = useState<number | null>(null);
   const lastBroadcastRef = useRef<number>(0);
   const pendingRef = useRef<boolean>(false);
-  const latestPositionRef = useRef<GeolocationPosition | null>(null);
-  const watchIdRef = useRef<number | null>(null);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const latestLocationRef = useRef<GeoCoords | null>(null);
+  const latestHeadingRef = useRef<number | null>(null);
+  const latestSpeedRef = useRef<number | null>(null);
+
   const updateLocationFnRef = useRef(
     httpsCallable(getFunctions(app), 'updateDriverLocation')
   );
 
-  // Broadcast current position to CF (throttled)
+  // Keep refs in sync with latest geo data
+  useEffect(() => {
+    latestLocationRef.current = geoLocation;
+    latestHeadingRef.current = geoHeading;
+    latestSpeedRef.current = geoSpeed;
+  }, [geoLocation, geoHeading, geoSpeed]);
+
+  // ── Broadcast function ────────────────────────────────────────
   const broadcastPosition = useCallback(async () => {
-    const position = latestPositionRef.current;
-    if (!position || pendingRef.current) return;
+    const loc = latestLocationRef.current;
+    if (!loc || pendingRef.current) return;
 
     const now = Date.now();
     if (now - lastBroadcastRef.current < intervalMs * 0.8) return;
@@ -73,103 +94,58 @@ export function useDriverLocationBroadcast({
 
     try {
       await updateLocationFnRef.current({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        heading: position.coords.heading ?? null,
-        speed: position.coords.speed ?? null,
+        latitude: loc.lat,
+        longitude: loc.lng,
+        heading: latestHeadingRef.current,
+        speed: latestSpeedRef.current,
       });
 
       lastBroadcastRef.current = Date.now();
-      setState((prev) => ({
-        ...prev,
-        lastBroadcast: Date.now(),
-        error: null,
-      }));
+      setLastBroadcast(Date.now());
+      setBroadcastError(null);
     } catch (err) {
       console.error('[LocationBroadcast] CF error:', err);
-      setState((prev) => ({
-        ...prev,
-        error: 'Failed to broadcast location',
-      }));
+      setBroadcastError('Failed to broadcast location');
     } finally {
       pendingRef.current = false;
     }
   }, [intervalMs]);
 
+  // ── Start/stop broadcast timer based on enabled ───────────────
   useEffect(() => {
-    if (!enabled || !navigator.geolocation) {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
+    if (!enabled) {
       if (broadcastTimerRef.current) {
         clearInterval(broadcastTimerRef.current);
         broadcastTimerRef.current = null;
       }
-      setState((prev) => ({ ...prev, isWatching: false }));
       return;
     }
 
-    // Start GPS watcher — updates local state on every GPS event
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        latestPositionRef.current = position;
-
-        setState((prev) => ({
-          ...prev,
-          location: {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          },
-          heading: position.coords.heading,
-          speed: position.coords.speed,
-          isWatching: true,
-          error: null,
-        }));
-      },
-      (err) => {
-        console.error('[LocationBroadcast] GPS error:', err.message);
-        setState((prev) => ({
-          ...prev,
-          error:
-            err.code === 1
-              ? 'Location permission denied'
-              : err.code === 2
-              ? 'Location unavailable'
-              : 'Location timeout',
-        }));
-      },
-      {
-        enableHighAccuracy: highAccuracy,
-        maximumAge: 10000,
-        timeout: 15000,
-      }
-    );
-
-    watchIdRef.current = watchId;
-    setState((prev) => ({ ...prev, isWatching: true }));
-
-    // Broadcast at regular intervals (not on every GPS tick)
+    // Broadcast at regular intervals
     broadcastTimerRef.current = setInterval(() => {
       broadcastPosition();
     }, intervalMs);
 
-    // Also broadcast once after a short delay for first position
+    // Initial broadcast after short delay
     const initialTimeout = setTimeout(() => {
       broadcastPosition();
     }, 2000);
 
     return () => {
-      navigator.geolocation.clearWatch(watchId);
-      watchIdRef.current = null;
       if (broadcastTimerRef.current) {
         clearInterval(broadcastTimerRef.current);
         broadcastTimerRef.current = null;
       }
       clearTimeout(initialTimeout);
-      setState((prev) => ({ ...prev, isWatching: false }));
     };
-  }, [enabled, intervalMs, highAccuracy, broadcastPosition]);
+  }, [enabled, intervalMs, broadcastPosition]);
 
-  return state;
+  return {
+    location: geoLocation,
+    heading: geoHeading,
+    speed: geoSpeed,
+    isWatching: geoStatus === 'granted' || geoStatus === 'loading',
+    error: geoError || broadcastError,
+    lastBroadcast,
+  };
 }
