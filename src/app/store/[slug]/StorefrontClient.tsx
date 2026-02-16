@@ -170,13 +170,14 @@ export default function StorefrontClient({
         {isVideo ? (
           <HeroVideo src={coverMedia} />
         ) : (
-          <Image
+            <Image
             src={coverMedia}
             alt={vendor.name}
             fill
+            sizes="100vw"
             className="object-cover"
             priority
-          />
+          />  
         )}
         
         {/* Gradient overlay */}
@@ -206,12 +207,14 @@ export default function StorefrontClient({
               {/* Logo */}
               {vendor.logoUrl && (
                 <div className="w-20 h-20 md:w-28 md:h-28 rounded-2xl bg-white shadow-xl overflow-hidden flex-shrink-0 ring-4 ring-white/20">
-                  <Image
+                    <Image
                     src={vendor.logoUrl}
                     alt={vendor.name}
                     width={112}
                     height={112}
+                    sizes="(max-width: 768px) 80px, 112px"
                     className="w-full h-full object-cover"
+                    priority
                   />
                 </div>
               )}

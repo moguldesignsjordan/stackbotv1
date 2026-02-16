@@ -209,6 +209,7 @@ export async function POST(request: NextRequest) {
         const newAddress: SavedAddress = {
           id: `addr_${Date.now()}`,
           ...validatedDeliveryAddress,
+          coordinates: validatedDeliveryAddress.coordinates ?? undefined,
           label: 'Home',
           isPinned: isFirst,
           createdAt: new Date().toISOString(),
