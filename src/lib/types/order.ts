@@ -26,6 +26,7 @@ export interface DeliveryAddress {
   postalCode?: string;
   country: string;
   instructions?: string;
+  coordinates?: { lat: number; lng: number } | null; // FIX: Support geocoded delivery coordinates
 }
 
 export interface CheckoutSessionRequest {
