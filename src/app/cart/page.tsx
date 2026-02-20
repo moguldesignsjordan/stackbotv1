@@ -1,7 +1,7 @@
 // src/app/cart/page.tsx
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -12,6 +12,9 @@ import { useInAppPayment } from '@/hooks/useInAppPayment';
 import { CheckoutModal } from '@/components/paymets/CheckoutModal';
 import { SavedAddress } from '@/lib/types/address';
 import { CartItem } from '@/lib/types/order';
+import TipSelector from '@/components/checkout/TipSelector';
+import SaveCardToggle from '@/components/checkout/SaveCardToggle';
+import SavedCardSelector from '@/components/checkout/SavedCardSelector';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import {
@@ -34,6 +37,7 @@ import {
   Store,
   Truck,
   Navigation,
+  Heart,
 } from 'lucide-react';
 
 type FulfillmentType = 'delivery' | 'pickup';
@@ -117,12 +121,36 @@ export default function CartPage() {
   const [notes, setNotes] = useState('');
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
 
+  // ── NEW: Tip state ──
+  const [tipAmount, setTipAmount] = useState(0);
+  const [tipPercent, setTipPercent] = useState<number | null>(null);
+
+  // ── NEW: Card saving state ──
+  const [saveCard, setSaveCard] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
+  // ── NEW: Checkout loading for saved-card flow (separate from in-app payment) ──
+  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+
   // Calculate adjusted totals based on fulfillment type
   const TAX_PERCENT = 0.18;
   const DELIVERY_FEE_PER_VENDOR = 1.99;
   const adjustedDeliveryFee = fulfillmentType === 'pickup' ? 0 : deliveryFee;
   const adjustedTax = (subtotal + adjustedDeliveryFee) * TAX_PERCENT;
-  const adjustedTotal = subtotal + adjustedDeliveryFee + adjustedTax;
+  // ── NEW: Include tip in total ──
+  const adjustedTotal = subtotal + adjustedDeliveryFee + adjustedTax + tipAmount;
+
+  // ── NEW: Tip change handler ──
+  const handleTipChange = useCallback((amount: number, percent: number | null) => {
+    setTipAmount(amount);
+    setTipPercent(percent);
+  }, []);
+
+  // ── NEW: Reset tip when fulfillment type changes ──
+  useEffect(() => {
+    setTipAmount(0);
+    setTipPercent(null);
+  }, [fulfillmentType]);
 
   // Sync payment errors to local error state
   useEffect(() => {
@@ -219,7 +247,7 @@ export default function CartPage() {
   };
 
   // =========================================================================
-  // IN-APP PAYMENT CHECKOUT (no redirect!)
+  // CHECKOUT HANDLER
   // =========================================================================
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
@@ -227,15 +255,15 @@ export default function CartPage() {
 
     // Validate customer info
     if (!customerInfo.name.trim()) {
-      setError('Please enter your name');
+      setError(language === 'en' ? 'Please enter your name' : 'Por favor ingresa tu nombre');
       return;
     }
     if (!customerInfo.email.trim()) {
-      setError('Please enter your email');
+      setError(language === 'en' ? 'Please enter your email' : 'Por favor ingresa tu email');
       return;
     }
     if (!customerInfo.phone.trim()) {
-      setError('Please enter your phone number');
+      setError(language === 'en' ? 'Please enter your phone number' : 'Por favor ingresa tu número de teléfono');
       return;
     }
 
@@ -245,26 +273,25 @@ export default function CartPage() {
       if (!selectedAddress && !useNewAddress) {
         if (savedAddresses.length === 0) {
           setUseNewAddress(true);
-          setError('Please enter a delivery address');
+          setError(language === 'en' ? 'Please enter a delivery address' : 'Por favor ingresa una dirección de entrega');
           return;
         }
-        setError('Please select a delivery address');
+        setError(language === 'en' ? 'Please select a delivery address' : 'Por favor selecciona una dirección de entrega');
         return;
       }
       if (useNewAddress) {
         if (!manualAddress.street.trim()) {
-          setError('Please enter a street address');
+          setError(language === 'en' ? 'Please enter a street address' : 'Por favor ingresa una dirección');
           return;
         }
         if (!manualAddress.city.trim()) {
-          setError('Please enter a city');
+          setError(language === 'en' ? 'Please enter a city' : 'Por favor ingresa una ciudad');
           return;
         }
       }
     }
 
     // Build delivery address
-    // Build delivery address with coordinates for tracking
     let deliveryAddress: any = null;
     if (fulfillmentType === 'delivery') {
       const selectedAddress = getSelectedAddress();
@@ -290,7 +317,85 @@ export default function CartPage() {
     // Build vendor name for display
     const displayVendorName = vendorGroups.map((g) => g.vendorName).join(', ');
 
-    // Create PaymentIntent (stays in-app — no redirect!)
+    // ========================================================================
+    // NEW: If a saved card is selected, call /api/checkout directly
+    // (charges the saved card server-side, no redirect or payment sheet needed)
+    // ========================================================================
+    if (selectedCardId) {
+      setIsCheckoutLoading(true);
+      try {
+        const token = await user!.getIdToken();
+        const res = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            items: itemsWithNotes,
+            customerInfo,
+            deliveryAddress,
+            fulfillmentType,
+            notes,
+            tipAmount,
+            tipPercent,
+            saveCard: false, // Already saved
+            savedPaymentMethodId: selectedCardId,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || 'Payment failed');
+          return;
+        }
+
+        // Handle 3D Secure (rare for saved cards)
+        if (data.requiresAction && data.clientSecret) {
+          setError(
+            language === 'en'
+              ? 'Additional authentication required. Please use a new card.'
+              : 'Se requiere autenticación adicional. Por favor usa una tarjeta nueva.'
+          );
+          return;
+        }
+
+        // Payment succeeded
+        if (data.paymentIntentId && data.status === 'succeeded') {
+          clearCart();
+          router.push(`/order-confirmation?order_id=${data.orderId}`);
+          return;
+        }
+
+        // Payment is processing
+        if (data.status === 'processing') {
+          clearCart();
+          router.push(`/order-confirmation?order_id=${data.orderId}`);
+          return;
+        }
+
+        // Fallback: redirect flow
+        if (data.url) {
+          window.location.href = data.url;
+        }
+      } catch (err) {
+        console.error('Saved card checkout error:', err);
+        setError(
+          language === 'en'
+            ? 'Payment failed. Please try again.'
+            : 'El pago falló. Por favor intenta de nuevo.'
+        );
+      } finally {
+        setIsCheckoutLoading(false);
+      }
+      return;
+    }
+
+    // ========================================================================
+    // Standard flow: Create PaymentIntent for in-app payment sheet
+    // (passes tip and saveCard to the backend)
+    // ========================================================================
     await createPaymentIntent({
       items: itemsWithNotes,
       customerInfo,
@@ -298,6 +403,10 @@ export default function CartPage() {
       fulfillmentType,
       notes,
       vendorName: displayVendorName,
+      // ── NEW: tip & save card fields ──
+      tipAmount,
+      tipPercent,
+      saveCard: selectedCardId === null ? saveCard : false,
     });
   };
 
@@ -335,6 +444,8 @@ export default function CartPage() {
       </div>
     );
   }
+
+  const isSubmitting = isPaymentLoading || isCheckoutLoading;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -576,6 +687,16 @@ export default function CartPage() {
                 </div>
               )}
 
+              {/* ── NEW: Tip Selector ── */}
+              <div className="mb-4">
+                <TipSelector
+                  subtotal={subtotal}
+                  fulfillmentType={fulfillmentType}
+                  onTipChange={handleTipChange}
+                  formatCurrency={formatCurrency}
+                />
+              </div>
+
               {/* Totals */}
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
@@ -604,6 +725,20 @@ export default function CartPage() {
                   <span className="text-gray-600">{language === 'en' ? 'Tax (ITBIS 18%)' : 'ITBIS (18%)'}</span>
                   <span className="font-medium">{formatCurrency(adjustedTax)}</span>
                 </div>
+
+                {/* ── NEW: Tip line in totals ── */}
+                {tipAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 flex items-center gap-1">
+                      <Heart className="w-3 h-3 text-[#55529d]" />
+                      {fulfillmentType === 'delivery'
+                        ? (language === 'en' ? 'Driver Tip' : 'Propina Conductor')
+                        : (language === 'en' ? 'Staff Tip' : 'Propina Personal')}
+                    </span>
+                    <span className="font-medium text-[#55529d]">{formatCurrency(tipAmount)}</span>
+                  </div>
+                )}
+
                 <div className="border-t border-gray-200 pt-3 flex justify-between">
                   <span className="font-bold text-gray-900">{language === 'en' ? 'Total' : 'Total'}</span>
                   <span className="font-bold text-[#55529d] text-lg">{formatCurrency(adjustedTotal)}</span>
@@ -819,16 +954,34 @@ export default function CartPage() {
                     />
                   </div>
 
-                  {/* Submit — triggers in-app payment */}
+                  {/* ── NEW: Saved Card Selector ── */}
+                  <SavedCardSelector
+                    selectedCardId={selectedCardId}
+                    onSelect={setSelectedCardId}
+                  />
+
+                  {/* ── NEW: Save Card Toggle (only when using a new card) ── */}
+                  {selectedCardId === null && (
+                    <SaveCardToggle saveCard={saveCard} onToggle={setSaveCard} />
+                  )}
+
+                  {/* Submit — triggers payment */}
                   <button
                     type="submit"
-                    disabled={isPaymentLoading}
+                    disabled={isSubmitting}
                     className="w-full py-3 bg-[#55529d] text-white rounded-xl hover:bg-[#444287] transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {isPaymentLoading ? (
+                    {isSubmitting ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        {language === 'en' ? 'Preparing payment...' : 'Preparando pago...'}
+                        {language === 'en' ? 'Processing...' : 'Procesando...'}
+                      </>
+                    ) : selectedCardId ? (
+                      <>
+                        {language === 'en'
+                          ? `Pay ${formatCurrency(adjustedTotal)} with saved card`
+                          : `Pagar ${formatCurrency(adjustedTotal)} con tarjeta guardada`
+                        }
                       </>
                     ) : (
                       <>

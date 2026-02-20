@@ -23,11 +23,16 @@ interface CheckoutRequestBody {
     postalCode?: string;
     country?: string;
     instructions?: string;
-    coordinates?: { lat: number; lng: number } | null; // FIX: Accept coordinates from frontend
+    coordinates?: { lat: number; lng: number } | null;
   } | null;
   fulfillmentType?: FulfillmentType;
   notes?: string;
   saveAddress?: boolean;
+  // ── NEW: Tip & saved card fields ──
+  tipAmount?: number;
+  tipPercent?: number | null;
+  saveCard?: boolean;
+  savedPaymentMethodId?: string | null;
 }
 
 interface VendorGroup {
@@ -117,11 +122,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { items, customerInfo, deliveryAddress, fulfillmentType = 'delivery', notes } = body;
+    const {
+      items,
+      customerInfo,
+      deliveryAddress,
+      fulfillmentType = 'delivery',
+      notes,
+      // ── NEW fields ──
+      tipAmount: rawTipAmount = 0,
+      tipPercent = null,
+      saveCard = false,
+      savedPaymentMethodId = null,
+    } = body;
 
     // Validate fulfillment type
     const isPickup = fulfillmentType === 'pickup';
     console.log('[Checkout] Fulfillment type:', fulfillmentType);
+
+    // ── NEW: Validate tip (max $999, must be non-negative) ──
+    const validatedTip =
+      typeof rawTipAmount === 'number' && rawTipAmount >= 0 && rawTipAmount <= 999
+        ? Math.round(rawTipAmount * 100) / 100
+        : 0;
 
     // Validate items array exists
     if (!items || !Array.isArray(items)) {
@@ -177,9 +199,6 @@ export async function POST(request: NextRequest) {
 
     // ========================================================================
     // Validate delivery address only for delivery orders
-    // FIX: Now preserves coordinates from the frontend (saved address or map pin)
-    //
-    // ROLLBACK: Remove `coordinates` field from both the type and assignment
     // ========================================================================
     let validatedDeliveryAddress: {
       street: string;
@@ -221,9 +240,6 @@ export async function POST(request: NextRequest) {
           : null,
       };
     }
-    // ^^^ FIX: Restored missing closing brace. Without this, everything below
-    // (address saving, vendor grouping, Stripe session) was trapped inside
-    // the if(!isPickup) block — pickup orders would return no response.
 
     // Save address to customer profile if it's new (only for delivery)
     const db = admin.firestore();
@@ -278,16 +294,17 @@ export async function POST(request: NextRequest) {
 
     // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    // Delivery fee per vendor (each vendor requires separate delivery)
     const deliveryFee = isPickup ? 0 : (FEES.DELIVERY_FEE / 100) * vendorCount;
     const taxAmount = (subtotal + deliveryFee) * (FEES.TAX_PERCENT / 100);
-    const totalAmount = subtotal + deliveryFee + taxAmount;
+    // ── NEW: Include validated tip in total ──
+    const totalAmount = subtotal + deliveryFee + taxAmount + validatedTip;
 
     console.log('[Checkout] Order totals:', {
       subtotal,
       deliveryFee,
       vendorCount,
       taxAmount,
+      tip: validatedTip,
       totalAmount,
       fulfillmentType,
     });
@@ -346,9 +363,27 @@ export async function POST(request: NextRequest) {
       quantity: 1,
     });
 
+    // ── NEW: Add tip as a Stripe line item ──
+    if (validatedTip > 0) {
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: isPickup
+              ? 'Staff Tip / Propina para el Personal'
+              : 'Driver Tip / Propina para el Conductor',
+          },
+          unit_amount: Math.round(validatedTip * 100),
+        },
+        quantity: 1,
+      });
+    }
+
     // ========================================================================
     // Store full checkout data in Firestore (avoids Stripe metadata size limits)
     // ========================================================================
+    const tipRecipientType = isPickup ? 'staff' : 'driver';
+
     const checkoutData = {
       customerId,
       customerInfo: validatedCustomerInfo,
@@ -377,7 +412,14 @@ export async function POST(request: NextRequest) {
         deliveryFeePerVendor: FEES.DELIVERY_FEE / 100,
         serviceFee: 0,
         tax: taxAmount,
+        tip: validatedTip,
         total: totalAmount,
+      },
+      // ── NEW: structured tip data ──
+      tip: {
+        amount: validatedTip,
+        percent: tipPercent,
+        recipientType: tipRecipientType,
       },
       vendorCount,
       isMultiVendor,
@@ -423,7 +465,79 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create Stripe Checkout Session
+    // Shared metadata for both flows
+    const sharedMetadata: Record<string, string> = {
+      checkoutDataId: primaryOrderId,
+      customerId,
+      primaryOrderId,
+      vendorCount: String(vendorCount),
+      isMultiVendor: String(isMultiVendor),
+      fulfillmentType,
+      total: totalAmount.toFixed(2),
+      orderId: primaryOrderId,
+      trackingPin: vendorGroups[0].trackingPin,
+      vendorId: vendorGroups[0].vendorId,
+      vendorName: vendorGroups[0].vendorName,
+      customerName: validatedCustomerInfo.name,
+      customerEmail: validatedCustomerInfo.email,
+      customerPhone: validatedCustomerInfo.phone,
+      // ── NEW: tip in metadata ──
+      tipAmount: validatedTip.toFixed(2),
+      tipPercent: tipPercent !== null ? String(tipPercent) : '',
+      tipRecipientType,
+    };
+
+    // ========================================================================
+    // NEW: Saved card → charge via PaymentIntent (no redirect needed)
+    // ========================================================================
+    if (savedPaymentMethodId && stripeCustomerId) {
+      console.log('[Checkout] Charging saved card:', savedPaymentMethodId);
+
+      // Verify the payment method belongs to this customer
+      const pm = await stripe.paymentMethods.retrieve(savedPaymentMethodId);
+      if (pm.customer !== stripeCustomerId) {
+        return NextResponse.json(
+          { error: 'Invalid payment method' },
+          { status: 400 }
+        );
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(totalAmount * 100),
+        currency: 'usd',
+        customer: stripeCustomerId,
+        payment_method: savedPaymentMethodId,
+        confirm: true,
+        off_session: false,
+        automatic_payment_methods: {
+          enabled: true,
+          allow_redirects: 'never',
+        },
+        metadata: sharedMetadata,
+      });
+
+      // Update pending checkout with PaymentIntent reference
+      await db.collection('pending_checkouts').doc(primaryOrderId).update({
+        stripePaymentIntentId: paymentIntent.id,
+      });
+
+      console.log('[Checkout] PaymentIntent created:', paymentIntent.id, 'status:', paymentIntent.status);
+
+      return NextResponse.json({
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status,
+        orderId: primaryOrderId,
+        // If 3D Secure required, pass client_secret for frontend confirmation
+        ...(paymentIntent.status === 'requires_action' && {
+          clientSecret: paymentIntent.client_secret,
+          requiresAction: true,
+        }),
+      });
+    }
+
+    // ========================================================================
+    // Standard Checkout Session (new card — redirects to Stripe)
+    // ========================================================================
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.stackbotglobal.com';
 
     console.log('[Checkout] Creating Stripe session for checkout:', primaryOrderId);
@@ -433,27 +547,15 @@ export async function POST(request: NextRequest) {
       mode: 'payment',
       payment_method_types: ['card'],
       line_items: lineItems,
+      // ── NEW: Save card for future use if requested ──
+      ...(saveCard && {
+        payment_intent_data: {
+          setup_future_usage: 'on_session',
+        },
+      }),
       success_url: `${baseUrl}/order-confirmation?session_id={CHECKOUT_SESSION_ID}&order_id=${primaryOrderId}`,
       cancel_url: `${baseUrl}/cart?cancelled=true`,
-      metadata: {
-        // Reference to full checkout data in Firestore
-        checkoutDataId: primaryOrderId,
-        // Basic info for quick access / logging
-        customerId,
-        primaryOrderId,
-        vendorCount: String(vendorCount),
-        isMultiVendor: String(isMultiVendor),
-        fulfillmentType,
-        total: totalAmount.toFixed(2),
-        // Keep single-vendor fields for backward compat
-        orderId: primaryOrderId,
-        trackingPin: vendorGroups[0].trackingPin,
-        vendorId: vendorGroups[0].vendorId,
-        vendorName: vendorGroups[0].vendorName,
-        customerName: validatedCustomerInfo.name,
-        customerEmail: validatedCustomerInfo.email,
-        customerPhone: validatedCustomerInfo.phone,
-      },
+      metadata: sharedMetadata,
       shipping_address_collection: undefined,
       phone_number_collection: {
         enabled: false,
