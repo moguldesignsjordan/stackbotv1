@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CreditCard, Plus, Check, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SavedCard {
   id: string;
