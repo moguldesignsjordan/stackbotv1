@@ -1,4 +1,13 @@
 // src/app/api/orders/confirm/route.ts
+// ═══════════════════════════════════════════════════════════════════════════════
+// Order confirmation endpoint.
+// Fetches order by orderId, Firestore doc ID, or Stripe session ID.
+// Returns order details for the OrderConfirmationClient page.
+//
+// CHANGE: Added `tip` field to response for post-checkout tip feature.
+// ROLLBACK: Remove the `tip: orderData.tip || null,` line.
+// ═══════════════════════════════════════════════════════════════════════════════
+
 import { NextRequest, NextResponse } from 'next/server';
 import admin from '@/lib/firebase/admin';
 
@@ -109,6 +118,8 @@ export async function POST(request: NextRequest) {
               coordinates: null,
             },
         items: orderData.items || [],
+        // ── NEW: Return tip data for post-checkout tip feature ──
+        tip: orderData.tip || null,
       },
     });
   } catch (error: any) {

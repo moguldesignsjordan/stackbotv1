@@ -20,7 +20,7 @@ interface DeliveryAddress {
   postalCode: string;
   country: string;
   instructions: string;
-  coordinates?: { lat: number; lng: number } | null; // FIX: Pass through delivery coordinates
+  coordinates?: { lat: number; lng: number } | null;
 }
 
 interface PaymentIntentData {
@@ -52,6 +52,12 @@ export function useInAppPayment(options: UseInAppPaymentOptions = {}) {
     notes?: string;
     saveAddress?: boolean;
     vendorName: string;
+    // Tip fields
+    tipAmount?: number;
+    tipPercent?: number;
+    // Saved card fields
+    saveCard?: boolean;
+    savedPaymentMethodId?: string;
   }) => {
     if (!user) {
       setError('Please sign in to continue');
@@ -77,6 +83,10 @@ export function useInAppPayment(options: UseInAppPaymentOptions = {}) {
           fulfillmentType: params.fulfillmentType,
           notes: params.notes,
           saveAddress: params.saveAddress,
+          tipAmount: params.tipAmount,
+          tipPercent: params.tipPercent,
+          saveCard: params.saveCard,
+          savedPaymentMethodId: params.savedPaymentMethodId,
         }),
       });
 
@@ -117,7 +127,6 @@ export function useInAppPayment(options: UseInAppPaymentOptions = {}) {
 
   const handlePaymentCancel = useCallback(() => {
     setShowPaymentSheet(false);
-    // Note: PaymentIntent is still valid if user wants to retry
   }, []);
 
   const handlePaymentError = useCallback((error: string) => {
@@ -133,14 +142,11 @@ export function useInAppPayment(options: UseInAppPaymentOptions = {}) {
   }, []);
 
   return {
-    // State
     isLoading,
     error,
     paymentData,
     showPaymentSheet,
     vendorName,
-    
-    // Actions
     createPaymentIntent,
     handlePaymentSuccess,
     handlePaymentCancel,
