@@ -1515,11 +1515,247 @@ exports.onActiveDeliveryUpdate = functions.firestore
     }
   });
 
-// Find this section (should be near the end):
-const { createTestOrder, updateOrderStatus, deleteTestOrders } = require('./testOrders');
-exports.createTestOrder = createTestOrder;
-exports.updateOrderStatus = updateOrderStatus;
-exports.deleteTestOrders = deleteTestOrders;
 
-// Add this line:
-exports.createTestOrderDev = require('./testOrders').createTestOrderDev;
+  /* ============================================================
+    💬 SUPPORT MESSAGING — Cloud Functions
+    Append this entire block to the bottom of functions/index.js
+============================================================ */
+
+/**
+ * onSupportMessageCreate
+ * Trigger: When a new message is added to supportTickets/{ticketId}/messages
+ *
+ * Actions:
+ * 1. Update parent ticket's lastMessage, lastMessageAt, updatedAt
+ * 2. Increment the appropriate unreadBy* counter
+ *    - If sender is admin → increment unreadByUser
+ *    - If sender is user  → increment unreadByAdmin
+ */
+exports.onSupportMessageCreate = functions.firestore
+  .document("supportTickets/{ticketId}/messages/{messageId}")
+  .onCreate(async (snap, context) => {
+    const { ticketId } = context.params;
+    const message = snap.data();
+
+    if (!message) {
+      functions.logger.warn("onSupportMessageCreate: No message data", { ticketId });
+      return null;
+    }
+
+    // Don't update counters for system messages
+    if (message.type === "system") {
+      return null;
+    }
+
+    const ticketRef = admin.firestore().collection("supportTickets").doc(ticketId);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Build the preview text (truncate to 100 chars)
+    const previewText = message.type === "image"
+      ? "📷 Image"
+      : (message.text || "").substring(0, 100);
+
+    // Determine which unread counter to increment
+    const isAdminSender = message.senderRole === "admin";
+
+    const updateData = {
+      lastMessage: previewText,
+      lastMessageAt: now,
+      updatedAt: now,
+    };
+
+    if (isAdminSender) {
+      // Admin sent a message → user hasn't read it
+      updateData.unreadByUser = admin.firestore.FieldValue.increment(1);
+    } else {
+      // User sent a message → admin hasn't read it
+      updateData.unreadByAdmin = admin.firestore.FieldValue.increment(1);
+    }
+
+    try {
+      await ticketRef.update(updateData);
+      functions.logger.info("Support ticket updated", {
+        ticketId,
+        sender: message.senderRole,
+        messageType: message.type,
+      });
+    } catch (error) {
+      functions.logger.error("Failed to update support ticket", {
+        ticketId,
+        error: error.message,
+      });
+    }
+
+    // ---- FCM NOTIFICATIONS ----
+    try {
+      const ticketSnap = await ticketRef.get();
+      if (!ticketSnap.exists) return null;
+      const ticket = ticketSnap.data();
+
+      if (isAdminSender) {
+        // Admin replied → notify the user who owns the ticket
+        const userId = ticket.userId;
+        if (!userId) return null;
+
+        // Fetch user's FCM tokens from push_tokens collection
+        const tokensSnap = await admin.firestore()
+          .collection("push_tokens")
+          .where("userId", "==", userId)
+          .get();
+
+        if (!tokensSnap.empty) {
+          const tokens = tokensSnap.docs.map((doc) => doc.data().token).filter(Boolean);
+          if (tokens.length > 0) {
+            const payload = {
+              notification: {
+                title: "Support Reply",
+                body: previewText,
+              },
+              data: {
+                type: "support_reply",
+                ticketId: ticketId,
+                url: `/${ticket.userRole}/support/${ticketId}`,
+              },
+            };
+            const response = await admin.messaging().sendEachForMulticast({
+              tokens,
+              ...payload,
+            });
+            functions.logger.info("FCM sent to user", {
+              userId,
+              successCount: response.successCount,
+              failureCount: response.failureCount,
+            });
+          }
+        }
+      } else {
+        // User sent a message → notify admin topic
+        const payload = {
+          notification: {
+            title: `Support: ${ticket.subject || "New message"}`,
+            body: `${message.senderName} (${message.senderRole}): ${previewText}`,
+          },
+          data: {
+            type: "support_message",
+            ticketId: ticketId,
+            userRole: message.senderRole || "",
+            url: `/admin/support/${ticketId}`,
+          },
+        };
+        await admin.messaging().sendToTopic("support_admin", payload);
+        functions.logger.info("FCM sent to support_admin topic", { ticketId });
+      }
+    } catch (fcmError) {
+      // FCM failures should NOT block the function — log and continue
+      functions.logger.warn("FCM notification failed (non-blocking)", {
+        ticketId,
+        error: fcmError.message,
+      });
+    }
+
+    return null;
+  });
+
+
+/**
+ * onSupportTicketStatusChange
+ * Trigger: When a support ticket document is updated
+ *
+ * Actions:
+ * 1. If status changed → insert a system message into the messages subcollection
+ * 2. Send FCM to the ticket owner about the status change
+ */
+exports.onSupportTicketStatusChange = functions.firestore
+  .document("supportTickets/{ticketId}")
+  .onUpdate(async (change, context) => {
+    const { ticketId } = context.params;
+    const before = change.before.data();
+    const after = change.after.data();
+
+    // Only fire if status actually changed
+    if (before.status === after.status) return null;
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    const statusLabels = {
+      open: "Open / Abierto",
+      in_progress: "In Progress / En Proceso",
+      resolved: "Resolved / Resuelto",
+      closed: "Closed / Cerrado",
+    };
+
+    const newStatusLabel = statusLabels[after.status] || after.status;
+
+    // 1. Insert system message
+    const systemMessage = {
+      senderId: "system",
+      senderName: "StackBot",
+      senderRole: "admin",
+      text: `Ticket status changed to: ${newStatusLabel}`,
+      imageURL: null,
+      type: "system",
+      readByAdmin: true,
+      readByUser: false,
+      createdAt: now,
+    };
+
+    try {
+      await admin.firestore()
+        .collection("supportTickets")
+        .doc(ticketId)
+        .collection("messages")
+        .add(systemMessage);
+
+      functions.logger.info("System message inserted for status change", {
+        ticketId,
+        oldStatus: before.status,
+        newStatus: after.status,
+      });
+    } catch (error) {
+      functions.logger.error("Failed to insert system message", {
+        ticketId,
+        error: error.message,
+      });
+    }
+
+    // 2. Send FCM to ticket owner
+    try {
+      const userId = after.userId;
+      if (!userId) return null;
+
+      const tokensSnap = await admin.firestore()
+        .collection("push_tokens")
+        .where("userId", "==", userId)
+        .get();
+
+      if (!tokensSnap.empty) {
+        const tokens = tokensSnap.docs.map((doc) => doc.data().token).filter(Boolean);
+        if (tokens.length > 0) {
+          const payload = {
+            notification: {
+              title: "Support Update",
+              body: `Your ticket "${after.subject}" is now: ${newStatusLabel}`,
+            },
+            data: {
+              type: "support_status_change",
+              ticketId: ticketId,
+              newStatus: after.status,
+              url: `/${after.userRole}/support/${ticketId}`,
+            },
+          };
+          await admin.messaging().sendEachForMulticast({
+            tokens,
+            ...payload,
+          });
+        }
+      }
+    } catch (fcmError) {
+      functions.logger.warn("FCM for status change failed (non-blocking)", {
+        ticketId,
+        error: fcmError.message,
+      });
+    }
+
+    return null;
+  });
+

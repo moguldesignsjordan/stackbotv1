@@ -7,14 +7,15 @@ import {
   collection,
   addDoc,
   getDocs,
+  doc,
+  updateDoc,
   query,
   orderBy,
   limit,
   Timestamp,
   where,
 } from "firebase/firestore";
-import { Star, Send, User, ChevronDown, ChevronUp, AlertCircle, Beaker } from "lucide-react";
-///ReviewsSection.tsx] Import the client notification helper
+import { Star, Send, User, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { 
   notifyVendorNewReviewClient, 
   createNotificationClient 
@@ -42,9 +43,6 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Debug State
-  const [showDebug, setShowDebug] = useState(false);
-  
   // Form state
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
@@ -58,9 +56,9 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
         const q = query(reviewsRef, orderBy("createdAt", "desc"), limit(50));
         const snap = await getDocs(q);
         
-        const reviewsData = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
+        const reviewsData = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
         })) as Review[];
         
         setReviews(reviewsData);
@@ -151,6 +149,29 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
         console.error("❌ Failed to send review notification:", notifErr);
       }
 
+      // ✅ Aggregate rating + total_reviews onto vendor document
+      // This is what makes ratings show on vendor cards across the app
+      try {
+        const allReviewsSnap = await getDocs(
+          collection(db, "vendors", vendorId, "reviews")
+        );
+        const allReviews = allReviewsSnap.docs.map((d) => d.data());
+        const totalReviews = allReviews.length;
+        const avgRating =
+          totalReviews > 0
+            ? allReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews
+            : 0;
+
+        await updateDoc(doc(db, "vendors", vendorId), {
+          rating: parseFloat(avgRating.toFixed(2)),
+          total_reviews: totalReviews,
+        });
+        console.log(`✅ Vendor rating updated: ${avgRating.toFixed(2)} (${totalReviews} reviews)`);
+      } catch (aggErr) {
+        console.error("❌ Failed to aggregate vendor rating:", aggErr);
+        // Non-blocking — review was still saved successfully
+      }
+
       // Add to local state
       setReviews((prev) => [{ id: docRef.id, ...reviewData }, ...prev]);
       setRating(0);
@@ -162,72 +183,6 @@ export default function ReviewsSection({ vendorId, vendorName }: ReviewsSectionP
       setError("Failed to submit review. Please try again.");
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  ///ReviewsSection.tsx] DEBUG: Test Order Flow Notifications
-  const handleTestNotification = async (type: string) => {
-    const user = auth.currentUser;
-    if (!user) {
-      alert("Please login first");
-      return;
-    }
-
-    try {
-      if (type === 'new_order') {
-        // Simulate sending "New Order" to VENDOR
-        await createNotificationClient({
-          userId: vendorId, // Send to Vendor
-          type: 'order_placed',
-          title: 'New Order Received',
-          message: 'TEST: Customer placed an order for $45.00 (3 items)',
-          priority: 'high',
-          data: {
-            orderId: 'test-order-123',
-            vendorId: vendorId,
-            customerId: user.uid,
-            url: `/vendor/orders/test-order-123`,
-          }
-        });
-        alert(`✅ Sent "New Order" to Vendor (${vendorId})`);
-      } 
-      else if (type === 'order_confirmed') {
-        // Simulate sending "Order Confirmed" to CUSTOMER (You)
-        await createNotificationClient({
-          userId: user.uid, // Send to You
-          type: 'order_confirmed',
-          title: 'Order Confirmed',
-          message: `TEST: Your order from ${vendorName} has been confirmed`,
-          priority: 'normal',
-          data: {
-            orderId: 'test-order-123',
-            vendorName: vendorName,
-            status: 'confirmed',
-            url: `/account/orders/test-order-123`,
-          }
-        });
-        alert("✅ Sent " + type + " to You (Customer)");
-      }
-      else if (type === 'order_delivered') {
-        // Simulate sending "Order Delivered" to CUSTOMER (You)
-        await createNotificationClient({
-          userId: user.uid,
-          type: 'order_delivered',
-          title: 'Order Delivered',
-          message: `TEST: Your order from ${vendorName} has been delivered`,
-          priority: 'normal',
-          data: {
-            orderId: 'test-order-123',
-            vendorName: vendorName,
-            status: 'delivered',
-            url: `/account/orders/test-order-123`,
-          }
-        });
-        alert("✅ Sent " + type + " to You (Customer)");
-      }
-    } catch (err) {
-      console.error("Test failed:", err);
-      alert("❌ Test failed. Check console.");
     }
   };
 

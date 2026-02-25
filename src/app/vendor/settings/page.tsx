@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { compressLogo, compressCoverImage } from '@/lib/utils/compressImage';
 import { TranslationKey } from "@/lib/translations";
 import {
   Store,

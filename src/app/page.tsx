@@ -1498,16 +1498,19 @@ function VendorCard({
                 <p className="text-sm text-gray-500 truncate">{category}</p>
               )}
             </div>
-
-            {/* Rating */}
-            {vendor.rating && (
-              <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md flex-shrink-0">
-                <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                <span className="text-sm font-semibold text-gray-700">
-                  {vendor.rating.toFixed(1)}
-                </span>
-              </div>
-            )}
+{/* Rating */}
+{vendor.rating && vendor.rating > 0 ? (
+  <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-md flex-shrink-0">
+    <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+    <span className="text-sm font-semibold text-gray-700">
+      {vendor.rating.toFixed(1)}
+    </span>
+  </div>
+) : (
+  <span className="text-xs font-medium text-[#55529d] bg-[#55529d]/10 px-2 py-0.5 rounded-full flex-shrink-0">
+    Nuevo
+  </span>
+)}
           </div>
 
           {/* Delivery info row — always present for consistent card height */}

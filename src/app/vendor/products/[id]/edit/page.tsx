@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase/config';
+import { compressImage } from '@/lib/utils/compressImage';
 import {
   doc,
   getDoc,
