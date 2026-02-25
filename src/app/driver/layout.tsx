@@ -24,6 +24,7 @@ import {
   CheckCircle,
   RefreshCw,
   WifiOff,
+  HelpCircle,
 } from 'lucide-react';
 
 const translations = {
@@ -33,6 +34,7 @@ const translations = {
     activeDelivery: 'Entrega Activa',
     history: 'Historial',
     earnings: 'Ganancias',
+    support: 'Soporte',
     account: 'Cuenta',
     settings: 'Ajustes',
     online: 'En Línea',
@@ -55,6 +57,7 @@ const translations = {
     activeDelivery: 'Active Delivery',
     history: 'History',
     earnings: 'Earnings',
+    support: 'Support',
     account: 'Account',
     settings: 'Settings',
     online: 'Online',
@@ -338,6 +341,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
     { href: '/driver/delivery', icon: Package, label: t.activeDelivery, badge: hasActiveDelivery },
     { href: '/driver/history', icon: Clock, label: t.history },
     { href: '/driver/earnings', icon: DollarSign, label: t.earnings },
+    { href: '/driver/support', icon: HelpCircle, label: t.support },
     { href: '/driver/account', icon: User, label: t.account },
   ];
 

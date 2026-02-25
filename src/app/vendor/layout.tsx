@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Settings,
   LogOut,
+  HelpCircle,
 } from 'lucide-react';
 import VendorMobileNav from '@/components/vendor/VendorMobileNav';
 import VendorTopbar from '@/components/vendor/VendorTopbar';
@@ -22,19 +23,25 @@ import { TranslationKey } from '@/lib/translations';
 const navItems: {
   href: string;
   icon: typeof LayoutDashboard;
-  labelKey: TranslationKey;
+  labelKey: TranslationKey | string;
   exact?: boolean;
 }[] = [
   { href: '/vendor', icon: LayoutDashboard, labelKey: 'vendor.nav.dashboard', exact: true },
   { href: '/vendor/products', icon: Package, labelKey: 'vendor.nav.products' },
   { href: '/vendor/orders', icon: ShoppingCart, labelKey: 'vendor.nav.orders' },
+  { href: '/vendor/support', icon: HelpCircle, labelKey: 'vendor.nav.support' },
   { href: '/vendor/settings', icon: Settings, labelKey: 'vendor.nav.settings' },
 ];
+
+// Fallback labels in case translation key isn't registered yet
+const FALLBACK_LABELS: Record<string, Record<string, string>> = {
+  'vendor.nav.support': { en: 'Support', es: 'Soporte' },
+};
 
 export default function VendorLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname.startsWith(href);
@@ -42,6 +49,16 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
   const logout = async () => {
     await signOut(auth);
     router.replace('/login');
+  };
+
+  // Safe translate with fallback for new keys
+  const safeT = (key: string) => {
+    const translated = t(key as TranslationKey);
+    // If t() returns the key itself, it's not registered — use fallback
+    if (translated === key && FALLBACK_LABELS[key]) {
+      return FALLBACK_LABELS[key][language] || FALLBACK_LABELS[key]['en'] || key;
+    }
+    return translated;
   };
 
   return (
@@ -82,7 +99,7 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
                   }`}
                 >
                   <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
-                  {t(item.labelKey)}
+                  {safeT(item.labelKey)}
                 </Link>
               );
             })}

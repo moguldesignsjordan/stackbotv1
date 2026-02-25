@@ -7,7 +7,7 @@ import {
   Store,
   Package,
   Users,
-  Settings,
+  MessageSquare,
 } from "lucide-react";
 
 const navItems = [
@@ -33,9 +33,9 @@ const navItems = [
     label: "Customers",
   },
   {
-    href: "/admin/settings",
-    icon: Settings,
-    label: "Settings",
+    href: "/admin/support",
+    icon: MessageSquare,
+    label: "Support",
   },
 ];
 

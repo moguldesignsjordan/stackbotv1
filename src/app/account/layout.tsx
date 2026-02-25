@@ -29,6 +29,7 @@ import { auth } from '@/lib/firebase/config';
 const navItems = [
   { href: '/account', label: 'My Orders', icon: Package, exact: true },
   { href: '/account/addresses', label: 'Addresses', icon: MapPin },
+  { href: '/account/support', label: 'Support', icon: HelpCircle },
   { href: '/account/settings', label: 'Settings', icon: User },
 ];
 
@@ -166,6 +167,18 @@ export default function AccountLayout({
     );
   };
 
+  // Helper to translate navItem labels
+  const getNavLabel = (label: string) => {
+    if (language === 'en') return label;
+    switch (label) {
+      case 'My Orders': return 'Mis Pedidos';
+      case 'Addresses': return 'Direcciones';
+      case 'Support': return 'Soporte';
+      case 'Settings': return 'Configuración';
+      default: return label;
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -182,11 +195,6 @@ export default function AccountLayout({
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-0">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        {/* UPDATED PADDING: 
-           Changed 'py-2' to 'pt-5 pb-3 lg:py-4'
-           'pt-5' adds extra top space (20px) on mobile to clear the status bar/time.
-           'lg:py-4' keeps it balanced on desktop.
-        */}
         <div className="max-w-7xl mx-auto px-4 pt-9 pb-3 lg:py-4">
           <div className="flex items-center justify-between">
             {/* Left: Logo/Back */}
@@ -277,10 +285,7 @@ export default function AccountLayout({
             <nav className="space-y-1">
               {navItems.map((item) => {
                 const isActive = isActiveRoute(item.href, item.exact);
-                const label = language === 'en' ? item.label : 
-                  item.label === 'My Orders' ? 'Mis Pedidos' :
-                  item.label === 'Addresses' ? 'Direcciones' :
-                  item.label === 'Settings' ? 'Configuración' : item.label;
+                const label = getNavLabel(item.label);
                 return (
                   <Link
                     key={item.href}
@@ -335,18 +340,6 @@ export default function AccountLayout({
                 </div>
               </div>
 
-              {/* Support Link */}
-              <a
-                href="https://stackbotglobal.com/support"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors"
-              >
-                <HelpCircle className="w-5 h-5" />
-                <span className="font-medium">{language === 'en' ? 'Support' : 'Soporte'}</span>
-              </a>
-
               {/* Home Link */}
               <Link
                 href="/"
@@ -398,10 +391,7 @@ export default function AccountLayout({
               <div className="p-2">
                 {navItems.map((item) => {
                   const isActive = isActiveRoute(item.href, item.exact);
-                  const label = language === 'en' ? item.label : 
-                    item.label === 'My Orders' ? 'Mis Pedidos' :
-                    item.label === 'Addresses' ? 'Direcciones' :
-                    item.label === 'Settings' ? 'Configuración' : item.label;
+                  const label = getNavLabel(item.label);
                   return (
                     <Link
                       key={item.href}
@@ -417,17 +407,6 @@ export default function AccountLayout({
                     </Link>
                   );
                 })}
-
-                {/* Support Link */}
-                <a
-                  href="https://stackbotglobal.com/support"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  <HelpCircle className="w-5 h-5" />
-                  <span className="font-medium">{language === 'en' ? 'Support' : 'Soporte'}</span>
-                </a>
               </div>
 
               {/* Language Toggle - Desktop */}
