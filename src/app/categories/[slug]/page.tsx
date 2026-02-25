@@ -12,6 +12,9 @@ import {
   getCategoryBySlug,
 } from "@/lib/config/categories";
 import { vendorMatchesCategoryFilter } from "@/lib/utils/vendor-filters";
+import { calculateDistanceCoords, formatDistance, extractVendorCoords } from "@/lib/utils/distance";
+import { useCustomerLocation, type CustomerCoords } from "@/hooks/useCustomerLocation";
+import { DistanceBadge } from "@/components/ui/DistanceBadge";
 import Footer from "@/components/layout/Footer";
 import {
   ArrowLeft,
@@ -23,6 +26,7 @@ import {
   Grid3X3,
   List,
   TrendingUp,
+  Locate,
   // Category icons
   Pizza,
   ShoppingBasket,
@@ -82,9 +86,11 @@ interface Vendor {
   verified?: boolean;
   slug?: string;
   created_at?: any;
+  coordinates?: { lat: number; lng: number };
+  location?: { lat: number; lng: number; location_address?: string };
 }
 
-type SortOption = "newest" | "alphabetical" | "rating";
+type SortOption = "newest" | "alphabetical" | "rating" | "nearest";
 type ViewMode = "grid" | "list";
 
 /* ======================================================
@@ -101,6 +107,9 @@ export default function CategoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+
+  // Customer geolocation for distance badges
+  const { coords: customerCoords, loading: locationLoading, denied: locationDenied, retry: retryLocation } = useCustomerLocation();
 
   // Get category config
   const category = getPublicCategory(slug);
@@ -159,6 +168,14 @@ export default function CategoryPage() {
     fetchVendors();
   }, [slug, category]);
 
+  // Helper: get distance for a vendor (used in sort + display)
+  const getVendorDistance = (vendor: Vendor): number | null => {
+    if (!customerCoords) return null;
+    const vendorCoords = extractVendorCoords(vendor as Record<string, any>);
+    if (!vendorCoords) return null;
+    return calculateDistanceCoords(customerCoords, vendorCoords);
+  };
+
   // Filtered & sorted vendors
   const displayVendors = useMemo(() => {
     let result = [...vendors];
@@ -183,6 +200,19 @@ export default function CategoryPage() {
       case "rating":
         result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         break;
+      case "nearest":
+        if (customerCoords) {
+          result.sort((a, b) => {
+            const distA = getVendorDistance(a);
+            const distB = getVendorDistance(b);
+            // Vendors without coordinates go to the bottom
+            if (distA === null && distB === null) return 0;
+            if (distA === null) return 1;
+            if (distB === null) return -1;
+            return distA - distB;
+          });
+        }
+        break;
       case "newest":
       default:
         result.sort((a, b) => {
@@ -194,7 +224,7 @@ export default function CategoryPage() {
     }
 
     return result;
-  }, [vendors, searchQuery, sortBy]);
+  }, [vendors, searchQuery, sortBy, customerCoords]);
 
   if (!category) {
     return null; // Will redirect
@@ -263,13 +293,14 @@ export default function CategoryPage() {
             />
           </div>
 
-          {/* Sort */}
+          {/* Sort — now includes "Nearest" */}
           <select
             value={sortBy}
             onChange={e => setSortBy(e.target.value as SortOption)}
             className="px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#55529d]/20 focus:border-[#55529d] cursor-pointer"
           >
             <option value="newest">Newest First</option>
+            <option value="nearest">Nearest</option>
             <option value="alphabetical">A-Z</option>
             <option value="rating">Highest Rated</option>
           </select>
@@ -299,6 +330,24 @@ export default function CategoryPage() {
           </div>
         </div>
 
+        {/* LOCATION PROMPT — only shows when "Nearest" sort is selected but location unavailable */}
+        {sortBy === "nearest" && !customerCoords && !locationLoading && (
+          <div className="mb-6 flex items-center gap-3 p-3 bg-[#55529d]/5 border border-[#55529d]/10 rounded-xl text-sm">
+            <Locate className="w-5 h-5 text-[#55529d] flex-shrink-0" />
+            <p className="text-gray-700 flex-1">
+              {locationDenied
+                ? "Activa tu ubicación para ordenar por distancia."
+                : "Habilita la ubicación para ver las tiendas más cercanas."}
+            </p>
+            <button
+              onClick={retryLocation}
+              className="px-3 py-1.5 bg-[#55529d] text-white text-xs font-medium rounded-lg hover:bg-[#433f7a] transition-colors"
+            >
+              {locationDenied ? "Reintentar" : "Activar"}
+            </button>
+          </div>
+        )}
+
         {/* VENDORS GRID/LIST */}
         {loading ? (
           <LoadingGrid />
@@ -314,9 +363,9 @@ export default function CategoryPage() {
           >
             {displayVendors.map(vendor =>
               viewMode === "grid" ? (
-                <VendorGridCard key={vendor.id} vendor={vendor} />
+                <VendorGridCard key={vendor.id} vendor={vendor} customerCoords={customerCoords} />
               ) : (
-                <VendorListCard key={vendor.id} vendor={vendor} />
+                <VendorListCard key={vendor.id} vendor={vendor} customerCoords={customerCoords} />
               )
             )}
           </div>
@@ -360,10 +409,10 @@ export default function CategoryPage() {
 
 
 /* ======================================================
-   VENDOR GRID CARD
+   VENDOR GRID CARD — now with distance badge
 ====================================================== */
 
-function VendorGridCard({ vendor }: { vendor: Vendor }) {
+function VendorGridCard({ vendor, customerCoords }: { vendor: Vendor; customerCoords: CustomerCoords | null }) {
   const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
   const description = vendor.business_description || vendor.description;
   const addressRaw = vendor.business_address || vendor.address;
@@ -430,10 +479,19 @@ function VendorGridCard({ vendor }: { vendor: Vendor }) {
             )}
           </div>
 
-          {address && (
-            <div className="mt-2 flex items-start gap-1.5 text-xs text-gray-500">
-              <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-              <span className="line-clamp-1">{address}</span>
+          {/* Address + Distance row */}
+          {(address || vendor.coordinates) && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              {address && (
+                <div className="flex items-start gap-1.5 text-xs text-gray-500 min-w-0 flex-1">
+                  <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span className="line-clamp-1">{address}</span>
+                </div>
+              )}
+              <DistanceBadge
+                customerCoords={customerCoords}
+                vendor={vendor}
+              />
             </div>
           )}
         </div>
@@ -443,10 +501,10 @@ function VendorGridCard({ vendor }: { vendor: Vendor }) {
 }
 
 /* ======================================================
-   VENDOR LIST CARD
+   VENDOR LIST CARD — now with distance badge
 ====================================================== */
 
-function VendorListCard({ vendor }: { vendor: Vendor }) {
+function VendorListCard({ vendor, customerCoords }: { vendor: Vendor; customerCoords: CustomerCoords | null }) {
   const displayName = vendor.business_name || vendor.name || "Unnamed Vendor";
   const description = vendor.business_description || vendor.description;
   const addressRaw = vendor.business_address || vendor.address;
@@ -491,6 +549,12 @@ function VendorListCard({ vendor }: { vendor: Vendor }) {
                   <span className="truncate max-w-xs">{address}</span>
                 </span>
               )}
+
+              {/* Distance badge inline with address */}
+              <DistanceBadge
+                customerCoords={customerCoords}
+                vendor={vendor}
+              />
 
               {vendor.rating && (
                 <span className="flex items-center gap-1">

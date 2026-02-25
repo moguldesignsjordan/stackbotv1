@@ -20,6 +20,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useCart } from "@/contexts/CartContext";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import { vendorMatchesCategoryFilter } from "@/lib/utils/vendor-filters";
+import { useCustomerLocation } from "@/hooks/useCustomerLocation";
+import { DistanceBadge } from "@/components/ui/DistanceBadge";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import {
   ArrowRight,
@@ -89,6 +91,8 @@ interface Vendor {
   created_at?: any;
   delivery_time?: string;
   delivery_fee?: number;
+  coordinates?: { lat: number; lng: number };
+  location?: { lat: number; lng: number; location_address?: string };
 }
 
 interface ProductWithVendor extends Product {
@@ -148,6 +152,9 @@ export default function HomePage() {
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [userLocation, setUserLocation] = useState<string>("Sosúa, Puerto Plata");
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // Customer geolocation for distance badges on vendor cards
+  const { coords: customerCoords } = useCustomerLocation();
 
   // Get user's first name
   const userName = user?.displayName?.split(" ")[0] || "";
@@ -687,7 +694,7 @@ export default function HomePage() {
           ) : vendors.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
               {vendors.slice(0, 6).map((vendor, index) => (
-                <VendorCard key={vendor.id} vendor={vendor} index={index} language={language} formatCurrency={formatCurrency} />
+                <VendorCard key={vendor.id} vendor={vendor} index={index} language={language} formatCurrency={formatCurrency} customerCoords={customerCoords} />
               ))}
             </div>
           ) : (
@@ -1435,11 +1442,13 @@ function VendorCard({
   index,
   language,
   formatCurrency,
+  customerCoords,
 }: {
   vendor: Vendor;
   index: number;
   language: string;
   formatCurrency: (n: number) => string;
+  customerCoords: { lat: number; lng: number } | null;
 }) {
   const displayName = vendor.business_name || vendor.name || "Store";
   const logoUrl = vendor.logo_url || vendor.logoUrl;
@@ -1447,8 +1456,6 @@ function VendorCard({
   const category = vendor.category || vendor.categories?.[0];
   const vendorLink = vendor.slug ? `/store/${vendor.slug}` : `/store/${vendor.id}`;
   const coverImage = bannerUrl || logoUrl;
-  const deliveryTime = vendor.delivery_time || "15-30 min";
-  const deliveryFee = vendor.delivery_fee;
 
   return (
     <Link href={vendorLink} className="block group">
@@ -1481,7 +1488,7 @@ function VendorCard({
         </div>
 
         {/* Info */}
-        <div className="p-4">
+        <div className="p-4 flex flex-col">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 truncate group-hover:text-[var(--sb-primary)] transition-colors">
@@ -1503,24 +1510,18 @@ function VendorCard({
             )}
           </div>
 
-          {/* Delivery Info */}
+          {/* Delivery info row — always present for consistent card height */}
           <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
             <span className="flex items-center gap-1">
               <Clock className="w-3.5 h-3.5" />
-              {deliveryTime}
+              {vendor.delivery_time || "15-30 min"}
             </span>
-            <span className="w-1 h-1 rounded-full bg-gray-300" />
-            {deliveryFee !== undefined ? (
-              <span>
-                {deliveryFee === 0
-                  ? language === "es"
-                    ? "Envío gratis"
-                    : "Free delivery"
-                  : formatCurrency(deliveryFee)}
-              </span>
-            ) : (
-              <span>{language === "es" ? "Ver precios" : "See prices"}</span>
-            )}
+            {/* Distance — right-aligned, renders nothing if unavailable */}
+            <DistanceBadge
+              customerCoords={customerCoords}
+              vendor={vendor}
+              className="inline-flex items-center gap-1 text-xs text-[var(--sb-primary)] font-medium ml-auto"
+            />
           </div>
         </div>
       </div>

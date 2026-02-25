@@ -20,6 +20,9 @@ import {
 import MobileBottomNav from "@/components/layout/MobileBottomNav";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getStoreStatus, type StoreHours } from "@/lib/utils/store-hours";
+import { useCustomerLocation } from "@/hooks/useCustomerLocation";
+import { DistanceBadge } from "@/components/ui/DistanceBadge";
+import { extractVendorCoords } from "@/lib/utils/distance";
 
 /* ======================================================
    TYPES
@@ -51,9 +54,10 @@ type Vendor = {
   status?: "pending" | "approved" | "rejected" | "suspended";
   created_at?: { toMillis?: () => number };
   store_hours?: StoreHours;
+  coordinates?: { lat: number; lng: number };
 };
 
-type SortOption = "newest" | "alphabetical" | "rating";
+type SortOption = "newest" | "alphabetical" | "rating" | "nearest";
 
 /* ======================================================
    HELPER: Extract string from address/location field
@@ -107,6 +111,9 @@ export default function VendorsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [showFilters, setShowFilters] = useState(false);
+
+  // Customer geolocation for distance badges
+  const { coords: customerCoords } = useCustomerLocation();
 
   /* ---------------- Fetch All Vendors (Fixed Logic) ---------------- */
   useEffect(() => {
@@ -215,6 +222,20 @@ export default function VendorsPage() {
       case "rating":
         result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         break;
+      case "nearest":
+        if (customerCoords) {
+          result.sort((a, b) => {
+            const coordsA = extractVendorCoords(a as Record<string, any>);
+            const coordsB = extractVendorCoords(b as Record<string, any>);
+            if (!coordsA && !coordsB) return 0;
+            if (!coordsA) return 1;
+            if (!coordsB) return -1;
+            const distA = Math.hypot(coordsA.lat - customerCoords.lat, coordsA.lng - customerCoords.lng);
+            const distB = Math.hypot(coordsB.lat - customerCoords.lat, coordsB.lng - customerCoords.lng);
+            return distA - distB;
+          });
+        }
+        break;
       case "newest":
       default:
         result.sort((a, b) => {
@@ -229,7 +250,7 @@ export default function VendorsPage() {
     result.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
 
     return result;
-  }, [vendors, searchTerm, selectedCategory, sortBy]);
+  }, [vendors, searchTerm, selectedCategory, sortBy, customerCoords]);
 
   const activeFiltersCount =
     (selectedCategory !== "all" ? 1 : 0) + (searchTerm ? 1 : 0);
@@ -317,6 +338,7 @@ export default function VendorsPage() {
               className="px-4 py-2.5 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-purple-500/20 cursor-pointer"
             >
               <option value="newest">Newest First</option>
+              <option value="nearest">Nearest</option>
               <option value="alphabetical">A-Z</option>
               <option value="rating">Top Rated</option>
             </select>
@@ -359,6 +381,7 @@ export default function VendorsPage() {
                   className="flex-1 px-3 py-3 bg-gray-100 border-0 rounded-xl focus:ring-2 focus:ring-purple-500/20"
                 >
                   <option value="newest">Newest</option>
+                  <option value="nearest">Nearest</option>
                   <option value="alphabetical">A-Z</option>
                   <option value="rating">Top Rated</option>
                 </select>
@@ -396,7 +419,7 @@ export default function VendorsPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {filteredVendors.map((vendor) => (
-              <VendorCard key={vendor.id} vendor={vendor} language={language} />
+              <VendorCard key={vendor.id} vendor={vendor} language={language} customerCoords={customerCoords} />
             ))}
           </div>
         )}
@@ -532,7 +555,7 @@ function CoverMedia({
    VENDOR CARD
 ====================================================== */
 
-function VendorCard({ vendor, language }: { vendor: Vendor; language: string }) {
+function VendorCard({ vendor, language, customerCoords }: { vendor: Vendor; language: string; customerCoords: { lat: number; lng: number } | null }) {
   const [logoError, setLogoError] = useState(false);
   
   const displayName = vendor.name || vendor.business_name || "Unnamed Store";
@@ -672,6 +695,19 @@ function VendorCard({ vendor, language }: { vendor: Vendor; language: string }) 
               <span className="truncate">{addressStr}</span>
             </div>
           )}
+
+          {/* Delivery Time + Distance */}
+          <div className="flex items-center gap-3 mt-2.5 text-xs text-gray-500">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5" />
+              15-30 min
+            </span>
+            <DistanceBadge
+              customerCoords={customerCoords}
+              vendor={vendor as Record<string, any>}
+              className="inline-flex items-center gap-1 text-xs text-purple-600 font-medium ml-auto"
+            />
+          </div>
         </div>
       </div>
     </Link>

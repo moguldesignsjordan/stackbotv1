@@ -32,8 +32,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify customer exists in Stripe
+    let customer;
     try {
-      await stripe.customers.retrieve(stripeCustomerId);
+      customer = await stripe.customers.retrieve(stripeCustomerId);
+      if ('deleted' in customer && customer.deleted) {
+        return NextResponse.json({ paymentMethods: [] });
+      }
     } catch {
       return NextResponse.json({ paymentMethods: [] });
     }
@@ -45,11 +49,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Get default payment method
-    const customer = await stripe.customers.retrieve(stripeCustomerId) as {
-      invoice_settings?: { default_payment_method?: string | null };
-      deleted?: boolean;
-    };
-    const defaultPmId = (!customer.deleted && customer.invoice_settings?.default_payment_method) || null;
+    const defaultPmId = customer.invoice_settings?.default_payment_method || null;
 
     const cards = paymentMethods.data.map((pm) => ({
       id: pm.id,
@@ -72,52 +72,6 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * DELETE - Remove a saved payment method
- */
-export async function DELETE(request: NextRequest) {
-  try {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    const uid = decodedToken.uid;
-
-    const { paymentMethodId } = await request.json();
-    if (!paymentMethodId) {
-      return NextResponse.json({ error: 'Missing paymentMethodId' }, { status: 400 });
-    }
-
-    // Verify the payment method belongs to this customer
-    const db = admin.firestore();
-    const customerDoc = await db.collection('customers').doc(uid).get();
-    const stripeCustomerId = customerDoc.data()?.stripeCustomerId;
-
-    if (!stripeCustomerId) {
-      return NextResponse.json({ error: 'No Stripe customer found' }, { status: 404 });
-    }
-
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
-    if (pm.customer !== stripeCustomerId) {
-      return NextResponse.json({ error: 'Payment method not found' }, { status: 404 });
-    }
-
-    // Detach from customer
-    await stripe.paymentMethods.detach(paymentMethodId);
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('[PaymentMethods] DELETE error:', error);
-    return NextResponse.json(
-      { error: 'Failed to remove payment method' },
-      { status: 500 }
-    );
-  }
-}
-
-/**
  * POST - Set a payment method as default
  */
 export async function POST(request: NextRequest) {
@@ -133,35 +87,95 @@ export async function POST(request: NextRequest) {
 
     const { paymentMethodId } = await request.json();
     if (!paymentMethodId) {
-      return NextResponse.json({ error: 'Missing paymentMethodId' }, { status: 400 });
+      return NextResponse.json({ error: 'paymentMethodId required' }, { status: 400 });
     }
 
+    // Get Stripe customer ID from Firestore
     const db = admin.firestore();
     const customerDoc = await db.collection('customers').doc(uid).get();
+
+    if (!customerDoc.exists) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
     const stripeCustomerId = customerDoc.data()?.stripeCustomerId;
-
     if (!stripeCustomerId) {
-      return NextResponse.json({ error: 'No Stripe customer found' }, { status: 404 });
+      return NextResponse.json({ error: 'No Stripe customer linked' }, { status: 400 });
     }
 
-    // Verify ownership
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
-    if (pm.customer !== stripeCustomerId) {
-      return NextResponse.json({ error: 'Payment method not found' }, { status: 404 });
+    // Verify the payment method belongs to this customer
+    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    if (paymentMethod.customer !== stripeCustomerId) {
+      return NextResponse.json({ error: 'Invalid payment method' }, { status: 403 });
     }
 
-    // Set as default
+    // Set as default payment method
     await stripe.customers.update(stripeCustomerId, {
       invoice_settings: {
         default_payment_method: paymentMethodId,
       },
     });
 
-    return NextResponse.json({ success: true });
+    console.log('[PaymentMethods] Set default:', paymentMethodId, 'for customer:', stripeCustomerId);
+
+    return NextResponse.json({ success: true, defaultPaymentMethodId: paymentMethodId });
   } catch (error) {
     console.error('[PaymentMethods] POST error:', error);
     return NextResponse.json(
-      { error: 'Failed to update default payment method' },
+      { error: 'Failed to set default payment method' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE - Remove a saved payment method
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    const uid = decodedToken.uid;
+
+    const { paymentMethodId } = await request.json();
+    if (!paymentMethodId) {
+      return NextResponse.json({ error: 'paymentMethodId required' }, { status: 400 });
+    }
+
+    // Get Stripe customer ID from Firestore
+    const db = admin.firestore();
+    const customerDoc = await db.collection('customers').doc(uid).get();
+
+    if (!customerDoc.exists) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
+    const stripeCustomerId = customerDoc.data()?.stripeCustomerId;
+    if (!stripeCustomerId) {
+      return NextResponse.json({ error: 'No Stripe customer linked' }, { status: 400 });
+    }
+
+    // Verify the payment method belongs to this customer
+    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    if (paymentMethod.customer !== stripeCustomerId) {
+      return NextResponse.json({ error: 'Invalid payment method' }, { status: 403 });
+    }
+
+    // Detach the payment method from the customer
+    await stripe.paymentMethods.detach(paymentMethodId);
+
+    console.log('[PaymentMethods] Deleted:', paymentMethodId, 'for customer:', stripeCustomerId);
+
+    return NextResponse.json({ success: true, deletedPaymentMethodId: paymentMethodId });
+  } catch (error) {
+    console.error('[PaymentMethods] DELETE error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete payment method' },
       { status: 500 }
     );
   }

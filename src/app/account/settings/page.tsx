@@ -9,6 +9,7 @@ import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCre
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase/config';
+import SavedCards from '@/components/profile/SavedCards';
 import {
   User,
   Mail,
@@ -282,38 +283,40 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Profile Photo Section */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Photo</h3>
+      {/* Profile Photo & Info */}
+      <form onSubmit={handleSaveProfile} className="bg-white rounded-xl shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Information</h3>
 
-        <div className="flex items-center gap-6">
-          {/* Avatar */}
+        {/* Avatar */}
+        <div className="flex items-center gap-4 mb-6">
           <div className="relative">
-            <div className="w-24 h-24 rounded-full overflow-hidden bg-[#55529d]/10 flex items-center justify-center">
-              {photoPreview ? (
-                <Image
-                  src={photoPreview}
-                  alt="Profile"
-                  width={96}
-                  height={96}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-2xl font-bold text-[#55529d]">
+            {photoPreview ? (
+              <Image
+                src={photoPreview}
+                alt="Profile"
+                width={80}
+                height={80}
+                className="w-20 h-20 rounded-full object-cover border-2 border-gray-200"
+              />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-[#55529d] flex items-center justify-center border-2 border-gray-200">
+                <span className="text-white text-xl font-semibold">
                   {getInitials(profile.displayName || user?.email || 'U')}
                 </span>
-              )}
-            </div>
-
-            {/* Upload overlay */}
-            {uploadingPhoto && (
-              <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-white" />
               </div>
             )}
-          </div>
-
-          <div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              className="absolute -bottom-1 -right-1 p-2 bg-[#55529d] text-white rounded-full hover:bg-[#444287] disabled:opacity-50 transition-colors"
+            >
+              {uploadingPhoto ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Camera className="w-4 h-4" />
+              )}
+            </button>
             <input
               ref={fileInputRef}
               type="file"
@@ -321,26 +324,15 @@ export default function SettingsPage() {
               onChange={handlePhotoSelect}
               className="hidden"
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingPhoto}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <Camera className="w-4 h-4" />
-              {photoPreview ? 'Change Photo' : 'Upload Photo'}
-            </button>
-            <p className="text-sm text-gray-500 mt-2">JPG, PNG or GIF. Max 5MB.</p>
+          </div>
+          <div>
+            <p className="font-medium text-gray-900">{profile.displayName || 'Your Name'}</p>
+            <p className="text-sm text-gray-500">{user?.email}</p>
           </div>
         </div>
-      </div>
-
-      {/* Profile Information Form */}
-      <form onSubmit={handleSaveProfile} className="bg-white rounded-xl shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Information</h3>
 
         <div className="space-y-4">
-          {/* Name */}
+          {/* Display Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <div className="flex items-center gap-2">
@@ -352,7 +344,7 @@ export default function SettingsPage() {
               type="text"
               value={profile.displayName}
               onChange={(e) => setProfile({ ...profile, displayName: e.target.value })}
-              placeholder="Enter your name"
+              placeholder="Enter your full name"
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
             />
           </div>
@@ -369,9 +361,9 @@ export default function SettingsPage() {
               type="email"
               value={user?.email || ''}
               disabled
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-400 mt-1">
               Email cannot be changed. Contact support if needed.
             </p>
           </div>
@@ -410,6 +402,9 @@ export default function SettingsPage() {
           </div>
         </div>
       </form>
+
+      {/* Saved Payment Methods */}
+      <SavedCards />
 
       {/* Password Section */}
       {canChangePassword && (
