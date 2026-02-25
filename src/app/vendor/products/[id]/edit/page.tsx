@@ -21,6 +21,7 @@ import {
   uploadBytes,
   getDownloadURL,
 } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { nanoid } from 'nanoid';
 import {
   ArrowLeft,
@@ -133,7 +134,7 @@ export default function EditProductPage() {
     for (const file of newImages) {
       const path = `products/${user.uid}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, file);
+      await smartUploadBytes(storageRef, file);
       urls.push(await getDownloadURL(storageRef));
     }
     return urls;

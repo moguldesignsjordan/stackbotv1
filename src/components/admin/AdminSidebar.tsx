@@ -5,83 +5,60 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { signOut } from "firebase/auth";
-import { Shield, Truck } from "lucide-react";
-
 import {
   LayoutDashboard,
   Store,
   ShoppingCart,
+  Users,
+  Truck,
+  Tags,
+  BarChart3,
+  MessageSquare,
+  Shield,
   Settings,
   LogOut,
-  Users,
-  BarChart3,
-  Tags,
 } from "lucide-react";
 
-const navItems = [
-  {
-    href: "/admin",
-    icon: LayoutDashboard,
-    label: "Dashboard",
-    exact: true,
-  },
-  {
-    href: "/admin/vendors",
-    icon: Store,
-    label: "Vendors",
-  },
-  {
-    href: "/admin/orders",
-    icon: ShoppingCart,
-    label: "Orders",
-  },
-  {
-    href: "/admin/customers",
-    icon: Users,
-    label: "Customers",
-  },
-  {
-    href: "/admin/drivers",
-    icon: Truck,
-    label: "Drivers",
-  },
-  {
-    href: "/admin/categories",
-    icon: Tags,
-    label: "Categories",
-  },
-  {
-    href: "/admin/analytics",
-    icon: BarChart3,
-    label: "Analytics",
-  },
+/* ────────────────────────────────────────────────────────────
+   NAV STRUCTURE — grouped for visual clarity
+   ──────────────────────────────────────────────────────────── */
 
-  // 🔐 Admin management (deep route)
-  {
-    href: "/admin/settings/admins",
-    icon: Shield,
-    label: "Admins",
-  },
+interface NavItem {
+  href: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  label: string;
+  exact?: boolean;
+}
 
-  // ⚙️ Settings hub (exact only)
-  {
-    href: "/admin/settings",
-    icon: Settings,
-    label: "Settings",
-    exact: true,
-  },
+const mainNav: NavItem[] = [
+  { href: "/admin", icon: LayoutDashboard, label: "Dashboard", exact: true },
+  { href: "/admin/vendors", icon: Store, label: "Vendors" },
+  { href: "/admin/orders", icon: ShoppingCart, label: "Orders" },
+  { href: "/admin/customers", icon: Users, label: "Customers" },
+  { href: "/admin/drivers", icon: Truck, label: "Drivers" },
+  { href: "/admin/categories", icon: Tags, label: "Categories" },
 ];
+
+const toolsNav: NavItem[] = [
+  { href: "/admin/analytics", icon: BarChart3, label: "Analytics" },
+  { href: "/admin/support", icon: MessageSquare, label: "Support" },
+];
+
+const systemNav: NavItem[] = [
+  { href: "/admin/settings/admins", icon: Shield, label: "Admins" },
+  { href: "/admin/settings", icon: Settings, label: "Settings", exact: true },
+];
+
+/* ────────────────────────────────────────────────────────────
+   COMPONENT
+   ──────────────────────────────────────────────────────────── */
 
 export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const isActive = (href: string, exact?: boolean) => {
-    if (exact) {
-      return pathname === href;
-    }
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string, exact?: boolean) =>
+    exact ? pathname === href : pathname.startsWith(href);
 
   const handleLogout = async () => {
     try {
@@ -92,51 +69,72 @@ export default function AdminSidebar() {
     }
   };
 
+  const renderNavItem = (item: NavItem) => {
+    const active = isActive(item.href, item.exact);
+    const Icon = item.icon;
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
+          active
+            ? "bg-sb-primary/10 text-sb-primary"
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+        }`}
+      >
+        <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.5 : 1.8} />
+        {item.label}
+      </Link>
+    );
+  };
+
+  const SectionLabel = ({ children }: { children: string }) => (
+    <p className="px-4 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+      {children}
+    </p>
+  );
+
   return (
     <aside className="w-64 bg-white border-r border-gray-100 min-h-screen flex flex-col">
       {/* Logo */}
-      <div className="p-6 border-b border-gray-50">
-        <Link href="/admin" className="flex flex-col items-center gap-2">
+      <div className="p-5 border-b border-gray-50">
+        <Link href="/admin" className="flex flex-col items-center gap-1.5">
           <Image
             src="/stackbot-logo-purp.png"
             alt="StackBot"
-            width={140}
-            height={40}
+            width={130}
+            height={36}
             priority
           />
+          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+            Admin
+          </span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const active = isActive(item.href, item.exact);
-          const Icon = item.icon;
+      <nav className="flex-1 px-3 pb-4 overflow-y-auto">
+        {/* Main */}
+        <SectionLabel>Manage</SectionLabel>
+        <div className="space-y-0.5">{mainNav.map(renderNavItem)}</div>
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                active
-                  ? "bg-sb-primary/10 text-sb-primary"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-              }`}
-            >
-              <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
-              {item.label}
-            </Link>
-          );
-        })}
+        {/* Tools */}
+        <SectionLabel>Tools</SectionLabel>
+        <div className="space-y-0.5">{toolsNav.map(renderNavItem)}</div>
+
+        {/* System */}
+        <SectionLabel>System</SectionLabel>
+        <div className="space-y-0.5">{systemNav.map(renderNavItem)}</div>
       </nav>
 
       {/* Logout */}
-      <div className="p-4 border-t border-gray-50">
+      <div className="px-3 py-3 border-t border-gray-50">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-red-500 hover:bg-red-50 transition-all w-full"
+          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-medium text-red-500 hover:bg-red-50 transition-all w-full"
         >
-          <LogOut className="h-5 w-5" />
+          <LogOut className="h-[18px] w-[18px]" strokeWidth={1.8} />
           Logout
         </button>
       </div>

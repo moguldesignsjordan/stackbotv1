@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, auth, storage, functions } from '@/lib/firebase/config';
 import {
   Truck,
@@ -1177,7 +1178,7 @@ function ActiveOrderCard({
       const storageRef = ref(storage, `deliveries/${order.id}/${fileName}`);
       
       // Upload the file
-      await uploadBytes(storageRef, proofPhotoFile, {
+      await smartUploadBytes(storageRef, proofPhotoFile, {
         contentType: proofPhotoFile.type || 'image/jpeg',
         customMetadata: {
           orderId: order.id,

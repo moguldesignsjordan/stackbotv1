@@ -11,6 +11,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, auth, storage } from '@/lib/firebase/config';
 import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
@@ -415,7 +416,7 @@ function DeliveryDetailContent() {
       const fileName = `proof_${order.id}_${timestamp}.jpg`;
       const storageRef = ref(storage, `deliveries/${order.id}/${fileName}`);
 
-      await uploadBytes(storageRef, proofPhotoBlob, {
+      await smartUploadBytes(storageRef, proofPhotoBlob, {
         contentType: proofPhotoBlob.type || 'image/jpeg',
         customMetadata: {
           orderId: order.id,

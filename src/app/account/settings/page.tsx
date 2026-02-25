@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, storage } from '@/lib/firebase/config';
 import SavedCards from '@/components/profile/SavedCards';
 import {
@@ -132,7 +133,7 @@ export default function SettingsPage() {
       const storagePath = `customers/avatars/${user.uid}/${Date.now()}-${safeName}`;
       const storageRef = ref(storage, storagePath);
 
-      await uploadBytes(storageRef, file);
+      await smartUploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
       // Update Firebase Auth profile

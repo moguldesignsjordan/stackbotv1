@@ -17,6 +17,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import {
@@ -142,7 +143,7 @@ export default function AdminNewVendorPage() {
   const uploadFile = async (file: File, path: string): Promise<string> => {
     const storage = getStorage();
     const fileRef = ref(storage, path);
-    await uploadBytes(fileRef, file);
+    await smartUploadBytes(fileRef, file);
     return getDownloadURL(fileRef);
   };
 

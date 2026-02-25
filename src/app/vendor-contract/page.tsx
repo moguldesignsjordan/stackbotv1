@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db } from "@/lib/firebase/config";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -244,7 +245,7 @@ export default function PublicAgreementPage() {
         const safeEmail = identity.email.replace(/[^a-z0-9]/gi, '_');
         const filename = `${Date.now()}_${safeEmail}_signature.png`;
         const sigRef = ref(getStorage(), `agreements/${filename}`);
-        await uploadBytes(sigRef, signatureData);
+        await smartUploadBytes(sigRef, signatureData);
         signatureUrl = await getDownloadURL(sigRef);
       }
 

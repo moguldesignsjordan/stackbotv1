@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { auth, db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { onAuthStateChanged } from "firebase/auth";
 import Image from "next/image";
 import Link from "next/link";
@@ -377,7 +378,7 @@ export default function VendorSettings() {
   const uploadFile = async (file: File, path: string): Promise<string> => {
     const storage = getStorage();
     const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file);
+    await smartUploadBytes(storageRef, file);
     return getDownloadURL(storageRef);
   };
 

@@ -6,6 +6,7 @@ import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase/config';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import {
   Camera,
   ArrowLeft,
@@ -178,7 +179,7 @@ export default function DriverSettings() {
     try {
       const storage = getStorage();
       const storageRef = ref(storage, `driver_photos/${userId}/profile.jpg`);
-      await uploadBytes(storageRef, file);
+      await smartUploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
 
       // persist to Firestore immediately so layout's onSnapshot picks it up

@@ -11,6 +11,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db, storage } from '@/lib/firebase/config';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { nanoid } from 'nanoid';
 import {
   ArrowLeft,
@@ -85,7 +86,7 @@ export default function CreateProductPage() {
     for (const file of images) {
       const path = `products/${vendorId}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, file);
+      await smartUploadBytes(storageRef, file);
       urls.push(await getDownloadURL(storageRef));
     }
     return urls;

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, auth } from "@/lib/firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
 import { Input } from "@/components/ui/Input";
@@ -324,10 +325,10 @@ export default function VendorSignupPage() {
       if (!agreementForm.agreed) throw new Error(s.errAgree);
 
       let logoUrl = "";
-      if (logoFile) { const safeName = logoFile.name.replace(/\s+/g, "-"); const logoRef = ref(getStorage(), `vendors/logos/${currentUser.uid}/${Date.now()}-${safeName}`); await uploadBytes(logoRef, logoFile); logoUrl = await getDownloadURL(logoRef); }
+      if (logoFile) { const safeName = logoFile.name.replace(/\s+/g, "-"); const logoRef = ref(getStorage(), `vendors/logos/${currentUser.uid}/${Date.now()}-${safeName}`); await smartUploadBytes(logoRef, logoFile); logoUrl = await getDownloadURL(logoRef); }
 
       let signatureUrl = "";
-      if (signatureData) { const sigRef = ref(getStorage(), `vendors/signatures/${currentUser.uid}/signature_${Date.now()}.png`); await uploadBytes(sigRef, signatureData); signatureUrl = await getDownloadURL(sigRef); }
+      if (signatureData) { const sigRef = ref(getStorage(), `vendors/signatures/${currentUser.uid}/signature_${Date.now()}.png`); await smartUploadBytes(sigRef, signatureData); signatureUrl = await getDownloadURL(sigRef); }
 
       const baseSlug = generateSlug(form.name);
       let finalSlug = baseSlug;
