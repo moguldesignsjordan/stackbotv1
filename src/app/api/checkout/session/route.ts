@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
       discount = {
         amount: session.total_details.amount_discount / 100, // cents → dollars
         promoCode: metadata?.promoCode || '',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         couponName: (discountEntry?.discount as any)?.coupon?.name || '',
       };
     }
