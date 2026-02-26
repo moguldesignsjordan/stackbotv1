@@ -28,11 +28,13 @@ interface CheckoutRequestBody {
   fulfillmentType?: FulfillmentType;
   notes?: string;
   saveAddress?: boolean;
-  // ── NEW: Tip & saved card fields ──
+  // ── Tip & saved card fields ──
   tipAmount?: number;
   tipPercent?: number | null;
   saveCard?: boolean;
   savedPaymentMethodId?: string | null;
+  // ── Promo code field ──
+  promoCodeId?: string | null;
 }
 
 interface VendorGroup {
@@ -79,6 +81,97 @@ function groupByVendor(items: CartItem[]): VendorGroup[] {
   }
 
   return Object.values(groups);
+}
+
+/**
+ * Shape of the Stripe API response for a PromotionCode with expanded coupon.
+ * Defined explicitly because some stripe-node SDK versions have incomplete
+ * type definitions for PromotionCode.coupon.
+ */
+interface StripePromoCodeResponse {
+  id: string;
+  active: boolean;
+  code: string;
+  max_redemptions: number | null;
+  times_redeemed: number;
+  expires_at: number | null;
+  coupon: {
+    id: string;
+    valid: boolean;
+    percent_off: number | null;
+    amount_off: number | null;
+    currency: string | null;
+    name: string | null;
+  };
+}
+
+/**
+ * Validates a Stripe promotion code server-side and returns discount details.
+ * Returns null if invalid or any error occurs (fails open — no discount applied).
+ */
+async function validatePromoCode(
+  promoCodeId: string,
+  subtotal: number
+): Promise<{
+  discountAmount: number;
+  metadata: Record<string, string>;
+} | null> {
+  try {
+    // Cast to our explicit interface to avoid SDK type gaps
+    const promoCodeObj = await stripe.promotionCodes.retrieve(promoCodeId, {
+      expand: ['coupon'],
+    }) as unknown as StripePromoCodeResponse;
+
+    const coupon = promoCodeObj.coupon;
+
+    if (!promoCodeObj.active || !coupon.valid) {
+      console.warn('[Checkout] Promo code inactive or coupon invalid:', promoCodeId);
+      return null;
+    }
+
+    // Check max redemptions
+    if (
+      promoCodeObj.max_redemptions &&
+      promoCodeObj.times_redeemed >= promoCodeObj.max_redemptions
+    ) {
+      console.warn('[Checkout] Promo code max redemptions reached:', promoCodeId);
+      return null;
+    }
+
+    // Check expiry
+    if (promoCodeObj.expires_at && promoCodeObj.expires_at < Math.floor(Date.now() / 1000)) {
+      console.warn('[Checkout] Promo code expired:', promoCodeId);
+      return null;
+    }
+
+    let discountAmount = 0;
+
+    if (coupon.percent_off) {
+      discountAmount = Math.round(subtotal * coupon.percent_off) / 100;
+    } else if (coupon.amount_off) {
+      // Stripe stores amount_off in cents
+      discountAmount = Math.min(coupon.amount_off / 100, subtotal);
+    }
+
+    discountAmount = Math.round(discountAmount * 100) / 100;
+
+    if (discountAmount <= 0) return null;
+
+    return {
+      discountAmount,
+      metadata: {
+        promoCode: promoCodeObj.code || '',
+        promoCodeId: promoCodeObj.id,
+        couponId: coupon.id,
+        discountAmount: String(discountAmount),
+        discountType: coupon.percent_off ? 'percent' : 'fixed',
+        discountValue: String(coupon.percent_off || (coupon.amount_off ? coupon.amount_off / 100 : 0)),
+      },
+    };
+  } catch (err) {
+    console.warn('[Checkout] Failed to validate promo code, proceeding without discount:', err);
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -128,18 +221,20 @@ export async function POST(request: NextRequest) {
       deliveryAddress,
       fulfillmentType = 'delivery',
       notes,
-      // ── NEW fields ──
+      // ── Tip & card fields ──
       tipAmount: rawTipAmount = 0,
       tipPercent = null,
       saveCard = false,
       savedPaymentMethodId = null,
+      // ── Promo code ──
+      promoCodeId = null,
     } = body;
 
     // Validate fulfillment type
     const isPickup = fulfillmentType === 'pickup';
     console.log('[Checkout] Fulfillment type:', fulfillmentType);
 
-    // ── NEW: Validate tip (max $999, must be non-negative) ──
+    // ── Validate tip (max $999, must be non-negative) ──
     const validatedTip =
       typeof rawTipAmount === 'number' && rawTipAmount >= 0 && rawTipAmount <= 999
         ? Math.round(rawTipAmount * 100) / 100
@@ -296,7 +391,7 @@ export async function POST(request: NextRequest) {
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const deliveryFee = isPickup ? 0 : (FEES.DELIVERY_FEE / 100) * vendorCount;
     const taxAmount = (subtotal + deliveryFee) * (FEES.TAX_PERCENT / 100);
-    // ── NEW: Include validated tip in total ──
+    // ── Include validated tip in total ──
     const totalAmount = subtotal + deliveryFee + taxAmount + validatedTip;
 
     console.log('[Checkout] Order totals:', {
@@ -363,7 +458,7 @@ export async function POST(request: NextRequest) {
       quantity: 1,
     });
 
-    // ── NEW: Add tip as a Stripe line item ──
+    // ── Add tip as a Stripe line item ──
     if (validatedTip > 0) {
       lineItems.push({
         price_data: {
@@ -384,7 +479,7 @@ export async function POST(request: NextRequest) {
     // ========================================================================
     const tipRecipientType = isPickup ? 'staff' : 'driver';
 
-    const checkoutData = {
+    const checkoutData: Record<string, unknown> = {
       customerId,
       customerInfo: validatedCustomerInfo,
       fulfillmentType,
@@ -415,12 +510,14 @@ export async function POST(request: NextRequest) {
         tip: validatedTip,
         total: totalAmount,
       },
-      // ── NEW: structured tip data ──
+      // ── Structured tip data ──
       tip: {
         amount: validatedTip,
         percent: tipPercent,
         recipientType: tipRecipientType,
       },
+      // ── Discount placeholder (populated below if promo applied) ──
+      discount: null,
       vendorCount,
       isMultiVendor,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -481,14 +578,14 @@ export async function POST(request: NextRequest) {
       customerName: validatedCustomerInfo.name,
       customerEmail: validatedCustomerInfo.email,
       customerPhone: validatedCustomerInfo.phone,
-      // ── NEW: tip in metadata ──
+      // ── Tip in metadata ──
       tipAmount: validatedTip.toFixed(2),
       tipPercent: tipPercent !== null ? String(tipPercent) : '',
       tipRecipientType,
     };
 
     // ========================================================================
-    // NEW: Saved card → charge via PaymentIntent (no redirect needed)
+    // Saved card → charge via PaymentIntent (no redirect needed)
     // ========================================================================
     if (savedPaymentMethodId && stripeCustomerId) {
       console.log('[Checkout] Charging saved card:', savedPaymentMethodId);
@@ -502,8 +599,40 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // ── Validate promo code server-side for saved-card flow ──
+      let discountAmount = 0;
+      let discountMetadata: Record<string, string> = {};
+
+      if (promoCodeId && typeof promoCodeId === 'string') {
+        const promoResult = await validatePromoCode(promoCodeId, subtotal);
+        if (promoResult) {
+          discountAmount = promoResult.discountAmount;
+          discountMetadata = promoResult.metadata;
+          console.log('[Checkout] Promo applied:', discountMetadata.promoCode, 'discount:', discountAmount);
+        }
+      }
+
+      // Apply discount: subtract from total, enforce Stripe $0.50 minimum
+      const discountedTotal = Math.max(totalAmount - discountAmount, 0.50);
+
+      // Update pending checkout with discount info
+      if (discountAmount > 0) {
+        await db.collection('pending_checkouts').doc(primaryOrderId).update({
+          discount: {
+            promoCode: discountMetadata.promoCode || '',
+            promoCodeId: discountMetadata.promoCodeId || '',
+            couponId: discountMetadata.couponId || '',
+            amount: discountAmount,
+            type: discountMetadata.discountType || '',
+            value: parseFloat(discountMetadata.discountValue || '0'),
+          },
+          'totals.discount': discountAmount,
+          'totals.total': discountedTotal,
+        });
+      }
+
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(totalAmount * 100),
+        amount: Math.round(discountedTotal * 100),
         currency: 'usd',
         customer: stripeCustomerId,
         payment_method: savedPaymentMethodId,
@@ -513,7 +642,7 @@ export async function POST(request: NextRequest) {
           enabled: true,
           allow_redirects: 'never',
         },
-        metadata: sharedMetadata,
+        metadata: { ...sharedMetadata, ...discountMetadata },
       });
 
       // Update pending checkout with PaymentIntent reference
@@ -547,7 +676,9 @@ export async function POST(request: NextRequest) {
       mode: 'payment',
       payment_method_types: ['card'],
       line_items: lineItems,
-      // ── NEW: Save card for future use if requested ──
+      // ── Stripe-native promo code support for redirect flow ──
+      allow_promotion_codes: true,
+      // ── Save card for future use if requested ──
       ...(saveCard && {
         payment_intent_data: {
           setup_future_usage: 'on_session',

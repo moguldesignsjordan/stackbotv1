@@ -540,6 +540,11 @@ exports.sendPushNotification = functions.firestore
       console.log(`[FCM] ✅ Found token for user ${userId}: ${pushToken.substring(0, 20)}...`);
 
       // ── Build FCM payload ─────────────────────────────────────
+      // Route order-related notifications to the loud "orders" channel;
+      // broadcasts and general notifications stay on "default".
+      const isBroadcast = notification.type === "broadcast";
+      const channelId = isBroadcast ? "default" : "orders";
+
       const payload = {
         token: pushToken,
         notification: {
@@ -547,19 +552,28 @@ exports.sendPushNotification = functions.firestore
           body: notification.message,
         },
         android: {
+          priority: "high",                          // Wake device from Doze
           notification: {
-            sound: "default",
-            channelId: "default",
-            priority: notification.priority === "high" ? "high" : "default",
+            sound: "notification_sound",             // matches res/raw/notification_sound.mp3
+            channelId: channelId,
+            priority: "max",                         // Highest visual priority
+            defaultVibrateTimings: false,
+            vibrateTimingsMillis: [0, 500, 200, 500],
+            visibility: "public",
+            notificationCount: 1,
             clickAction: "FCM_PLUGIN_ACTIVITY",
           },
         },
         apns: {
+          headers: {
+            "apns-priority": "10",                   // Immediate delivery on iOS
+          },
           payload: {
             aps: {
               sound: "default",
               badge: 1,
               contentAvailable: true,
+              interruptionLevel: "time-sensitive",    // iOS 15+ loud delivery
             },
           },
         },
@@ -1071,8 +1085,29 @@ exports.sendBroadcastNotification = functions.https.onCall(async (data, context)
         tokens: batchTokens,
         notification: { title, body: message },
         data: { type: "broadcast", url: url || "/" },
-        apns: { payload: { aps: { sound: "default", badge: 1 } } },
-        android: { priority: "high", notification: { sound: "default", channelId: "default" } },
+        android: {
+          priority: "high",
+          notification: {
+            sound: "notification_sound",
+            channelId: "default",
+            priority: "max",
+            defaultVibrateTimings: false,
+            vibrateTimingsMillis: [0, 400, 200, 400],
+            visibility: "public",
+            notificationCount: 1,
+          },
+        },
+        apns: {
+          headers: { "apns-priority": "10" },
+          payload: {
+            aps: {
+              sound: "default",
+              badge: 1,
+              contentAvailable: true,
+              interruptionLevel: "time-sensitive",
+            },
+          },
+        },
       });
       successCount += response.successCount;
       failureCount += response.failureCount;
@@ -1611,6 +1646,29 @@ exports.onSupportMessageCreate = functions.firestore
                 title: "Support Reply",
                 body: previewText,
               },
+              android: {
+                priority: "high",
+                notification: {
+                  sound: "notification_sound",
+                  channelId: "orders",
+                  priority: "max",
+                  defaultVibrateTimings: false,
+                  vibrateTimingsMillis: [0, 500, 200, 500],
+                  visibility: "public",
+                  notificationCount: 1,
+                },
+              },
+              apns: {
+                headers: { "apns-priority": "10" },
+                payload: {
+                  aps: {
+                    sound: "default",
+                    badge: 1,
+                    contentAvailable: true,
+                    interruptionLevel: "time-sensitive",
+                  },
+                },
+              },
               data: {
                 type: "support_reply",
                 ticketId: ticketId,
@@ -1634,6 +1692,29 @@ exports.onSupportMessageCreate = functions.firestore
           notification: {
             title: `Support: ${ticket.subject || "New message"}`,
             body: `${message.senderName} (${message.senderRole}): ${previewText}`,
+          },
+          android: {
+            priority: "high",
+            notification: {
+              sound: "notification_sound",
+              channelId: "orders",
+              priority: "max",
+              defaultVibrateTimings: false,
+              vibrateTimingsMillis: [0, 500, 200, 500],
+              visibility: "public",
+              notificationCount: 1,
+            },
+          },
+          apns: {
+            headers: { "apns-priority": "10" },
+            payload: {
+              aps: {
+                sound: "default",
+                badge: 1,
+                contentAvailable: true,
+                interruptionLevel: "time-sensitive",
+              },
+            },
           },
           data: {
             type: "support_message",
@@ -1736,6 +1817,29 @@ exports.onSupportTicketStatusChange = functions.firestore
               title: "Support Update",
               body: `Your ticket "${after.subject}" is now: ${newStatusLabel}`,
             },
+            android: {
+              priority: "high",
+              notification: {
+                sound: "notification_sound",
+                channelId: "orders",
+                priority: "max",
+                defaultVibrateTimings: false,
+                vibrateTimingsMillis: [0, 500, 200, 500],
+                visibility: "public",
+                notificationCount: 1,
+              },
+            },
+            apns: {
+              headers: { "apns-priority": "10" },
+              payload: {
+                aps: {
+                  sound: "default",
+                  badge: 1,
+                  contentAvailable: true,
+                  interruptionLevel: "time-sensitive",
+                },
+              },
+            },
             data: {
               type: "support_status_change",
               ticketId: ticketId,
@@ -1758,4 +1862,3 @@ exports.onSupportTicketStatusChange = functions.firestore
 
     return null;
   });
-

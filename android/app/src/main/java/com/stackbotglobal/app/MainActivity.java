@@ -31,7 +31,7 @@ public class MainActivity extends BridgeActivity {
             ordersChannel.setVibrationPattern(new long[]{0, 500, 200, 500}); // Strong double-buzz
             ordersChannel.enableLights(true);
             
-            // Use default alarm sound (louder than default notification)
+            // Use custom notification sound (louder than default)
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -43,7 +43,7 @@ public class MainActivity extends BridgeActivity {
 
             manager.createNotificationChannel(ordersChannel);
 
-            // Default channel (keep for general notifications)
+            // Default channel (keep for general/broadcast notifications)
             NotificationChannel defaultChannel = new NotificationChannel(
                 "default",
                 "General",
@@ -56,10 +56,3 @@ public class MainActivity extends BridgeActivity {
         }
     }
 }
-```
-
-### Step B: Add a custom notification sound
-
-Place a loud `.mp3` or `.wav` file at:
-```
-android/app/src/main/res/raw/notification_sound.mp3

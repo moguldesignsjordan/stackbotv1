@@ -14,7 +14,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['total_details.breakdown'],
+    });
 
     if (session.payment_status !== 'paid') {
       return NextResponse.json(
@@ -25,12 +27,29 @@ export async function GET(request: NextRequest) {
 
     const metadata = session.metadata;
 
+    // Extract discount info from Stripe session
+    let discount = null;
+    if (
+      session.total_details?.amount_discount &&
+      session.total_details.amount_discount > 0
+    ) {
+      const breakdown = session.total_details?.breakdown;
+      const discountEntry = breakdown?.discounts?.[0];
+
+      discount = {
+        amount: session.total_details.amount_discount / 100, // cents → dollars
+        promoCode: metadata?.promoCode || '',
+        couponName: discountEntry?.discount?.coupon?.name || '',
+      };
+    }
+
     return NextResponse.json({
       orderId: metadata?.orderId || 'N/A',
       trackingPin: metadata?.trackingPin || 'N/A',
       vendorName: metadata?.vendorName || 'N/A',
       total: metadata?.total || '0.00',
       status: 'confirmed',
+      discount,
     });
   } catch (error) {
     console.error('Session retrieval error:', error);
