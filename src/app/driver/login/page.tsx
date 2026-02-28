@@ -540,7 +540,7 @@ export default function DriverLoginPage() {
             try {
               const credential = PhoneAuthProvider.credential(
                 nativeVerificationIdRef.current || '',
-                event.verificationCode
+                event.verificationCode || ''
               );
               const cred = await signInWithCredential(auth, credential);
               const user = cred.user;
