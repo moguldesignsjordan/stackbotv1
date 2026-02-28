@@ -5,7 +5,18 @@ import { useRouter } from "next/navigation";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, auth } from "@/lib/firebase/config";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithCredential,
+  GoogleAuthProvider,
+  OAuthProvider,
+  updateProfile,
+} from "firebase/auth";
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { Capacitor } from '@capacitor/core';
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
@@ -16,7 +27,7 @@ import {
 import {
   Store, ArrowLeft, Upload, MapPin, Locate, Building2, CreditCard,
   User, Hash, Wallet, AlertCircle, FileText, PenTool, ChevronRight,
-  Eraser, HelpCircle,
+  Eraser, HelpCircle, Mail, Lock, Eye, EyeOff, LogIn,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -117,6 +128,19 @@ const T = {
     sec8t: "8) Refunds & Disputes", sec8: "If an issue is caused by Vendor, Vendor is responsible. If caused by platform error/fraud, StackBot handles it.",
     sec10t: "10) Compliance", sec10: "Vendor agrees not to list illegal items and to comply with DR laws.",
     sec12t: "12) Governing Law", sec12: "Dominican Republic.",
+    // ── Account creation section (matches driver/apply pattern) ──
+    accountSection: "Create Your Account",
+    accountSectionDesc: "You need an account to submit your application.",
+    accountPassword: "Password",
+    accountPasswordPh: "Minimum 6 characters",
+    accountConfirmPassword: "Confirm Password",
+    accountConfirmPasswordPh: "Repeat your password",
+    accountLoggedInAs: "Signed in as",
+    accountOrContinueWith: "Or continue with",
+    errPasswordShort: "Password must be at least 6 characters.",
+    errPasswordMismatch: "Passwords do not match.",
+    errEmailInUse: "This email is already registered. Try signing in instead.",
+    errAccountCreation: "Failed to create account. Please try again.",
   },
   es: {
     loading: "Cargando...",
@@ -204,6 +228,19 @@ const T = {
     sec8t: "8) Reembolsos y Disputas", sec8: "Si un problema es causado por el Vendedor, el Vendedor es responsable. Si es causado por error de la plataforma/fraude, StackBot lo gestiona.",
     sec10t: "10) Cumplimiento", sec10: "El Vendedor acepta no listar artículos ilegales y cumplir con las leyes de la RD.",
     sec12t: "12) Ley Aplicable", sec12: "República Dominicana.",
+    // ── Account creation section (matches driver/apply pattern) ──
+    accountSection: "Crea Tu Cuenta",
+    accountSectionDesc: "Necesitas una cuenta para enviar tu solicitud.",
+    accountPassword: "Contraseña",
+    accountPasswordPh: "Mínimo 6 caracteres",
+    accountConfirmPassword: "Confirmar Contraseña",
+    accountConfirmPasswordPh: "Repite tu contraseña",
+    accountLoggedInAs: "Conectado como",
+    accountOrContinueWith: "O continúa con",
+    errPasswordShort: "La contraseña debe tener al menos 6 caracteres.",
+    errPasswordMismatch: "Las contraseñas no coinciden.",
+    errEmailInUse: "Este correo ya está registrado. Intenta iniciar sesión.",
+    errAccountCreation: "Error al crear la cuenta. Intenta de nuevo.",
   },
 };
 
@@ -242,9 +279,34 @@ export default function VendorSignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // ── Inline account creation state (matches driver/apply pattern) ──
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountConfirmPassword, setAccountConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
+  const [isNative, setIsNative] = useState(false);
+
+  // ── Detect native (Capacitor) platform ────────────────────────
+  useEffect(() => {
+    try {
+      setIsNative(Capacitor.isNativePlatform());
+    } catch {
+      setIsNative(false);
+    }
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AUTH LISTENER — NO REDIRECT. Page is publicly viewable.
+  // Account creation happens inline at submission time.
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) { router.replace("/login?intent=vendor"); return; }
+      if (!user) {
+        // ✅ Allow unauthenticated users to view and fill the form
+        setCurrentUser(null);
+        setAuthLoading(false);
+        return;
+      }
       setCurrentUser(user);
       if (!form.email) setForm((prev) => ({ ...prev, email: user.email || "" }));
       try {
@@ -261,6 +323,7 @@ export default function VendorSignupPage() {
     return () => unsubscribe();
   }, [router, form.email]);
 
+  // ── Canvas / drawing helpers (unchanged) ──────────────────────
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext("2d"); if (!ctx) return;
@@ -282,6 +345,7 @@ export default function VendorSignupPage() {
   const stopDrawing = () => { setIsDrawing(false); const canvas = canvasRef.current; if (canvas) canvas.toBlob((blob) => setSignatureData(blob)); };
   const clearSignature = () => { const canvas = canvasRef.current; if (canvas) { const ctx = canvas.getContext("2d"); ctx?.clearRect(0, 0, canvas.width, canvas.height); setSignatureData(null); } };
 
+  // ── Form helpers (unchanged) ──────────────────────────────────
   const handleChange = (field: keyof typeof form, value: any) => setForm((prev) => ({ ...prev, [field]: value }));
   const handleAgreementChange = (field: keyof typeof agreementForm, value: any) => setAgreementForm((prev) => ({ ...prev, [field]: value }));
   const handleBankChange = (field: keyof BankInfo, value: string) => setBankInfo((prev) => ({ ...prev, [field]: value }));
@@ -306,6 +370,58 @@ export default function VendorSignupPage() {
     );
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SOCIAL AUTH HANDLERS — sign in/up inline without leaving the page
+  // ═══════════════════════════════════════════════════════════════════════════
+  const handleGoogleAuth = async () => {
+    setSocialLoading("google");
+    setError("");
+    try {
+      let cred;
+      if (isNative) {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const credential = GoogleAuthProvider.credential(result.credential?.idToken);
+        cred = await signInWithCredential(auth, credential);
+      } else {
+        cred = await signInWithPopup(auth, new GoogleAuthProvider());
+      }
+      setCurrentUser(cred.user);
+      if (!form.email) setForm((prev) => ({ ...prev, email: cred.user.email || "" }));
+    } catch (err: any) {
+      if (!err.message?.includes("canceled") && !err.message?.includes("cancelled")) {
+        setError(s.errAccountCreation);
+      }
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAppleAuth = async () => {
+    setSocialLoading("apple");
+    setError("");
+    try {
+      let cred;
+      if (isNative) {
+        const result = await FirebaseAuthentication.signInWithApple();
+        const provider = new OAuthProvider("apple.com");
+        const credential = provider.credential({ idToken: result.credential?.idToken });
+        cred = await signInWithCredential(auth, credential);
+      } else {
+        const provider = new OAuthProvider("apple.com");
+        cred = await signInWithPopup(auth, provider);
+      }
+      setCurrentUser(cred.user);
+      if (!form.email) setForm((prev) => ({ ...prev, email: cred.user.email || "" }));
+    } catch (err: any) {
+      if (!err.message?.includes("canceled") && !err.message?.includes("cancelled")) {
+        setError(s.errAccountCreation);
+      }
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  // ── Step 1 → Step 2 validation ────────────────────────────────
   const handleNextStep = (e: React.FormEvent) => {
     e.preventDefault(); setError("");
     if (!form.name.trim()) return setError(s.errName);
@@ -316,29 +432,56 @@ export default function VendorSignupPage() {
     topRef.current?.scrollIntoView({ behavior: "smooth" }); setStep(2);
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FINAL SUBMIT — creates account inline if not logged in
+  // ═══════════════════════════════════════════════════════════════════════════
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setLoading(true);
     try {
-      if (!currentUser) throw new Error(s.errLogin);
       if (!agreementForm.printedName.trim()) throw new Error(s.errPrintedName);
       if (!signatureData) throw new Error(s.errSignature);
       if (!agreementForm.agreed) throw new Error(s.errAgree);
 
+      // ── Inline account creation (if not already logged in) ────
+      let user = currentUser;
+      if (!user) {
+        // Validate password fields
+        if (accountPassword.length < 6) throw new Error(s.errPasswordShort);
+        if (accountPassword !== accountConfirmPassword) throw new Error(s.errPasswordMismatch);
+
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, form.email.trim(), accountPassword);
+          await updateProfile(cred.user, { displayName: form.name.trim() });
+          user = cred.user;
+          setCurrentUser(cred.user);
+        } catch (authErr: any) {
+          if (authErr.code === "auth/email-already-in-use") {
+            throw new Error(s.errEmailInUse);
+          }
+          console.error("Account creation error:", authErr);
+          throw new Error(s.errAccountCreation);
+        }
+      }
+
+      // ── Upload logo ───────────────────────────────────────────
       let logoUrl = "";
-      if (logoFile) { const safeName = logoFile.name.replace(/\s+/g, "-"); const logoRef = ref(getStorage(), `vendors/logos/${currentUser.uid}/${Date.now()}-${safeName}`); await smartUploadBytes(logoRef, logoFile); logoUrl = await getDownloadURL(logoRef); }
+      if (logoFile) { const safeName = logoFile.name.replace(/\s+/g, "-"); const logoRef = ref(getStorage(), `vendors/logos/${user.uid}/${Date.now()}-${safeName}`); await smartUploadBytes(logoRef, logoFile); logoUrl = await getDownloadURL(logoRef); }
 
+      // ── Upload signature ──────────────────────────────────────
       let signatureUrl = "";
-      if (signatureData) { const sigRef = ref(getStorage(), `vendors/signatures/${currentUser.uid}/signature_${Date.now()}.png`); await smartUploadBytes(sigRef, signatureData); signatureUrl = await getDownloadURL(sigRef); }
+      if (signatureData) { const sigRef = ref(getStorage(), `vendors/signatures/${user.uid}/signature_${Date.now()}.png`); await smartUploadBytes(sigRef, signatureData); signatureUrl = await getDownloadURL(sigRef); }
 
+      // ── Generate slug ─────────────────────────────────────────
       const baseSlug = generateSlug(form.name);
       let finalSlug = baseSlug;
       if (baseSlug) { const slugQuery = query(collection(db, "vendors"), where("slug", "==", baseSlug)); const slugSnap = await getDocs(slugQuery); if (!slugSnap.empty) finalSlug = `${baseSlug}-${slugSnap.size + 1}`; }
 
+      // ── Build Firestore doc ───────────────────────────────────
       const maskedBankInfo = bankInfo.bank_name ? { bank_name: bankInfo.bank_name.trim(), account_holder: bankInfo.account_holder.trim(), account_last4: bankInfo.account_number.slice(-4), routing_number: bankInfo.routing_number.trim(), account_type: bankInfo.account_type } : null;
       const locationData = location.lat && location.lng ? { lat: parseFloat(location.lat), lng: parseFloat(location.lng), location_address: location.location_address.trim() || form.address.trim() } : null;
 
-      await setDoc(doc(db, "vendors", currentUser.uid), {
-        uid: currentUser.uid, name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(),
+      await setDoc(doc(db, "vendors", user.uid), {
+        uid: user.uid, name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(),
         address: form.address.trim(), website: form.website.trim(), description: form.description.trim(),
         categories: form.categories, logoUrl, slug: finalSlug, verified: false, total_orders: 0, total_revenue: 0,
         rating: 0, source: "public_signup", referral_source: form.referralSource.trim(),
@@ -346,10 +489,13 @@ export default function VendorSignupPage() {
         agreement: { version: "phase1_v1", signed_at: serverTimestamp(), printed_name: agreementForm.printedName, signature_url: signatureUrl, accepted_terms: true },
         created_at: serverTimestamp(), updated_at: serverTimestamp(),
       });
-      setExistingVendor({ uid: currentUser.uid, name: form.name, verified: false });
+      setExistingVendor({ uid: user.uid, name: form.name, verified: false });
     } catch (err: any) { console.error("Vendor signup error:", err); setError(err.message || s.errGeneric); } finally { setLoading(false); }
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
   if (authLoading) return <div className="min-h-screen bg-sb-bg flex items-center justify-center"><LoadingSpinner text={s.loading} /></div>;
 
   if (existingVendor && !existingVendor.verified) {
@@ -385,7 +531,9 @@ export default function VendorSignupPage() {
 
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4 flex-shrink-0" />{error}</div>}
 
-          {/* STEP 1: BUSINESS INFO */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* STEP 1: BUSINESS INFO                                     */}
+          {/* ═══════════════════════════════════════════════════════════ */}
           <div className={step === 1 ? "block" : "hidden"}>
             <form onSubmit={handleNextStep} className="space-y-6">
               <div className="flex flex-col items-center gap-4">
@@ -472,7 +620,9 @@ export default function VendorSignupPage() {
             </form>
           </div>
 
-          {/* STEP 2: VENDOR AGREEMENT */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* STEP 2: VENDOR AGREEMENT + INLINE ACCOUNT CREATION        */}
+          {/* ═══════════════════════════════════════════════════════════ */}
           <div className={step === 2 ? "block" : "hidden"}>
             <form onSubmit={handleFinalSubmit} className="space-y-6">
               <div className="border border-gray-300 rounded-xl bg-gray-50 h-80 overflow-y-auto p-5 text-sm text-gray-700 space-y-4 shadow-inner">
@@ -493,6 +643,7 @@ export default function VendorSignupPage() {
                 <div><h4 className="font-bold text-gray-900">{s.sec12t}</h4><p>{s.sec12}</p></div>
               </div>
 
+              {/* ── Signature section (unchanged) ────────────────────── */}
               <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 space-y-4">
                 <h3 className="font-semibold text-gray-900 flex items-center gap-2"><PenTool className="h-5 w-5 text-sb-primary" />{s.signature}</h3>
                 <div>
@@ -516,6 +667,117 @@ export default function VendorSignupPage() {
                   <span className="text-sm text-gray-700 leading-tight" dangerouslySetInnerHTML={{ __html: s.agreeText }} />
                 </label>
               </div>
+
+              {/* ═══════════════════════════════════════════════════════ */}
+              {/* INLINE ACCOUNT SECTION — shown only when NOT logged in */}
+              {/* Matches the driver/apply inline creation pattern       */}
+              {/* ═══════════════════════════════════════════════════════ */}
+              {!currentUser ? (
+                <div className="bg-purple-50 p-6 rounded-xl border border-purple-200 space-y-4">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <LogIn className="h-5 w-5 text-sb-primary" />{s.accountSection}
+                  </h3>
+                  <p className="text-sm text-gray-600">{s.accountSectionDesc}</p>
+
+                  {/* Email (read-only, synced from Step 1) */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{s.businessEmail}</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={form.email}
+                        readOnly
+                        className="w-full pl-10 pr-4 py-3 border rounded-xl bg-gray-100 text-gray-600 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{s.accountPassword}</label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={accountPassword}
+                        onChange={(e) => setAccountPassword(e.target.value)}
+                        className="w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                        placeholder={s.accountPasswordPh}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{s.accountConfirmPassword}</label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={accountConfirmPassword}
+                        onChange={(e) => setAccountConfirmPassword(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-sb-primary focus:border-transparent"
+                        placeholder={s.accountConfirmPasswordPh}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Social auth divider */}
+                  <div className="relative py-2">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+                    <div className="relative flex justify-center text-sm"><span className="px-3 bg-purple-50 text-gray-500">{s.accountOrContinueWith}</span></div>
+                  </div>
+
+                  {/* Social buttons */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={handleGoogleAuth}
+                      disabled={!!socialLoading}
+                      className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-xl bg-white hover:bg-gray-50 transition disabled:opacity-50 text-sm font-medium text-gray-700"
+                    >
+                      {socialLoading === "google" ? (
+                        <LoadingSpinner />
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                      )}
+                      Google
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAppleAuth}
+                      disabled={!!socialLoading}
+                      className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-xl bg-white hover:bg-gray-50 transition disabled:opacity-50 text-sm font-medium text-gray-700"
+                    >
+                      {socialLoading === "apple" ? (
+                        <LoadingSpinner />
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+                      )}
+                      Apple
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ── Logged-in indicator ─────────────────────────────── */
+                <div className="bg-green-50 px-4 py-3 rounded-xl border border-green-200 flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <User className="h-4 w-4 text-green-600" />
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-green-700 font-medium">{s.accountLoggedInAs}</span>{" "}
+                    <span className="text-green-900 font-semibold">{currentUser.email}</span>
+                  </div>
+                </div>
+              )}
 
               <Button type="submit" disabled={loading || !agreementForm.agreed || !signatureData} className="w-full py-4 text-lg">{loading ? s.submitting : s.submitBtn}</Button>
             </form>

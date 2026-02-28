@@ -203,7 +203,7 @@ export default function DriverLoginPage() {
     return () => clearInterval(interval);
   }, [resendTimer]);
 
-  // ── Cleanup reCAPTCHA on unmount ───────────────────────────────
+  // ── Cleanup reCAPTCHA + Capacitor listeners on unmount ────────
   useEffect(() => {
     return () => {
       if (recaptchaVerifierRef.current) {
@@ -213,6 +213,12 @@ export default function DriverLoginPage() {
           // ignore
         }
         recaptchaVerifierRef.current = null;
+      }
+      // Clean up Capacitor phone auth listeners
+      try {
+        FirebaseAuthentication.removeAllListeners();
+      } catch {
+        // ignore — may not be available on web
       }
     };
   }, []);
@@ -501,19 +507,19 @@ export default function DriverLoginPage() {
     setApplicationStatus(null);
 
     try {
-      // Native (Capacitor) → use native phone auth
+      // Native (Capacitor) → use listener-based phone auth (v6+ API)
       if (isNative) {
-        const result = await FirebaseAuthentication.signInWithPhoneNumber({
-          phoneNumber: cleaned,
-        });
-        // On native, Capacitor plugin handles the OTP UI or returns verificationId
-        if (result.verificationId) {
-          // Store for manual OTP verification
+        // Remove any previous listeners to avoid duplicates
+        await FirebaseAuthentication.removeAllListeners();
+
+        // Listen for the verification code being sent
+        await FirebaseAuthentication.addListener('phoneCodeSent', (event) => {
+          const verificationId = event.verificationId;
           setConfirmationResult({
-            verificationId: result.verificationId,
+            verificationId,
             confirm: async (code: string) => {
               const credential = PhoneAuthProvider.credential(
-                result.verificationId!,
+                verificationId,
                 code
               );
               return signInWithCredential(auth, credential);
@@ -522,7 +528,53 @@ export default function DriverLoginPage() {
           setPhoneStep('otp');
           setResendTimer(60);
           setTimeout(() => otpInputRef.current?.focus(), 200);
-        }
+          setSocialLoading(null);
+        });
+
+        // Listen for auto-verification (Android instant verify / auto-retrieve)
+        await FirebaseAuthentication.addListener(
+          'phoneVerificationCompleted',
+          async (event) => {
+            try {
+              const credential = PhoneAuthProvider.credential(
+                event.verificationId,
+                event.verificationCode
+              );
+              const cred = await signInWithCredential(auth, credential);
+              const user = cred.user;
+              const isDriver = await checkDriverStatus(
+                user.email || '',
+                user.uid,
+                user.displayName,
+                user.phoneNumber
+              );
+              if (isDriver) router.push('/driver');
+            } catch (err) {
+              console.error('Auto-verify error:', err);
+              setError(t.otpFailed);
+            } finally {
+              setSocialLoading(null);
+            }
+          }
+        );
+
+        // Listen for verification failure
+        await FirebaseAuthentication.addListener(
+          'phoneVerificationFailed',
+          (event) => {
+            console.error('Phone verification failed:', event.message);
+            setError(t.phoneFailed);
+            setSocialLoading(null);
+          }
+        );
+
+        // Trigger the phone auth flow (returns void in v6+)
+        await FirebaseAuthentication.signInWithPhoneNumber({
+          phoneNumber: cleaned,
+        });
+
+        // Don't clear socialLoading here — listeners handle it
+        return;
       } else {
         // Web → use reCAPTCHA + signInWithPhoneNumber
         initRecaptcha();
@@ -612,6 +664,12 @@ export default function DriverLoginPage() {
         // ignore
       }
       recaptchaVerifierRef.current = null;
+    }
+    // Cleanup Capacitor phone auth listeners
+    try {
+      FirebaseAuthentication.removeAllListeners();
+    } catch {
+      // ignore — may not be available on web
     }
   };
 
