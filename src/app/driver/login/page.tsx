@@ -184,6 +184,7 @@ export default function DriverLoginPage() {
   const recaptchaContainerRef = useRef<HTMLDivElement>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
   const otpInputRef = useRef<HTMLInputElement>(null);
+  const nativeVerificationIdRef = useRef<string | null>(null);
 
   // ── Platform detection ─────────────────────────────────────────
   useEffect(() => {
@@ -515,6 +516,7 @@ export default function DriverLoginPage() {
         // Listen for the verification code being sent
         await FirebaseAuthentication.addListener('phoneCodeSent', (event) => {
           const verificationId = event.verificationId;
+          nativeVerificationIdRef.current = verificationId;
           setConfirmationResult({
             verificationId,
             confirm: async (code: string) => {
@@ -537,7 +539,7 @@ export default function DriverLoginPage() {
           async (event) => {
             try {
               const credential = PhoneAuthProvider.credential(
-                event.verificationId,
+                nativeVerificationIdRef.current || '',
                 event.verificationCode
               );
               const cred = await signInWithCredential(auth, credential);
@@ -654,6 +656,7 @@ export default function DriverLoginPage() {
     setPhoneNumber('+1');
     setOtpCode('');
     setConfirmationResult(null);
+    nativeVerificationIdRef.current = null;
     setError('');
     setApplicationStatus(null);
     // Cleanup reCAPTCHA
