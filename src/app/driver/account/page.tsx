@@ -1,12 +1,14 @@
 // src/app/driver/account/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/config';
 import { signOut } from 'firebase/auth';
+import { getStorage, ref, getDownloadURL } from 'firebase/storage';
+import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import {
   User,
   Mail,
@@ -19,6 +21,7 @@ import {
   LogOut,
   Loader2,
   AlertCircle,
+  Camera,
 } from 'lucide-react';
 
 interface DriverProfile {
@@ -66,6 +69,12 @@ const translations = {
     logoutDesc: 'Tendrás que iniciar sesión nuevamente',
     cancel: 'Cancelar',
     confirm: 'Sí, Cerrar Sesión',
+    tapToAddPhoto: 'Toca para agregar foto',
+    tapToChangePhoto: 'Toca para cambiar foto',
+    uploading: 'Subiendo...',
+    photoUpdated: '¡Foto actualizada!',
+    photoError: 'Error al subir la foto',
+    photoTooLarge: 'La foto no puede ser mayor a 5 MB',
   },
   en: {
     title: 'My Account',
@@ -94,6 +103,12 @@ const translations = {
     logoutDesc: "You'll need to sign in again",
     cancel: 'Cancel',
     confirm: 'Yes, Log Out',
+    tapToAddPhoto: 'Tap to add photo',
+    tapToChangePhoto: 'Tap to change photo',
+    uploading: 'Uploading...',
+    photoUpdated: 'Photo updated!',
+    photoError: 'Error uploading photo',
+    photoTooLarge: 'Photo must be under 5 MB',
   },
 };
 
@@ -106,6 +121,9 @@ export default function DriverAccountPage() {
   const [loading, setLoading] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoToast, setPhotoToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[language];
   const userId = auth.currentUser?.uid;
@@ -148,6 +166,51 @@ export default function DriverAccountPage() {
 
     return () => unsubscribe();
   }, [userId]);
+
+  // ── Clear toast after delay ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!photoToast) return;
+    const timer = setTimeout(() => setPhotoToast(null), 3500);
+    return () => clearTimeout(timer);
+  }, [photoToast]);
+
+  // ── Photo upload handler ────────────────────────────────────────────────
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+
+    // Validate: must be image, < 5 MB
+    if (!file.type.startsWith('image/')) {
+      setPhotoToast({ type: 'error', message: t.photoError });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoToast({ type: 'error', message: t.photoTooLarge });
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const storage = getStorage();
+      const storageRef = ref(storage, `driver_photos/${userId}/profile.jpg`);
+      await smartUploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      // Persist to Firestore so onSnapshot picks it up everywhere
+      await updateDoc(doc(db, 'drivers', userId), {
+        photoURL: url,
+        updatedAt: serverTimestamp(),
+      });
+
+      setPhotoToast({ type: 'success', message: t.photoUpdated });
+    } catch (err) {
+      console.error('Photo upload error:', err);
+      setPhotoToast({ type: 'error', message: t.photoError });
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -209,32 +272,95 @@ export default function DriverAccountPage() {
 
   return (
     <div className="px-4 py-4 space-y-6">
-      <div className="bg-white rounded-2xl p-6 border border-gray-100 text-center">
-        <div className="relative w-24 h-24 mx-auto mb-4">
-          {profile.photoURL ? (
-            <Image
-              src={profile.photoURL}
-              alt={profile.name}
-              fill
-              className="rounded-full object-cover"
-            />
+      {/* Photo Toast */}
+      {photoToast && (
+        <div
+          className={`fixed top-4 left-4 right-4 z-[100] flex items-center gap-3 p-3 rounded-xl border shadow-lg ${
+            photoToast.type === 'success'
+              ? 'bg-green-50 border-green-200'
+              : 'bg-red-50 border-red-200'
+          }`}
+        >
+          {photoToast.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
           ) : (
-            <div className="w-24 h-24 rounded-full bg-[#55529d] text-white text-2xl font-bold flex items-center justify-center">
-              {getInitials(profile.name)}
-            </div>
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           )}
+          <p
+            className={`text-sm font-medium ${
+              photoToast.type === 'success' ? 'text-green-700' : 'text-red-700'
+            }`}
+          >
+            {photoToast.message}
+          </p>
+        </div>
+      )}
+
+      {/* Profile Header Card */}
+      <div className="bg-white rounded-2xl p-6 border border-gray-100 text-center">
+        {/* ── Tappable Avatar with Camera Overlay ──────────────────────── */}
+        <div className="relative w-24 h-24 mx-auto mb-4">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingPhoto}
+            className="relative w-24 h-24 rounded-full overflow-hidden group focus:outline-none focus:ring-2 focus:ring-[#55529d] focus:ring-offset-2 disabled:opacity-70"
+          >
+            {profile.photoURL ? (
+              <Image
+                src={profile.photoURL}
+                alt={profile.name}
+                fill
+                className="rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-24 h-24 rounded-full bg-[#55529d] text-white text-2xl font-bold flex items-center justify-center">
+                {getInitials(profile.name)}
+              </div>
+            )}
+
+            {/* Overlay on hover/tap */}
+            <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity">
+              {uploadingPhoto ? (
+                <Loader2 className="w-6 h-6 text-white animate-spin" />
+              ) : (
+                <Camera className="w-6 h-6 text-white" />
+              )}
+            </div>
+          </button>
+
+          {/* Verified badge */}
           {profile.verified && (
             <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-4 border-white">
               <CheckCircle className="w-4 h-4 text-white" />
             </div>
           )}
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            onChange={handlePhotoChange}
+            className="hidden"
+          />
         </div>
+
+        {/* Tap hint */}
+        <p className="text-xs text-gray-400 mb-2">
+          {profile.photoURL ? t.tapToChangePhoto : t.tapToAddPhoto}
+        </p>
 
         <h1 className="text-xl font-bold text-gray-900">{profile.name}</h1>
         <div className="flex items-center justify-center gap-2 mt-1">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-            profile.verified ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-          }`}>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+              profile.verified
+                ? 'bg-green-100 text-green-700'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
             {profile.verified ? (
               <>
                 <Shield className="w-3 h-3" />
@@ -248,16 +374,21 @@ export default function DriverAccountPage() {
 
         <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-gray-100">
           <div>
-            <p className="text-2xl font-bold text-gray-900">{profile.totalDeliveries}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {profile.totalDeliveries}
+            </p>
             <p className="text-xs text-gray-500">{t.totalDeliveries}</p>
           </div>
           <div>
-            <p className="text-2xl font-bold text-gray-900">★ {profile.rating.toFixed(1)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              ★ {profile.rating.toFixed(1)}
+            </p>
             <p className="text-xs text-gray-500">{t.rating}</p>
           </div>
         </div>
       </div>
 
+      {/* Personal Info */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">{t.personalInfo}</h2>
@@ -269,7 +400,9 @@ export default function DriverAccountPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">{t.name}</p>
-              <p className="font-medium text-gray-900 truncate">{profile.name}</p>
+              <p className="font-medium text-gray-900 truncate">
+                {profile.name}
+              </p>
             </div>
           </div>
           <div className="px-4 py-3 flex items-center gap-3">
@@ -278,18 +411,22 @@ export default function DriverAccountPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">{t.email}</p>
-              <p className="font-medium text-gray-900 truncate">{profile.email}</p>
+              <p className="font-medium text-gray-900 truncate">
+                {profile.email}
+              </p>
             </div>
           </div>
-          <div className="px-4 py-3 flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Phone className="w-5 h-5 text-gray-500" />
+          {profile.phone && (
+            <div className="px-4 py-3 flex items-center gap-3">
+              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Phone className="w-5 h-5 text-gray-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-500">{t.phone}</p>
+                <p className="font-medium text-gray-900">{profile.phone}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-500">{t.phone}</p>
-              <p className="font-medium text-gray-900">{profile.phone || '-'}</p>
-            </div>
-          </div>
+          )}
           {profile.city && (
             <div className="px-4 py-3 flex items-center gap-3">
               <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
@@ -304,18 +441,21 @@ export default function DriverAccountPage() {
         </div>
       </div>
 
+      {/* Vehicle Info */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">{t.vehicleInfo}</h2>
         </div>
         <div className="divide-y divide-gray-100">
           <div className="px-4 py-3 flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Car className="w-5 h-5 text-blue-600" />
+            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Car className="w-5 h-5 text-gray-500" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">{t.vehicle}</p>
-              <p className="font-medium text-gray-900">{getVehicleLabel(profile.vehicleType)}</p>
+              <p className="font-medium text-gray-900">
+                {getVehicleLabel(profile.vehicleType)}
+              </p>
             </div>
           </div>
           <div className="px-4 py-3 flex items-center gap-3">
@@ -324,7 +464,9 @@ export default function DriverAccountPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">{t.plate}</p>
-              <p className="font-medium text-gray-900 font-mono">{profile.vehiclePlate}</p>
+              <p className="font-medium text-gray-900 font-mono">
+                {profile.vehiclePlate}
+              </p>
             </div>
           </div>
           {profile.vehicleColor && (
@@ -334,13 +476,16 @@ export default function DriverAccountPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-500">{t.color}</p>
-                <p className="font-medium text-gray-900">{profile.vehicleColor}</p>
+                <p className="font-medium text-gray-900">
+                  {profile.vehicleColor}
+                </p>
               </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Member Since */}
       <div className="bg-white rounded-xl border border-gray-100 p-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -348,11 +493,14 @@ export default function DriverAccountPage() {
           </div>
           <div>
             <p className="text-xs text-gray-500">{t.memberSince}</p>
-            <p className="font-medium text-gray-900">{formatDate(profile.createdAt)}</p>
+            <p className="font-medium text-gray-900">
+              {formatDate(profile.createdAt)}
+            </p>
           </div>
         </div>
       </div>
 
+      {/* Logout Button */}
       <button
         onClick={() => setShowLogoutModal(true)}
         className="w-full flex items-center justify-center gap-2 py-3 text-red-600 font-medium hover:bg-red-50 rounded-xl transition-colors"
@@ -361,14 +509,19 @@ export default function DriverAccountPage() {
         {t.logout}
       </button>
 
+      {/* Logout Modal */}
       {showLogoutModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6">
             <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <LogOut className="w-6 h-6 text-red-600" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900 text-center mb-2">{t.logoutConfirm}</h3>
-            <p className="text-sm text-gray-600 text-center mb-6">{t.logoutDesc}</p>
+            <h3 className="text-lg font-bold text-gray-900 text-center mb-2">
+              {t.logoutConfirm}
+            </h3>
+            <p className="text-sm text-gray-600 text-center mb-6">
+              {t.logoutDesc}
+            </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowLogoutModal(false)}

@@ -65,6 +65,15 @@ export async function POST(
     // ── 2. Already an active driver → pass through ────────────────────
     const driverSnap = await firestore.collection('drivers').doc(uid).get();
     if (driverSnap.exists) {
+      // Backfill verified fields if missing (fixes drivers created before this was added)
+      const driverData = driverSnap.data() || {};
+      if (driverData.verified !== true || driverData.isVerified !== true) {
+        await firestore.collection('drivers').doc(uid).update({
+          verified: true,
+          isVerified: true,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
       return NextResponse.json({ isDriver: true, status: 'approved' });
     }
 
@@ -92,6 +101,11 @@ export async function POST(
           vehicleColor: approvedData.vehicleColor || '',
           status: 'approved',
           isOnline: false,
+          verified: true,
+          isVerified: true,
+          rating: 5.0,
+          ratingCount: 0,
+          totalDeliveries: 0,
           currentLocation: null,
           currentOrderId: null,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -181,6 +195,11 @@ export async function POST(
       vehicleColor: appData.vehicleColor || '',
       status: 'approved',
       isOnline: false,
+      verified: true,
+      isVerified: true,
+      rating: 5.0,
+      ratingCount: 0,
+      totalDeliveries: 0,
       currentLocation: null,
       currentOrderId: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
