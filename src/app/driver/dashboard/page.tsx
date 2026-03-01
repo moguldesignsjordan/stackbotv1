@@ -654,7 +654,7 @@ export default function DriverDashboard() {
       const driverRef = doc(db, 'drivers', userId);
       await updateDoc(driverRef, {
         isOnline: !driverProfile.isOnline,
-        status: !driverProfile.isOnline ? 'available' : 'offline',
+        status: !driverProfile.isOnline ? 'online' : 'offline',
         currentLocation: driverLocation,
         lastLocationUpdate: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -730,7 +730,7 @@ export default function DriverDashboard() {
       // If delivered, free up the driver
       if (newStatus === 'delivered') {
         await updateDoc(driverRef, {
-          status: 'available',
+          status: 'online',
           currentOrderId: null,
           updatedAt: serverTimestamp(),
         });

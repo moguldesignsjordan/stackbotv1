@@ -482,7 +482,7 @@ function DeliveryDetailContent() {
         if (userId) {
           const driverRef = doc(db, 'drivers', userId);
           await updateDoc(driverRef, {
-            status: 'available',
+            status: 'online',
             currentOrderId: null,
             updatedAt: serverTimestamp(),
           });
