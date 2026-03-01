@@ -1,18 +1,10 @@
 // src/app/driver/pending/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
-import {
-  doc,
-  getDoc,
-  query,
-  collection,
-  where,
-  getDocs,
-  onSnapshot,
-} from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/config';
 import {
   Clock,
@@ -54,6 +46,64 @@ export default function DriverPendingPage() {
   const [checking, setChecking] = useState(false);
 
   // ============================================================================
+  // FETCH STATUS VIA SERVER-SIDE API
+  // Replaces direct Firestore reads to approved_drivers and driver_applications
+  // which caused "Missing or insufficient permissions" errors.
+  // ============================================================================
+  const fetchDriverStatus = useCallback(async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    try {
+      const idToken = await currentUser.getIdToken(true);
+
+      const res = await fetch('/api/driver/check-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          displayName: currentUser.displayName || null,
+          phone: currentUser.phoneNumber || null,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error('check-status API error:', res.status);
+        setApplication({ status: 'not_found' });
+        return;
+      }
+
+      const data = await res.json();
+
+      // If already a driver → go to dashboard
+      if (data.isDriver && data.status === 'approved') {
+        setApplication({ status: 'approved' });
+        return;
+      }
+
+      // Map API response to ApplicationData
+      if (data.status === 'none') {
+        setApplication({ status: 'not_found' });
+      } else {
+        setApplication({
+          status: data.status as ApplicationStatus,
+          fullName: data.application?.fullName,
+          email: data.application?.email,
+          phone: data.application?.phone,
+          city: data.application?.city,
+          rejectionReason: data.application?.rejectionReason,
+          createdAt: data.application?.createdAt,
+        });
+      }
+    } catch (err) {
+      console.error('fetchDriverStatus error:', err);
+      setApplication({ status: 'not_found' });
+    }
+  }, []);
+
+  // ============================================================================
   // AUTH & APPLICATION CHECK
   // ============================================================================
   useEffect(() => {
@@ -68,76 +118,37 @@ export default function DriverPendingPage() {
         email: firebaseUser.email || '',
       });
 
-      // Check driver status
       const email = firebaseUser.email?.toLowerCase();
       if (!email) {
         setAuthLoading(false);
         return;
       }
 
-      // First check if already approved (has drivers doc)
-      const driverDoc = await getDoc(doc(db, 'drivers', firebaseUser.uid));
-      if (driverDoc.exists()) {
-        // Already a driver - go to dashboard
-        router.push('/driver');
-        return;
-      }
-
-      // Check approved_drivers collection
-      const emailKey = email.replace(/[.]/g, '_');
-      const approvedDoc = await getDoc(doc(db, 'approved_drivers', emailKey));
-      if (approvedDoc.exists()) {
-        setApplication({ status: 'approved' });
-        setAuthLoading(false);
-        return;
-      }
-
-      // Check driver_applications - use realtime listener
-      // Query by uid (not email) to avoid case sensitivity issues with security rules
-      const applicationsQuery = query(
-        collection(db, 'driver_applications'),
-        where('uid', '==', firebaseUser.uid)
-      );
-
-      const unsubscribeApp = onSnapshot(applicationsQuery, (snapshot) => {
-        if (snapshot.empty) {
-          setApplication({ status: 'not_found' });
-        } else {
-          const appData = snapshot.docs[0].data();
-          setApplication({
-            status: appData.status as ApplicationStatus,
-            fullName: appData.fullName,
-            email: appData.email,
-            phone: appData.phone,
-            city: appData.city,
-            rejectionReason: appData.rejectionReason,
-            createdAt: appData.createdAt,
-          });
-
-          // If approved, can proceed to driver setup
-          if (appData.status === 'approved') {
-            // Application approved - user can now access driver portal
-          }
+      // Quick check: if drivers/{uid} doc exists, go straight to dashboard
+      try {
+        const driverDoc = await getDoc(doc(db, 'drivers', firebaseUser.uid));
+        if (driverDoc.exists()) {
+          router.push('/driver');
+          return;
         }
-        setAuthLoading(false);
-      });
+      } catch {
+        // If this read fails too, the API will handle everything
+      }
 
-      return () => unsubscribeApp();
+      // Use server-side API for approved_drivers + driver_applications checks
+      await fetchDriverStatus();
+      setAuthLoading(false);
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [router, fetchDriverStatus]);
 
   // ============================================================================
   // HANDLERS
   // ============================================================================
   const handleRefresh = async () => {
     setChecking(true);
-    
-    // Short delay to show loading state
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    // The onSnapshot listener will automatically update
+    await fetchDriverStatus();
     setChecking(false);
   };
 
@@ -180,7 +191,7 @@ export default function DriverPendingPage() {
           </div>
           <h1 className="text-2xl font-bold text-white mb-3">No Application Found</h1>
           <p className="text-white/60 mb-8">
-            You haven't submitted a driver application yet. Complete your application to get started.
+            You haven&apos;t submitted a driver application yet. Complete your application to get started.
           </p>
           <button
             onClick={() => router.push('/driver/apply')}
@@ -212,54 +223,41 @@ export default function DriverPendingPage() {
             <div className="w-20 h-20 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
               <Clock className="w-10 h-10 text-yellow-400" />
             </div>
-            
+
             <h1 className="text-2xl font-bold text-white mb-2">Application Pending</h1>
             <p className="text-white/60 mb-6">
               Your application is being reviewed. This usually takes 1-2 business days.
             </p>
 
-            {/* Application Info */}
+            {/* Application Details */}
             {application.fullName && (
               <div className="bg-white/5 rounded-xl p-4 mb-6 text-left space-y-2">
-                <div className="flex items-center gap-2 text-white/80">
-                  <span className="text-white/50 text-sm">Name:</span>
-                  <span className="font-medium">{application.fullName}</span>
+                <div className="flex items-center gap-2 text-white/70 text-sm">
+                  <Truck className="w-4 h-4" />
+                  <span>{application.fullName}</span>
                 </div>
-                {application.phone && (
-                  <div className="flex items-center gap-2 text-white/80">
-                    <span className="text-white/50 text-sm">Phone:</span>
-                    <span>{application.phone}</span>
+                {application.email && (
+                  <div className="flex items-center gap-2 text-white/70 text-sm">
+                    <Mail className="w-4 h-4" />
+                    <span>{application.email}</span>
                   </div>
                 )}
-                {application.city && (
-                  <div className="flex items-center gap-2 text-white/80">
-                    <span className="text-white/50 text-sm">City:</span>
-                    <span>{application.city}</span>
+                {application.phone && (
+                  <div className="flex items-center gap-2 text-white/70 text-sm">
+                    <Phone className="w-4 h-4" />
+                    <span>{application.phone}</span>
                   </div>
                 )}
               </div>
             )}
 
-            {/* What's Next */}
-            <div className="bg-[#55529d]/10 border border-[#55529d]/30 rounded-xl p-4 mb-6 text-left">
-              <h3 className="text-[#55529d] font-semibold mb-3">What's Next?</h3>
-              <ol className="space-y-2 text-sm text-white/70">
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#55529d] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                  We review your application
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-white/20 text-white/60 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                  We contact you via WhatsApp
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-white/20 text-white/60 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
-                  Complete verification
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-white/20 text-white/60 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
-                  Start delivering!
-                </li>
+            {/* What Happens Next */}
+            <div className="text-left mb-6">
+              <h3 className="text-white/80 font-semibold text-sm mb-3">What happens next?</h3>
+              <ol className="space-y-2 text-white/50 text-sm list-decimal list-inside">
+                <li>Our team reviews your application</li>
+                <li>We verify your vehicle information</li>
+                <li>You&apos;ll receive an email when approved</li>
               </ol>
             </div>
 
@@ -309,8 +307,8 @@ export default function DriverPendingPage() {
             <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-green-400" />
             </div>
-            
-            <h1 className="text-2xl font-bold text-white mb-2">You're Approved! 🎉</h1>
+
+            <h1 className="text-2xl font-bold text-white mb-2">You&apos;re Approved! 🎉</h1>
             <p className="text-white/60 mb-8">
               Congratulations! Your driver application has been approved. You can now access the driver dashboard.
             </p>
@@ -339,7 +337,7 @@ export default function DriverPendingPage() {
             <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
               <XCircle className="w-10 h-10 text-red-400" />
             </div>
-            
+
             <h1 className="text-2xl font-bold text-white mb-2">Application Not Approved</h1>
             <p className="text-white/60 mb-4">
               Unfortunately, your application was not approved at this time.
@@ -364,7 +362,7 @@ export default function DriverPendingPage() {
               >
                 Submit New Application
               </button>
-              
+
               <a
                 href="mailto:support@stackbotglobal.com"
                 className="block w-full py-3 bg-white/10 text-white font-semibold rounded-xl hover:bg-white/15 transition-colors"

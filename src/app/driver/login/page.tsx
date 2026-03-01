@@ -1,3 +1,4 @@
+// src/app/driver/login/page.tsx
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,18 +15,7 @@ import {
   ConfirmationResult,
   PhoneAuthProvider,
 } from 'firebase/auth';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  query,
-  collection,
-  where,
-  getDocs,
-  serverTimestamp,
-  limit,
-} from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase/config';
+import { auth } from '@/lib/firebase/config';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { Capacitor } from '@capacitor/core';
 import {
@@ -225,124 +215,72 @@ export default function DriverLoginPage() {
   }, []);
 
   // ══════════════════════════════════════════════════════════════════
-  // CHECK DRIVER STATUS
-  // FIX: Now also checks `approved_drivers` whitelist collection
-  //      (matching driverAuth.ts logic)
+  // CHECK DRIVER STATUS (via server-side API)
+  // FIX: Uses Admin SDK on the server to bypass Firestore rules.
+  // The client only sends its Firebase ID token — no direct reads
+  // to approved_drivers or driver_applications.
   // ══════════════════════════════════════════════════════════════════
   const checkDriverStatus = useCallback(
     async (
-      userEmail: string,
-      uid: string,
+      _userEmail: string,
+      _uid: string,
       displayName: string | null,
       phone?: string | null
     ): Promise<boolean> => {
       setCheckingStatus(true);
       try {
-        const normalizedEmail = userEmail.toLowerCase();
+        // Get the current user's ID token for server-side verification
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          setError(
+            language === 'es'
+              ? 'No se pudo verificar la sesión. Inténtalo de nuevo.'
+              : 'Could not verify session. Please try again.'
+          );
+          return false;
+        }
 
-        // 1. Already an active driver → pass through
-        const driverDoc = await getDoc(doc(db, 'drivers', uid));
-        if (driverDoc.exists()) {
+        const idToken = await currentUser.getIdToken(true);
+
+        const res = await fetch('/api/driver/check-status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            displayName: displayName || null,
+            phone: phone || null,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error('check-status API error:', res.status, errData);
+          setError(
+            language === 'es'
+              ? 'Error al verificar tu cuenta. Inténtalo de nuevo.'
+              : 'Failed to verify driver status. Please try again.'
+          );
+          return false;
+        }
+
+        const data: { isDriver: boolean; status: string } = await res.json();
+
+        if (data.isDriver) {
           return true;
         }
 
-        // 2. Check approved_drivers whitelist (matching driverAuth.ts)
-        try {
-          const emailKey = normalizedEmail.replace(/[.]/g, '_');
-          const approvedRef = doc(db, 'approved_drivers', emailKey);
-          const approvedSnap = await getDoc(approvedRef);
-          if (approvedSnap.exists()) {
-            const approvedData = approvedSnap.data();
-            await setDoc(doc(db, 'drivers', uid), {
-              uid,
-              userId: uid,
-              email: normalizedEmail,
-              name: approvedData?.name || displayName || '',
-              phone: approvedData?.phone || phone || '',
-              city: approvedData?.city || '',
-              vehicleType: approvedData?.vehicleType || 'motorcycle',
-              vehiclePlate: approvedData?.vehiclePlate || '',
-              vehicleColor: approvedData?.vehicleColor || '',
-              status: 'approved',
-              isOnline: false,
-              currentLocation: null,
-              currentOrderId: null,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-            return true;
-          }
-        } catch (err) {
-          console.error('approved_drivers check error:', err);
-        }
-
-        // 3. Look up driver_applications by uid, fall back to email
-        let appSnap = await getDocs(
-          query(
-            collection(db, 'driver_applications'),
-            where('uid', '==', uid),
-            limit(1)
-          )
-        );
-        if (appSnap.empty) {
-          appSnap = await getDocs(
-            query(
-              collection(db, 'driver_applications'),
-              where('email', '==', normalizedEmail),
-              limit(1)
-            )
-          );
-        }
-
-        // Also try by phone if we have it
-        if (appSnap.empty && phone) {
-          appSnap = await getDocs(
-            query(
-              collection(db, 'driver_applications'),
-              where('phone', '==', phone),
-              limit(1)
-            )
-          );
-        }
-
-        // 4. No application found
-        if (appSnap.empty) {
-          setApplicationStatus('none');
-          return false;
-        }
-
-        const appData = appSnap.docs[0].data();
-
-        // 5. Check application status
-        if (appData.status === 'rejected') {
-          setApplicationStatus('rejected');
-          return false;
-        }
-        if (appData.status !== 'approved') {
+        // Map status to UI state
+        if (data.status === 'pending') {
           setApplicationStatus('pending');
-          return false;
+        } else if (data.status === 'rejected') {
+          setApplicationStatus('rejected');
+        } else {
+          setApplicationStatus('none');
         }
 
-        // 6. Approved application → create driver document
-        await setDoc(doc(db, 'drivers', uid), {
-          uid,
-          userId: uid,
-          email: normalizedEmail,
-          name: appData.fullName || displayName || '',
-          phone: appData.phone || phone || '',
-          city: appData.city || '',
-          vehicleType: appData.vehicleType || 'motorcycle',
-          vehiclePlate: appData.vehiclePlate || '',
-          vehicleColor: appData.vehicleColor || '',
-          status: 'approved',
-          isOnline: false,
-          currentLocation: null,
-          currentOrderId: null,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-
-        return true;
+        return false;
       } catch (err) {
         console.error('checkDriverStatus error:', err);
         setError(
