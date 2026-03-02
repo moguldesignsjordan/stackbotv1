@@ -5,12 +5,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
-import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { updateProfile } from 'firebase/auth';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { db, storage } from '@/lib/firebase/config';
 import SavedCards from '@/components/profile/SavedCards';
+import PasswordChangeSection from '@/components/settings/PasswordChangeSection';
 import {
   User,
   Mail,
@@ -19,9 +20,6 @@ import {
   Loader2,
   Check,
   AlertCircle,
-  Eye,
-  EyeOff,
-  Lock,
   Trash2,
   Save,
 } from 'lucide-react';
@@ -51,14 +49,8 @@ export default function SettingsPage() {
   });
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
-  // Password change
-  const [showPasswordSection, setShowPasswordSection] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
+  // Password change timestamp
+  const [passwordChangedAt, setPasswordChangedAt] = useState<Date | null>(null);
 
   // Delete account
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -80,6 +72,16 @@ export default function SettingsPage() {
           photoURL: user.photoURL || customerData?.photoURL || null,
         });
         setPhotoPreview(user.photoURL || customerData?.photoURL || null);
+
+        // Load passwordChangedAt timestamp
+        if (customerData?.passwordChangedAt) {
+          const ts = customerData.passwordChangedAt;
+          if (ts instanceof Timestamp) {
+            setPasswordChangedAt(ts.toDate());
+          } else if (ts?.toDate) {
+            setPasswordChangedAt(ts.toDate());
+          }
+        }
       } catch (err) {
         console.error('Error fetching profile:', err);
       } finally {
@@ -191,54 +193,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !user.email) return;
-
-    // Validation
-    if (!currentPassword) {
-      setError('Current password is required');
-      return;
-    }
-    if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters');
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setError('New passwords do not match');
-      return;
-    }
-
-    setChangingPassword(true);
-    setError(null);
-
-    try {
-      // Re-authenticate user
-      const credential = EmailAuthProvider.credential(user.email, currentPassword);
-      await reauthenticateWithCredential(user, credential);
-
-      // Update password
-      await updatePassword(user, newPassword);
-
-      setSuccess('Password changed successfully');
-      setShowPasswordSection(false);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmNewPassword('');
-    } catch (err: any) {
-      console.error('Error changing password:', err);
-      if (err.code === 'auth/wrong-password') {
-        setError('Current password is incorrect');
-      } else if (err.code === 'auth/weak-password') {
-        setError('New password is too weak');
-      } else {
-        setError('Failed to change password. Please try again.');
-      }
-    } finally {
-      setChangingPassword(false);
-    }
-  };
-
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -247,11 +201,6 @@ export default function SettingsPage() {
       .toUpperCase()
       .slice(0, 2);
   };
-
-  // Check if user signed in with email/password (can change password)
-  const canChangePassword = user?.providerData?.some(
-    (provider) => provider.providerId === 'password'
-  );
 
   if (loading) {
     return (
@@ -407,134 +356,18 @@ export default function SettingsPage() {
       {/* Saved Payment Methods */}
       <SavedCards />
 
-      {/* Password Section */}
-      {canChangePassword && (
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Password</h3>
-            {!showPasswordSection && (
-              <button
-                type="button"
-                onClick={() => setShowPasswordSection(true)}
-                className="text-[#55529d] hover:text-[#444287] font-medium text-sm"
-              >
-                Change Password
-              </button>
-            )}
-          </div>
-
-          {showPasswordSection ? (
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              {/* Current Password */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showCurrentPassword ? 'text' : 'password'}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Enter current password"
-                    className="w-full px-4 py-2.5 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* New Password */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                    className="w-full px-4 py-2.5 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Confirm New Password */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Confirm New Password
-                </label>
-                <input
-                  type="password"
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#55529d] focus:border-transparent"
-                />
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPasswordSection(false);
-                    setCurrentPassword('');
-                    setNewPassword('');
-                    setConfirmNewPassword('');
-                  }}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={changingPassword}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#55529d] text-white rounded-lg hover:bg-[#444287] disabled:opacity-50 transition-colors"
-                >
-                  {changingPassword ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Lock className="w-5 h-5" />
-                  )}
-                  Update Password
-                </button>
-              </div>
-            </form>
-          ) : (
-            <p className="text-gray-600 text-sm">
-              Password last changed: <span className="text-gray-500">Unknown</span>
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Google Sign-in Notice */}
-      {!canChangePassword && (
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Password</h3>
-          <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-blue-800 font-medium">Signed in with Google</p>
-              <p className="text-blue-600 text-sm mt-1">
-                Your account uses Google for authentication. Manage your password through your Google account settings.
-              </p>
-            </div>
-          </div>
-        </div>
+      {/* Password Section — shared component */}
+      {user && (
+        <PasswordChangeSection
+          user={user}
+          firestoreCollection="customers"
+          passwordChangedAt={passwordChangedAt}
+          onSuccess={(changedAt) => {
+            setPasswordChangedAt(changedAt);
+            setSuccess('Password changed successfully');
+          }}
+          onError={(msg) => setError(msg)}
+        />
       )}
 
       {/* Danger Zone */}

@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { auth, db } from "@/lib/firebase/config";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { smartUploadBytes } from '@/lib/firebase/smartUpload';
 import { onAuthStateChanged } from "firebase/auth";
@@ -14,6 +14,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { compressLogo, compressCoverImage } from '@/lib/utils/compressImage';
 import { TranslationKey } from "@/lib/translations";
+import PasswordChangeSection from "@/components/settings/PasswordChangeSection";
 import {
   Store,
   MapPin,
@@ -94,6 +95,9 @@ export default function VendorSettings() {
   const [isCompressing, setIsCompressing] = useState(false);
   const [compressionProgress, setCompressionProgress] = useState(0);
   const [compressionStatus, setCompressionStatus] = useState("");
+
+  // Password change timestamp
+  const [passwordChangedAt, setPasswordChangedAt] = useState<Date | null>(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -187,6 +191,16 @@ export default function VendorSettings() {
             lng: data.location.lng?.toString() || "",
             location_address: data.location.location_address || "",
           });
+        }
+
+        // Load password change timestamp
+        if (data.passwordChangedAt) {
+          const ts = data.passwordChangedAt;
+          if (ts instanceof Timestamp) {
+            setPasswordChangedAt(ts.toDate());
+          } else if (ts?.toDate) {
+            setPasswordChangedAt(ts.toDate());
+          }
         }
       }
       setLoading(false);
@@ -1050,6 +1064,18 @@ export default function VendorSettings() {
           )}
         </div>
       </Card>
+
+      {/* PASSWORD CHANGE */}
+      {user && (
+        <PasswordChangeSection
+          user={user}
+          firestoreCollection="vendors"
+          passwordChangedAt={passwordChangedAt}
+          onSuccess={(changedAt) => setPasswordChangedAt(changedAt)}
+          onError={(msg) => setMessage({ type: "error", text: msg })}
+          language={language === "es" ? "es" : "en"}
+        />
+      )}
 
       {/* SAVE */}
       <div className="sticky bottom-4 flex justify-end">
