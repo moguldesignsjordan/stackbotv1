@@ -9,7 +9,7 @@
 	<string>en</string>
 
 	<key>CFBundleDisplayName</key>
-	<string>StackBot Conductor</string>
+	<string>StackBot</string>
 
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -37,12 +37,12 @@
 			<string>Editor</string>
 
 			<key>CFBundleURLName</key>
-			<string>com.stackbotglobal.driver</string>
+			<string>com.stackbotglobal.app</string>
 
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.443911086980-j5p5ubiqitsu9jljke91hff29r8a476e</string>
-				<string>stackbotconductor</string>
+				<string>stackbot</string>
 			</array>
 		</dict>
 	</array>
@@ -64,7 +64,6 @@
 		<string>armv7</string>
 	</array>
 
-	<!-- Lock to portrait only for driver app -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -83,19 +82,22 @@
 
 	<!-- ==================== PERMISSIONS ==================== -->
 
-	<!-- Camera — delivery proof photos -->
+	<!-- Camera — profile photos, support ticket attachments -->
 	<key>NSCameraUsageDescription</key>
-	<string>Toma foto como prueba de entrega</string>
+	<string>Toma fotos para tu perfil o adjuntos de soporte</string>
 
-	<!-- Photo Library — delivery proof photos -->
+	<!-- Photo Library -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Acceso a fotos para prueba de entrega</string>
+	<string>Selecciona fotos de tu galería</string>
 
-	<!-- Location — When In Use only (navigation + distance) -->
+	<!-- Location -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Necesitamos tu ubicación para calcular entregas y mostrar tiendas cercanas</string>
+
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Necesitamos tu ubicación para navegación y seguimiento de entregas</string>
+	<string>Necesitamos tu ubicación para calcular entregas y mostrar tiendas cercanas</string>
 
-	<!-- Background Modes — push notifications + background fetch only -->
+	<!-- Background Modes — push notifications + background fetch -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

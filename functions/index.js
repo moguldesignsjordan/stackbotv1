@@ -554,7 +554,7 @@ exports.sendPushNotification = functions.firestore
         android: {
           priority: "high",                          // Wake device from Doze
           notification: {
-            sound: "notification_sound",             // matches res/raw/notification_sound.mp3
+            sound: "default",                        // FIX: Use device default sound (channel controls actual sound)
             channelId: channelId,
             priority: "max",                         // Highest visual priority
             defaultVibrateTimings: false,
@@ -1088,7 +1088,7 @@ exports.sendBroadcastNotification = functions.https.onCall(async (data, context)
         android: {
           priority: "high",
           notification: {
-            sound: "notification_sound",
+            sound: "default",                        // FIX: Use device default sound
             channelId: "default",
             priority: "max",
             defaultVibrateTimings: false,
@@ -1553,7 +1553,13 @@ exports.onActiveDeliveryUpdate = functions.firestore
 
   /* ============================================================
     💬 SUPPORT MESSAGING — Cloud Functions
-    Append this entire block to the bottom of functions/index.js
+    ─────────────────────────────────────────────────────────────
+    FIX: Changed push_tokens → pushTokens (doc-by-userId pattern)
+         to match how pushNotifications.ts writes tokens and how
+         sendPushNotification reads them.
+    
+    ROLLBACK: Revert pushTokens back to push_tokens and restore
+              the .where("userId", "==", ...) query pattern.
 ============================================================ */
 
 /**
@@ -1632,14 +1638,15 @@ exports.onSupportMessageCreate = functions.firestore
         const userId = ticket.userId;
         if (!userId) return null;
 
-        // Fetch user's FCM tokens from push_tokens collection
-        const tokensSnap = await admin.firestore()
-          .collection("push_tokens")
-          .where("userId", "==", userId)
+        // FIX: Read from pushTokens/{userId} (doc by ID) — matches
+        //      how pushNotifications.ts writes and sendPushNotification reads
+        const tokenDoc = await admin.firestore()
+          .collection("pushTokens")
+          .doc(userId)
           .get();
 
-        if (!tokensSnap.empty) {
-          const tokens = tokensSnap.docs.map((doc) => doc.data().token).filter(Boolean);
+        if (tokenDoc.exists && tokenDoc.data().token) {
+          const tokens = [tokenDoc.data().token];
           if (tokens.length > 0) {
             const payload = {
               notification: {
@@ -1649,7 +1656,7 @@ exports.onSupportMessageCreate = functions.firestore
               android: {
                 priority: "high",
                 notification: {
-                  sound: "notification_sound",
+                  sound: "default",                  // FIX: Use device default sound
                   channelId: "orders",
                   priority: "max",
                   defaultVibrateTimings: false,
@@ -1696,7 +1703,7 @@ exports.onSupportMessageCreate = functions.firestore
           android: {
             priority: "high",
             notification: {
-              sound: "notification_sound",
+              sound: "default",                      // FIX: Use device default sound
               channelId: "orders",
               priority: "max",
               defaultVibrateTimings: false,
@@ -1804,13 +1811,15 @@ exports.onSupportTicketStatusChange = functions.firestore
       const userId = after.userId;
       if (!userId) return null;
 
-      const tokensSnap = await admin.firestore()
-        .collection("push_tokens")
-        .where("userId", "==", userId)
+      // FIX: Read from pushTokens/{userId} (doc by ID) — consistent
+      //      with sendPushNotification and pushNotifications.ts
+      const tokenDoc = await admin.firestore()
+        .collection("pushTokens")
+        .doc(userId)
         .get();
 
-      if (!tokensSnap.empty) {
-        const tokens = tokensSnap.docs.map((doc) => doc.data().token).filter(Boolean);
+      if (tokenDoc.exists && tokenDoc.data().token) {
+        const tokens = [tokenDoc.data().token];
         if (tokens.length > 0) {
           const payload = {
             notification: {
@@ -1820,7 +1829,7 @@ exports.onSupportTicketStatusChange = functions.firestore
             android: {
               priority: "high",
               notification: {
-                sound: "notification_sound",
+                sound: "default",                    // FIX: Use device default sound
                 channelId: "orders",
                 priority: "max",
                 defaultVibrateTimings: false,
